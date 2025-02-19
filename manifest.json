@@ -1,0 +1,22 @@
+{
+  "name": "书签搜索",
+  "description": "管理书签",
+  "version": "1.0",
+  "manifest_version": 3,
+  "permissions": ["bookmarks", "storage", "activeTab", "commands", "scripting"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Ctrl+Space",
+        "mac": "Command+Space"
+      },
+      "description": "Toggle overlay display"
+    }
+  }
+}
