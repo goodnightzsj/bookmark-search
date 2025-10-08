@@ -215,7 +215,6 @@ async function toggleBookmarkSearch() {
       try {
         const notificationId = await chrome.notifications.create({
           type: 'basic',
-          iconUrl: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"%3E%3Ctext y="32" font-size="32"%3E🔖%3C/text%3E%3C/svg%3E',
           title: '书签搜索',
           message: '由于浏览器安全限制，无法在系统页面（chrome://、edge://等）使用扩展。\n请在普通网页中使用。',
           priority: 1
