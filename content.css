@@ -1,51 +1,276 @@
-.bookmark-search-container {
+/* 背景遮罩 */
+.bookmark-search-overlay {
   position: fixed;
-  top: 20%;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.6) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 999999;
-  width: 500px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: fadeIn 0.2s ease-out;
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 搜索容器 */
+.bookmark-search-container {
+  width: min(640px, 90vw);
+  max-width: 95vw;
+  background: linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%);
+  border-radius: 16px;
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  overflow: hidden;
+  animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+/* 小屏幕适配 */
+@media (max-width: 768px) {
+  .bookmark-search-container {
+    width: 95vw;
+    border-radius: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bookmark-search-container {
+    width: 98vw;
+    border-radius: 8px;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 搜索输入框容器包装 */
+.bookmark-search-container::before {
+  content: "🔍";
+  position: absolute;
+  left: clamp(16px, 4vw, 24px);
+  top: clamp(16px, 3.5vh, 20px);
+  font-size: clamp(18px, 3vw, 20px);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 搜索输入框 */
 .bookmark-search-input {
   width: 100%;
-  padding: 12px;
+  padding: clamp(16px, 3.5vh, 20px) clamp(16px, 4vw, 24px) clamp(16px, 3.5vh, 20px) clamp(48px, 10vw, 56px);
   border: none;
-  border-bottom: 1px solid #eee;
-  border-radius: 8px 8px 0 0;
-  font-size: 16px;
+  border-bottom: 2px solid transparent;
+  font-size: clamp(15px, 2.5vw, 17px);
+  font-weight: 400;
   outline: none;
+  box-sizing: border-box;
+  background: transparent;
+  transition: all 0.3s ease;
+  color: #1a1a1a;
+  position: relative;
 }
 
+.bookmark-search-input:focus {
+  border-bottom: 2px solid #5e72e4;
+  background: rgba(94, 114, 228, 0.02);
+}
+
+.bookmark-search-input::placeholder {
+  color: #a0a0a0;
+  font-weight: 400;
+}
+
+/* 结果容器 */
 .bookmark-results {
-  max-height: 400px;
+  max-height: min(60vh, 500px);
   overflow-y: auto;
 }
 
+@media (max-height: 600px) {
+  .bookmark-results {
+    max-height: 45vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .bookmark-results {
+    max-height: 50vh;
+  }
+}
+
+.bookmark-results::-webkit-scrollbar {
+  width: 8px;
+}
+
+.bookmark-results::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.bookmark-results::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.bookmark-results::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 书签项 */
 .bookmark-item {
-  padding: 10px 12px;
+  padding: clamp(10px, 2.5vh, 14px) clamp(16px, 4vw, 24px);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: clamp(10px, 2vw, 14px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-left: 3px solid transparent;
+  position: relative;
+}
+
+.bookmark-item::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
+}
+
+.bookmark-item:last-child::after {
+  display: none;
 }
 
 .bookmark-item:hover {
-  background-color: #f5f5f5;
+  background: linear-gradient(90deg, rgba(94, 114, 228, 0.08) 0%, rgba(94, 114, 228, 0.04) 100%);
+  transform: translateX(4px);
 }
 
+.bookmark-item.selected {
+  background: linear-gradient(90deg, rgba(94, 114, 228, 0.12) 0%, rgba(94, 114, 228, 0.06) 100%);
+  border-left: 3px solid #5e72e4;
+  transform: translateX(4px);
+}
+
+/* 网站图标 */
 .bookmark-favicon {
-  width: 16px;
-  height: 16px;
+  width: clamp(20px, 4vw, 24px);
+  height: clamp(20px, 4vw, 24px);
+  flex-shrink: 0;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
 }
 
-.bookmark-title {
+.bookmark-item:hover .bookmark-favicon,
+.bookmark-item.selected .bookmark-favicon {
+  transform: scale(1.1);
+}
+
+/* 文本容器 */
+.bookmark-text {
   flex: 1;
+  min-width: 0;
+}
+
+/* 书签标题 */
+.bookmark-title {
+  font-size: clamp(14px, 2.5vw, 15px);
+  font-weight: 600;
+  color: #1a1a1a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+
+/* 书签URL */
+.bookmark-url {
+  font-size: clamp(12px, 2vw, 13px);
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  opacity: 0.85;
+}
+
+/* 空结果提示 */
+.bookmark-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 15px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.bookmark-empty::before {
+  content: "🔍";
+  display: block;
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
+}
+
+/* 快捷键提示 */
+.bookmark-shortcuts {
+  padding: clamp(10px, 2vh, 12px) clamp(16px, 4vw, 24px);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.04));
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  gap: clamp(12px, 3vw, 20px);
+  font-size: clamp(11px, 2vw, 12px);
+  color: #6b7280;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .bookmark-shortcuts {
+    gap: 8px;
+    justify-content: center;
+  }
+}
+
+.bookmark-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bookmark-shortcut kbd {
+  padding: 3px 7px;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4b5563;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-family: monospace;
 }

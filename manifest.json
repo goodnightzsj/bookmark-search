@@ -1,14 +1,24 @@
 {
   "name": "书签搜索",
   "description": "管理书签",
-  "version": "1.0",
+  "version": "1.2",
   "manifest_version": 3,
-  "permissions": ["bookmarks", "storage", "activeTab", "commands", "scripting"],
+  "permissions": [
+    "bookmarks",
+    "storage",
+    "activeTab",
+    "commands",
+    "scripting",
+    "notifications",
+    "tabs"
+  ],
+  "options_page": "settings.html",
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "书签搜索"
   },
   "commands": {
     "toggle-overlay": {
@@ -16,7 +26,15 @@
         "default": "Ctrl+Space",
         "mac": "Command+Space"
       },
-      "description": "Toggle overlay display"
+      "description": "呼出搜索框"
     }
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    }
+  ]
 }
