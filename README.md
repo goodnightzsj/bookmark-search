@@ -22,7 +22,7 @@
 5. 选择本项目文件夹
 
 ### 使用
-- **快捷键唤起**：推荐使用 Ctrl+Shift+F (Windows/Linux) 或 Command+Shift+F (Mac)，可在浏览器扩展快捷键设置中自定义
+- **快捷键唤起**：推荐使用 Ctrl+Shift+Q (Windows/Linux) 或 Command+Shift+Q (Mac)，可在浏览器扩展快捷键设置中自定义
 - **点击图标**：点击扩展图标查看状态和管理
 - **搜索**：输入关键词搜索书签
 - **导航**：使用方向键或鼠标选择
@@ -43,8 +43,17 @@
 
 ### 推荐替代方案
 需要在浏览器扩展快捷键设置页面手动配置：
-- **强烈推荐**：Ctrl+Shift+F (Windows/Linux) 或 Command+Shift+F (Mac)
-- **替代选项**：Ctrl+Shift+B、Alt+S、Alt+B 等
+
+**Windows/Linux 推荐键位**：
+- **首选**：`Ctrl+Shift+Q` (Q = Quick，避免输入法冲突)
+- **备选1**：`Ctrl+Alt+B` (B = Bookmark，Alt 组合相对安全)
+- **备选2**：`Ctrl+Shift+;` (分号键，很少冲突)
+
+**Mac 推荐键位**：
+- **首选**：`Command+Shift+Q`
+- **备选**：`Command+Shift+B`
+
+**注意**：避免使用 `Ctrl+Shift+F`，该组合在 Windows 下与微软输入法的简繁体切换冲突
 
 ## 🔄 书签更新机制
 

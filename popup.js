@@ -86,7 +86,7 @@ async function loadShortcutInfo() {
       
       // 检查是否包含 Space 键（浏览器不支持）
       if (shortcut.includes('Space')) {
-        footerHint.innerHTML = '⚠️ <kbd class="kbd">' + shortcut + '</kbd> 不被浏览器支持，请在设置中修改为 <kbd class="kbd">Ctrl+Shift+F</kbd>';
+        footerHint.innerHTML = '⚠️ <kbd class="kbd">' + shortcut + '</kbd> 不被浏览器支持，请在设置中修改为 <kbd class="kbd">Ctrl+Shift+Q</kbd>';
       } else {
         footerHint.innerHTML = `按 <kbd class="kbd">${shortcut}</kbd> 在任意页面快速搜索`;
       }
@@ -94,7 +94,7 @@ async function loadShortcutInfo() {
       console.log("[Popup] 快捷键:", shortcut);
     } else {
       shortcutElement.innerHTML = '<span class="kbd">未设置</span>';
-      footerHint.innerHTML = '⚠️ 快捷键未设置，请在设置中配置（推荐：<kbd class="kbd">Ctrl+Shift+F</kbd>）';
+      footerHint.innerHTML = '⚠️ 快捷键未设置，请在设置中配置（推荐：<kbd class="kbd">Ctrl+Shift+Q</kbd>）';
       console.warn("[Popup] 未找到快捷键配置");
     }
   } catch (error) {
