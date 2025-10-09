@@ -363,7 +363,7 @@
       <div class="card">
         <div class="card-title">
           <span>📊</span>
-          <span>书签统计</span>
+          <span>书签同步设置</span>
         </div>
 
         <div class="form-group">
@@ -392,10 +392,43 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label class="form-label" for="syncInterval">自动同步间隔</label>
+          <select id="syncInterval" class="form-input">
+            <option value="5">5 分钟</option>
+            <option value="10">10 分钟</option>
+            <option value="15">15 分钟</option>
+            <option value="30" selected>30 分钟（推荐）</option>
+            <option value="60">1 小时</option>
+            <option value="120">2 小时</option>
+            <option value="360">6 小时</option>
+            <option value="720">12 小时</option>
+            <option value="1440">24 小时</option>
+            <option value="0">禁用自动同步</option>
+          </select>
+          <p class="help-text">
+            <span>💡</span>
+            <span>自动同步间隔越短，书签数据越及时，但会消耗更多资源</span>
+          </p>
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; gap: 12px; color: #6b7280; font-size: 13px;">
+            <div style="flex: 1;">
+              <p style="margin-bottom: 4px;">最后同步时间</p>
+              <p style="font-weight: 600; color: #374151;" id="lastSyncDisplay">--</p>
+            </div>
+            <div style="flex: 1;">
+              <p style="margin-bottom: 4px;">下次同步时间</p>
+              <p style="font-weight: 600; color: #374151;" id="nextSyncDisplay">--</p>
+            </div>
+          </div>
+        </div>
+
         <div class="alert alert-info">
           <span>ℹ️</span>
           <div>
-            <p>书签会自动同步，您也可以手动点击同步按钮立即更新。</p>
+            <p>书签会根据设定的间隔自动同步，您也可以手动点击同步按钮立即更新。修改同步间隔后会自动保存并生效。</p>
           </div>
         </div>
       </div>
@@ -432,14 +465,16 @@
 
         <div class="form-group">
           <p style="color: #6b7280; line-height: 1.6">
-            <strong>书签搜索扩展 v1.2</strong><br />
+            <strong>书签搜索扩展 v1.3</strong><br />
             一个现代化的书签管理和搜索工具。<br /><br />
             <strong>功能特性：</strong><br />
             ✓ 快速搜索书签<br />
             ✓ 键盘导航支持<br />
             ✓ 响应式设计<br />
-            ✓ 自动同步书签<br />
-            ✓ 更新历史记录
+            ✓ 定时自动同步（可自定义间隔）<br />
+            ✓ 书签位置追踪<br />
+            ✓ 详细的操作历史记录<br />
+            ✓ 实时同步显示
           </p>
         </div>
       </div>

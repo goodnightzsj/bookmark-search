@@ -11,6 +11,9 @@ async function init() {
     // 加载书签统计
     await loadBookmarkStats();
 
+    // 加载同步设置
+    await loadSyncSettings();
+
     // 加载更新历史
     await loadUpdateHistory();
 
@@ -37,6 +40,12 @@ function setupStorageListener() {
     if (changes.bookmarks) {
       console.log("[Settings] 检测到书签数据变化，重新加载统计");
       loadBookmarkStats();
+    }
+
+    // 同步时间变化时，更新显示
+    if (changes.lastSyncTime || changes.syncInterval) {
+      console.log("[Settings] 检测到同步设置变化，重新加载同步信息");
+      loadSyncSettings();
     }
 
     // 书签历史变化时，更新历史列表
@@ -184,6 +193,89 @@ async function loadBookmarkStats() {
   }
 }
 
+// 格式化相对时间
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return '从未';
+  
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (seconds < 60) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  if (hours < 24) return `${hours}小时前`;
+  if (days < 7) return `${days}天前`;
+  
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN');
+}
+
+// 格式化未来时间
+function formatFutureTime(timestamp) {
+  if (!timestamp) return '未知';
+  
+  const now = Date.now();
+  const diff = timestamp - now;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  
+  if (diff < 0) return '即将';
+  if (minutes < 1) return '1分钟内';
+  if (minutes < 60) return `${minutes}分钟后`;
+  if (hours < 24) return `${hours}小时后`;
+  
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN');
+}
+
+// 加载同步设置
+async function loadSyncSettings() {
+  try {
+    const result = await chrome.storage.local.get(['syncInterval', 'lastSyncTime']);
+    const syncIntervalSelect = document.getElementById('syncInterval');
+    const lastSyncDisplay = document.getElementById('lastSyncDisplay');
+    const nextSyncDisplay = document.getElementById('nextSyncDisplay');
+    
+    // 设置同步间隔
+    const interval = result.syncInterval !== undefined ? result.syncInterval : 30;
+    syncIntervalSelect.value = interval;
+    console.log("[Settings] 同步间隔:", interval, "分钟");
+    
+    // 显示最后同步时间
+    if (result.lastSyncTime) {
+      lastSyncDisplay.textContent = formatRelativeTime(result.lastSyncTime);
+    } else {
+      lastSyncDisplay.textContent = '从未';
+    }
+    
+    // 计算并显示下次同步时间
+    if (interval > 0) {
+      if (result.lastSyncTime) {
+        const nextSyncTime = result.lastSyncTime + (interval * 60 * 1000);
+        nextSyncDisplay.textContent = formatFutureTime(nextSyncTime);
+      } else {
+        // 如果没有最后同步时间，获取alarm信息
+        const alarms = await chrome.alarms.getAll();
+        const syncAlarm = alarms.find(alarm => alarm.name === 'syncBookmarks');
+        
+        if (syncAlarm && syncAlarm.scheduledTime) {
+          nextSyncDisplay.textContent = formatFutureTime(syncAlarm.scheduledTime);
+        } else {
+          nextSyncDisplay.textContent = '启动后开始';
+        }
+      }
+    } else {
+      nextSyncDisplay.textContent = '已禁用';
+    }
+  } catch (error) {
+    console.error("[Settings] 加载同步设置失败:", error);
+  }
+}
+
 // 加载更新历史
 async function loadUpdateHistory() {
   try {
@@ -198,19 +290,63 @@ async function loadUpdateHistory() {
       // 按时间倒序排列
       history.sort((a, b) => b.timestamp - a.timestamp);
 
-      historyList.innerHTML = history.map(item => `
-        <div class="history-item">
-          <div class="history-header">
-            <span class="history-type ${item.action}">${getActionText(item.action)}</span>
-            <span class="history-time">${formatTime(item.timestamp)}</span>
+      historyList.innerHTML = history.map(item => {
+        // 根据操作类型显示不同的位置信息
+        let locationInfo = '';
+        
+        if (item.action === 'add' && item.path) {
+          // 新增操作：显示新增到的位置
+          locationInfo = `
+            <div class="history-folder" style="color: #059669;">
+              📁 新增到：${escapeHtml(item.path)}
+            </div>
+          `;
+        } else if (item.action === 'delete' && item.path) {
+          // 删除操作：显示删除前的位置
+          locationInfo = `
+            <div class="history-folder" style="color: #dc2626;">
+              📁 删除自：${escapeHtml(item.path)}
+            </div>
+          `;
+        } else if (item.action === 'edit' && item.path) {
+          // 修改操作：显示修改后所在的位置
+          locationInfo = `
+            <div class="history-folder" style="color: #2563eb;">
+              📁 位置：${escapeHtml(item.path)}
+            </div>
+          `;
+        } else if (item.action === 'move' && item.oldPath && item.newPath) {
+          // 移动操作：显示源位置和目的位置
+          locationInfo = `
+            <div class="history-folder" style="color: #dc2626;">
+              📁 从：${escapeHtml(item.oldPath)}
+            </div>
+            <div class="history-folder" style="color: #059669;">
+              📁 到：${escapeHtml(item.newPath)}
+            </div>
+          `;
+        } else if (item.path) {
+          // 兼容旧数据 - 有path但不确定操作类型
+          locationInfo = `<div class="history-folder">📁 ${escapeHtml(item.path)}</div>`;
+        } else if (item.folder) {
+          // 兼容更旧的数据
+          locationInfo = `<div class="history-folder">📁 ${escapeHtml(item.folder)}</div>`;
+        }
+        
+        return `
+          <div class="history-item">
+            <div class="history-header">
+              <span class="history-type ${item.action}">${getActionText(item.action)}</span>
+              <span class="history-time">${formatTime(item.timestamp)}</span>
+            </div>
+            <div class="history-content">
+              ${escapeHtml(item.title || '(无标题)')}
+            </div>
+            ${item.url ? `<div class="history-url">${escapeHtml(item.url)}</div>` : ''}
+            ${locationInfo}
           </div>
-          <div class="history-content">
-            ${escapeHtml(item.title || '(无标题)')}
-          </div>
-          ${item.url ? `<div class="history-url">${escapeHtml(item.url)}</div>` : ''}
-          ${item.folder ? `<div class="history-folder">📁 ${escapeHtml(item.folder)}</div>` : ''}
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       console.log("[Settings] 加载了 %d 条历史记录", history.length);
     } else {
@@ -299,6 +435,7 @@ function bindEvents() {
     try {
       await chrome.runtime.sendMessage({ action: 'refreshBookmarks' });
       await loadBookmarkStats();
+      await loadSyncSettings();
 
       btn.innerHTML = '<span>✓</span><span>同步成功</span>';
       setTimeout(() => {
@@ -312,6 +449,31 @@ function bindEvents() {
         btn.innerHTML = originalHTML;
         btn.disabled = false;
       }, 1500);
+    }
+  });
+
+  // 同步间隔变化
+  document.getElementById('syncInterval').addEventListener('change', async (e) => {
+    const interval = parseInt(e.target.value);
+    console.log("[Settings] 修改同步间隔为:", interval, "分钟");
+
+    try {
+      // 保存到storage
+      await chrome.storage.local.set({ syncInterval: interval });
+      
+      // 通知background更新定时器
+      await chrome.runtime.sendMessage({ 
+        action: 'updateSyncInterval', 
+        interval: interval 
+      });
+      
+      // 重新加载同步设置显示
+      await loadSyncSettings();
+      
+      console.log("[Settings] 同步间隔已更新");
+    } catch (error) {
+      console.error("[Settings] 更新同步间隔失败:", error);
+      alert('设置失败：' + error.message);
     }
   });
 
