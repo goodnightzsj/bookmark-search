@@ -1,5 +1,10 @@
 console.log("[Settings] settings.js 开始加载");
 
+// 导出模式状态
+let exportMode = false;
+let selectedItems = new Set();
+let currentHistory = [];
+
 // 初始化
 async function init() {
   console.log("[Settings] 初始化开始");
@@ -285,38 +290,35 @@ async function loadUpdateHistory() {
 
     if (result.bookmarkHistory && Array.isArray(result.bookmarkHistory) && result.bookmarkHistory.length > 0) {
       const history = result.bookmarkHistory;
+      currentHistory = history; // 保存到全局变量
       historyCount.textContent = history.length;
 
       // 按时间倒序排列
       history.sort((a, b) => b.timestamp - a.timestamp);
 
-      historyList.innerHTML = history.map(item => {
+      historyList.innerHTML = history.map((item, index) => {
         // 根据操作类型显示不同的位置信息
         let locationInfo = '';
         
         if (item.action === 'add' && item.path) {
-          // 新增操作：显示新增到的位置
           locationInfo = `
             <div class="history-folder" style="color: #059669;">
               📁 新增到：${escapeHtml(item.path)}
             </div>
           `;
         } else if (item.action === 'delete' && item.path) {
-          // 删除操作：显示删除前的位置
           locationInfo = `
             <div class="history-folder" style="color: #dc2626;">
               📁 删除自：${escapeHtml(item.path)}
             </div>
           `;
         } else if (item.action === 'edit' && item.path) {
-          // 修改操作：显示修改后所在的位置
           locationInfo = `
             <div class="history-folder" style="color: #2563eb;">
               📁 位置：${escapeHtml(item.path)}
             </div>
           `;
         } else if (item.action === 'move' && item.oldPath && item.newPath) {
-          // 移动操作：显示源位置和目的位置
           locationInfo = `
             <div class="history-folder" style="color: #dc2626;">
               📁 从：${escapeHtml(item.oldPath)}
@@ -326,15 +328,19 @@ async function loadUpdateHistory() {
             </div>
           `;
         } else if (item.path) {
-          // 兼容旧数据 - 有path但不确定操作类型
           locationInfo = `<div class="history-folder">📁 ${escapeHtml(item.path)}</div>`;
         } else if (item.folder) {
-          // 兼容更旧的数据
           locationInfo = `<div class="history-folder">📁 ${escapeHtml(item.folder)}</div>`;
         }
         
+        const isSelected = selectedItems.has(index);
+        const selectableClass = exportMode ? 'selectable' : '';
+        const selectedClass = isSelected ? 'selected' : '';
+        const checkboxHtml = exportMode ? `<input type="checkbox" class="history-checkbox" data-index="${index}" ${isSelected ? 'checked' : ''}>` : '';
+        
         return `
-          <div class="history-item">
+          <div class="history-item ${selectableClass} ${selectedClass}" data-index="${index}">
+            ${checkboxHtml}
             <div class="history-header">
               <span class="history-type ${item.action}">${getActionText(item.action)}</span>
               <span class="history-time">${formatTime(item.timestamp)}</span>
@@ -348,8 +354,14 @@ async function loadUpdateHistory() {
         `;
       }).join('');
 
+      // 绑定选择事件
+      if (exportMode) {
+        bindSelectionEvents();
+      }
+
       console.log("[Settings] 加载了 %d 条历史记录", history.length);
     } else {
+      currentHistory = [];
       historyCount.textContent = '0';
       historyList.innerHTML = `
         <div class="empty-state">
@@ -362,6 +374,201 @@ async function loadUpdateHistory() {
   } catch (error) {
     console.error("[Settings] 加载更新历史失败:", error);
   }
+}
+
+// 绑定选择事件
+function bindSelectionEvents() {
+  const historyItems = document.querySelectorAll('.history-item.selectable');
+  historyItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      // 如果点击的是checkbox本身，不需要额外处理
+      if (e.target.classList.contains('history-checkbox')) {
+        const index = parseInt(e.target.dataset.index);
+        toggleSelection(index);
+        return;
+      }
+      
+      // 点击整行也可以选择
+      const index = parseInt(item.dataset.index);
+      toggleSelection(index);
+    });
+  });
+}
+
+// 切换选择状态
+function toggleSelection(index) {
+  if (selectedItems.has(index)) {
+    selectedItems.delete(index);
+  } else {
+    selectedItems.add(index);
+  }
+  updateSelectionUI();
+}
+
+// 更新选择UI
+function updateSelectionUI() {
+  // 更新选中计数
+  document.getElementById('selectInfo').textContent = `已选择 ${selectedItems.size} 条`;
+  
+  // 更新每个item的选中状态
+  document.querySelectorAll('.history-item.selectable').forEach(item => {
+    const index = parseInt(item.dataset.index);
+    const checkbox = item.querySelector('.history-checkbox');
+    
+    if (selectedItems.has(index)) {
+      item.classList.add('selected');
+      if (checkbox) checkbox.checked = true;
+    } else {
+      item.classList.remove('selected');
+      if (checkbox) checkbox.checked = false;
+    }
+  });
+}
+
+// 切换导出模式
+function toggleExportMode() {
+  exportMode = !exportMode;
+  
+  const exportControls = document.getElementById('exportControls');
+  const toggleBtn = document.getElementById('toggleExportMode');
+  
+  if (exportMode) {
+    exportControls.style.display = 'flex';
+    toggleBtn.innerHTML = '<span>❌</span><span>取消导出</span>';
+    // 默认全选
+    selectAllItems();
+  } else {
+    exportControls.style.display = 'none';
+    toggleBtn.innerHTML = '<span>📤</span><span>导出书签</span>';
+    selectedItems.clear();
+  }
+  
+  // 重新渲染历史列表
+  loadUpdateHistory();
+}
+
+// 全选
+function selectAllItems() {
+  selectedItems.clear();
+  currentHistory.forEach((_, index) => {
+    selectedItems.add(index);
+  });
+  updateSelectionUI();
+}
+
+// 取消全选
+function deselectAllItems() {
+  selectedItems.clear();
+  updateSelectionUI();
+}
+
+// 导出选中的书签
+async function exportSelectedBookmarks() {
+  if (selectedItems.size === 0) {
+    alert('请先选择要导出的书签');
+    return;
+  }
+  
+  // 获取选中的历史记录
+  const selectedHistory = Array.from(selectedItems)
+    .map(index => currentHistory[index])
+    .filter(item => item && item.url); // 只导出有URL的记录
+  
+  if (selectedHistory.length === 0) {
+    alert('选中的记录中没有可导出的书签');
+    return;
+  }
+  
+  // 去重：同一URL保留最新记录（时间戳最大的）
+  const urlMap = new Map();
+  selectedHistory.forEach(item => {
+    const existing = urlMap.get(item.url);
+    if (!existing || item.timestamp > existing.timestamp) {
+      urlMap.set(item.url, item);
+    }
+  });
+  
+  const uniqueBookmarks = Array.from(urlMap.values());
+  console.log(`[Settings] 去重后导出 ${uniqueBookmarks.length} 个书签（原选中 ${selectedHistory.length} 条）`);
+  
+  // 生成Netscape格式的书签HTML
+  const html = generateNetscapeBookmarkFile(uniqueBookmarks);
+  
+  // 下载文件
+  downloadFile(html, 'bookmarks_export.html', 'text/html');
+}
+
+// 生成Netscape书签文件格式
+function generateNetscapeBookmarkFile(bookmarks) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  
+  // 按路径分组
+  const folderMap = new Map();
+  bookmarks.forEach(bookmark => {
+    const path = bookmark.path || bookmark.newPath || '未分类';
+    if (!folderMap.has(path)) {
+      folderMap.set(path, []);
+    }
+    folderMap.get(path).push(bookmark);
+  });
+  
+  let content = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="${timestamp}" LAST_MODIFIED="${timestamp}">书签搜索导出</H3>
+    <DL><p>
+`;
+
+  // 按文件夹输出
+  folderMap.forEach((items, folderPath) => {
+    // 处理嵌套路径
+    const pathParts = folderPath.split('/').filter(p => p);
+    
+    if (pathParts.length > 0) {
+      content += `        <DT><H3 ADD_DATE="${timestamp}" LAST_MODIFIED="${timestamp}">${escapeHtml(folderPath)}</H3>\n`;
+      content += `        <DL><p>\n`;
+      
+      items.forEach(bookmark => {
+        const addDate = Math.floor((bookmark.timestamp || Date.now()) / 1000);
+        content += `            <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`;
+      });
+      
+      content += `        </DL><p>\n`;
+    } else {
+      // 根目录的书签
+      items.forEach(bookmark => {
+        const addDate = Math.floor((bookmark.timestamp || Date.now()) / 1000);
+        content += `        <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`;
+      });
+    }
+  });
+
+  content += `    </DL><p>
+</DL><p>
+`;
+
+  return content;
+}
+
+// 下载文件
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  
+  URL.revokeObjectURL(url);
+  console.log(`[Settings] 文件已下载: ${filename}`);
 }
 
 // 获取操作文本
@@ -493,6 +700,24 @@ function bindEvents() {
       alert('清空失败：' + error.message);
     }
   });
+
+  // 切换导出模式
+  document.getElementById('toggleExportMode').addEventListener('click', toggleExportMode);
+
+  // 全选
+  document.getElementById('selectAll').addEventListener('click', () => {
+    selectAllItems();
+    loadUpdateHistory();
+  });
+
+  // 取消全选
+  document.getElementById('deselectAll').addEventListener('click', () => {
+    deselectAllItems();
+    loadUpdateHistory();
+  });
+
+  // 导出选中
+  document.getElementById('exportSelected').addEventListener('click', exportSelectedBookmarks);
 }
 
 // 页面加载完成后初始化

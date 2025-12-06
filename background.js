@@ -45,11 +45,11 @@ function processBookmarks(nodes, parentPath = "") {
   }
 }
 
-// 获取书签的完整路径
-async function getBookmarkPath(bookmarkId) {
+// 获取书签的完整路径（包含当前节点，如果是文件夹）
+async function getBookmarkPath(nodeId) {
   try {
     const path = [];
-    let currentId = bookmarkId;
+    let currentId = nodeId;
     
     while (currentId) {
       const results = await chrome.bookmarks.get(currentId);
@@ -57,13 +57,12 @@ async function getBookmarkPath(bookmarkId) {
       
       const node = results[0];
       
-      // 到达根节点时停止
+      // 到达根节点时停止（根节点没有parentId或id为"0"）
       if (!node.parentId) break;
       
-      // 获取父节点信息以构建路径
-      const parentResults = await chrome.bookmarks.get(node.parentId);
-      if (parentResults && parentResults.length > 0 && parentResults[0].title) {
-        path.unshift(parentResults[0].title);
+      // 将当前节点的title加入路径（如果有title）
+      if (node.title) {
+        path.unshift(node.title);
       }
       
       currentId = node.parentId;
@@ -203,9 +202,51 @@ chrome.bookmarks.onCreated.addListener((id, bookmark) => {
   updateBookmarks("add", id, bookmark);
 });
 
-chrome.bookmarks.onRemoved.addListener((id, removeInfo) => {
-  console.log("删除书签：", id, removeInfo);
-  updateBookmarks("delete", id, removeInfo);
+chrome.bookmarks.onRemoved.addListener(async (id, removeInfo) => {
+  console.log("删除书签/文件夹：", id, removeInfo);
+  
+  const deletedNode = removeInfo.node;
+  
+  // 检查是否是文件夹删除（文件夹有children属性）
+  if (deletedNode && deletedNode.children !== undefined) {
+    // 是文件夹，需要获取该文件夹的完整路径，然后找出所有受影响的书签
+    const folderPath = await getBookmarkPath(removeInfo.parentId);
+    const fullFolderPath = folderPath === '根目录' ? deletedNode.title : `${folderPath}/${deletedNode.title}`;
+    
+    console.log(`[Background] 文件夹 "${fullFolderPath}" 被删除`);
+    
+    // 找出所有在该文件夹下的书签（路径完全匹配或以该路径开头）
+    const affectedBookmarks = bookmarks.filter(mark => 
+      mark.path === fullFolderPath || 
+      mark.path.startsWith(fullFolderPath + '/')
+    );
+    
+    console.log(`[Background] 影响 ${affectedBookmarks.length} 个书签`);
+    
+    // 为每个受影响的书签记录删除历史，然后从数组中移除
+    for (const bookmark of affectedBookmarks) {
+      await addBookmarkHistory("delete", {
+        title: bookmark.title,
+        url: bookmark.url,
+        path: bookmark.path
+      });
+      console.log(`[Background] 级联删除记录: ${bookmark.title} (${bookmark.path})`);
+    }
+    
+    // 从bookmarks数组中移除所有受影响的书签
+    bookmarks = bookmarks.filter(mark => 
+      mark.path !== fullFolderPath && 
+      !mark.path.startsWith(fullFolderPath + '/')
+    );
+    
+    // 存储更新后的数据
+    chrome.storage.local.set({ bookmarks: bookmarks }, () => {
+      console.log("[Background] 级联删除完成，剩余书签数量:", bookmarks.length);
+    });
+  } else {
+    // 是单个书签
+    updateBookmarks("delete", id, removeInfo);
+  }
 });
 
 chrome.bookmarks.onChanged.addListener((id, changeInfo) => {
@@ -338,17 +379,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'refreshBookmarks') {
     console.log("[Background] 刷新书签请求");
     
-    // 重新获取书签
-    chrome.bookmarks.getTree((bookmarkTreeNodes) => {
-      bookmarks = [];
-      processBookmarks(bookmarkTreeNodes);
-      console.log("[Background] 刷新后的书签数量:", bookmarks.length);
-      
-      // 存储到 chrome.storage，并记录同步时间
-      chrome.storage.local.set({ bookmarks: bookmarks, lastSyncTime: Date.now() }, () => {
-        console.log("[Background] 书签刷新完成");
-        sendResponse({ success: true, count: bookmarks.length });
-      });
+    // 调用同步函数（会对比差异并记录变更）
+    syncBookmarks().then(() => {
+      sendResponse({ success: true, count: bookmarks.length });
+    }).catch((error) => {
+      console.error("[Background] 刷新书签失败:", error);
+      sendResponse({ success: false, error: error.message });
     });
     
     return true; // 保持消息通道开启
@@ -384,25 +420,117 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
-// 定时同步书签的函数
+// 定时同步书签的函数（会对比差异并记录变更）
 async function syncBookmarks() {
   console.log("[Background] ==== 开始定时同步书签 ====");
   
-  try {
-    // 重新获取书签
-    chrome.bookmarks.getTree((bookmarkTreeNodes) => {
-      bookmarks = [];
-      processBookmarks(bookmarkTreeNodes);
-      console.log("[Background] 定时同步后的书签数量:", bookmarks.length);
+  return new Promise(async (resolve, reject) => {
+    try {
+      // 保存旧的书签数据用于对比
+      const oldBookmarks = [...bookmarks];
+      const oldBookmarkMap = new Map(oldBookmarks.map(b => [b.id, b]));
       
-      // 存储到 chrome.storage
-      chrome.storage.local.set({ bookmarks: bookmarks, lastSyncTime: Date.now() }, () => {
-        console.log("[Background] 定时同步完成，时间:", new Date().toLocaleString());
+      // 获取新的书签树
+      chrome.bookmarks.getTree(async (bookmarkTreeNodes) => {
+        // 重置并处理新书签
+        bookmarks = [];
+        processBookmarks(bookmarkTreeNodes);
+        console.log("[Background] 定时同步后的书签数量:", bookmarks.length);
+        
+        // 创建新书签的Map
+        const newBookmarkMap = new Map(bookmarks.map(b => [b.id, b]));
+        
+        // 对比差异
+        const changes = {
+          added: [],
+          deleted: [],
+          modified: []
+        };
+        
+        // 检查新增和修改
+        for (const newBookmark of bookmarks) {
+          const oldBookmark = oldBookmarkMap.get(newBookmark.id);
+          
+          if (!oldBookmark) {
+            // 新增的书签
+            changes.added.push(newBookmark);
+          } else if (
+            oldBookmark.title !== newBookmark.title ||
+            oldBookmark.url !== newBookmark.url ||
+            oldBookmark.path !== newBookmark.path
+          ) {
+            // 修改的书签（标题、URL或路径发生变化）
+            changes.modified.push({
+              old: oldBookmark,
+              new: newBookmark
+            });
+          }
+        }
+        
+        // 检查删除
+        for (const oldBookmark of oldBookmarks) {
+          if (!newBookmarkMap.has(oldBookmark.id)) {
+            changes.deleted.push(oldBookmark);
+          }
+        }
+        
+        // 记录变更历史
+        const totalChanges = changes.added.length + changes.deleted.length + changes.modified.length;
+        console.log(`[Background] 同步检测到变更: 新增${changes.added.length}, 删除${changes.deleted.length}, 修改${changes.modified.length}`);
+        
+        if (totalChanges > 0) {
+          // 记录新增
+          for (const bookmark of changes.added) {
+            await addBookmarkHistory("add", {
+              title: bookmark.title,
+              url: bookmark.url,
+              path: bookmark.path
+            });
+          }
+          
+          // 记录删除
+          for (const bookmark of changes.deleted) {
+            await addBookmarkHistory("delete", {
+              title: bookmark.title,
+              url: bookmark.url,
+              path: bookmark.path
+            });
+          }
+          
+          // 记录修改
+          for (const change of changes.modified) {
+            // 检查是否是移动（路径变化）
+            if (change.old.path !== change.new.path) {
+              await addBookmarkHistory("move", {
+                title: change.new.title,
+                url: change.new.url,
+                oldPath: change.old.path,
+                newPath: change.new.path
+              });
+            } else {
+              // 标题或URL变化
+              await addBookmarkHistory("edit", {
+                title: change.new.title,
+                url: change.new.url,
+                path: change.new.path
+              });
+            }
+          }
+          
+          console.log(`[Background] 已记录 ${totalChanges} 条变更历史`);
+        }
+        
+        // 存储到 chrome.storage
+        chrome.storage.local.set({ bookmarks: bookmarks, lastSyncTime: Date.now() }, () => {
+          console.log("[Background] 定时同步完成，时间:", new Date().toLocaleString());
+          resolve();
+        });
       });
-    });
-  } catch (error) {
-    console.error("[Background] 定时同步书签失败:", error);
-  }
+    } catch (error) {
+      console.error("[Background] 定时同步书签失败:", error);
+      reject(error);
+    }
+  });
 }
 
 // 创建或更新同步定时器
