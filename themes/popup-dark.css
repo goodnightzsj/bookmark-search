@@ -1,0 +1,194 @@
+/* 深色仪表盘主题 */
+:root {
+  --popup-width: 340px;
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --border: #262626;
+  --text-1: #fafafa;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --red: #ef4444;
+}
+
+body {
+  width: var(--popup-width);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  background: var(--bg);
+  color: var(--text-1);
+  margin: 0;
+  padding: 12px;
+}
+
+.header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header h1::before { content: none; }
+.header .subtitle { display: none; }
+
+.content {
+  padding: 0;
+}
+
+.info-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.info-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.info-row:first-child {
+  grid-column: span 2;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.info-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.info-row:first-child .info-label { margin-bottom: 0; }
+.info-label .icon { display: none; }
+
+.info-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.info-row:nth-child(3) .info-value {
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.info-row:first-child .info-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-indicator.active {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.status-indicator.inactive { background: var(--red); }
+
+.kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-2);
+}
+
+.count { display: none; }
+
+.actions {
+  display: flex;
+  gap: 8px;
+  padding: 0;
+  margin-bottom: 10px;
+}
+
+.btn {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+
+.btn .icon { display: none; }
+
+.btn:hover {
+  background: var(--border);
+  border-color: var(--text-3);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.btn-secondary {
+  background: var(--surface);
+}
+
+.footer {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 4px 0 0;
+  border: none;
+}

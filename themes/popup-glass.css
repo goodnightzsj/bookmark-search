@@ -1,0 +1,173 @@
+/* 毛玻璃主题 - 马卡龙渐变 */
+:root {
+  --popup-width: 340px;
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --text-primary: #2c3e50;
+  --text-secondary: #596e85;
+  --accent-color: #007AFF;
+  --status-active: #34C759;
+  --status-inactive: #FF3B30;
+}
+
+body {
+  width: var(--popup-width);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background: linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 16px;
+  min-height: 300px;
+}
+
+.header {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header h1::before {
+  content: "🔍";
+  font-size: 20px;
+}
+
+.header .subtitle { display: none; }
+
+.content {
+  padding: 0;
+}
+
+.info-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.info-row:last-child { border-bottom: none; }
+
+.info-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.info-label .icon { margin-right: 4px; }
+
+.info-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-indicator.active {
+  background: var(--status-active);
+  box-shadow: 0 0 6px var(--status-active);
+}
+
+.status-indicator.inactive { background: var(--status-inactive); }
+
+.kbd {
+  background: #fff;
+  border: 1px solid #e1e1e1;
+  border-radius: 5px;
+  box-shadow: 0 2px 0 #e1e1e1;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.count {
+  font-size: 28px;
+  font-weight: 800;
+  background: linear-gradient(45deg, #2c3e50, #4a6fa5);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding: 0;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0;
+  margin-bottom: 16px;
+}
+
+.btn {
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn .icon { font-size: 14px; }
+
+.btn-primary {
+  background: white;
+  color: var(--accent-color);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.15);
+  order: 2;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 122, 255, 0.25);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  order: 1;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.footer {
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  padding: 0;
+  border: none;
+}

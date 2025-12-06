@@ -10,6 +10,9 @@ async function init() {
   console.log("[Settings] 初始化开始");
 
   try {
+    // 初始化主题选择器
+    await initThemeSelector();
+
     // 加载快捷键信息
     await loadShortcutInfo();
 
@@ -32,6 +35,26 @@ async function init() {
   } catch (error) {
     console.error("[Settings] 初始化失败:", error);
   }
+}
+
+// 初始化主题选择器
+async function initThemeSelector() {
+  const currentTheme = await getCurrentTheme();
+  
+  // 标记当前主题
+  document.querySelectorAll('.theme-option').forEach(el => {
+    el.classList.toggle('active', el.dataset.theme === currentTheme);
+  });
+  
+  // 绑定点击事件
+  document.getElementById('themeGrid').addEventListener('click', async (e) => {
+    const option = e.target.closest('.theme-option');
+    if (!option) return;
+    
+    const theme = option.dataset.theme;
+    await setTheme(theme);
+    console.log("[Settings] 主题已切换为:", theme);
+  });
 }
 
 // 设置存储监听器，实现实时更新
