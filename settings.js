@@ -320,35 +320,13 @@ async function loadUpdateHistory() {
       history.sort((a, b) => b.timestamp - a.timestamp);
 
       historyList.innerHTML = history.map((item, index) => {
-        // 根据操作类型显示不同的位置信息
+        // 位置信息（移除内联样式，由CSS控制颜色）
         let locationInfo = '';
         
-        if (item.action === 'add' && item.path) {
+        if (item.action === 'move' && item.oldPath && item.newPath) {
           locationInfo = `
-            <div class="history-folder" style="color: #059669;">
-              📁 新增到：${escapeHtml(item.path)}
-            </div>
-          `;
-        } else if (item.action === 'delete' && item.path) {
-          locationInfo = `
-            <div class="history-folder" style="color: #dc2626;">
-              📁 删除自：${escapeHtml(item.path)}
-            </div>
-          `;
-        } else if (item.action === 'edit' && item.path) {
-          locationInfo = `
-            <div class="history-folder" style="color: #2563eb;">
-              📁 位置：${escapeHtml(item.path)}
-            </div>
-          `;
-        } else if (item.action === 'move' && item.oldPath && item.newPath) {
-          locationInfo = `
-            <div class="history-folder" style="color: #dc2626;">
-              📁 从：${escapeHtml(item.oldPath)}
-            </div>
-            <div class="history-folder" style="color: #059669;">
-              📁 到：${escapeHtml(item.newPath)}
-            </div>
+            <div class="history-folder history-folder-from">📁 从：${escapeHtml(item.oldPath)}</div>
+            <div class="history-folder history-folder-to">📁 到：${escapeHtml(item.newPath)}</div>
           `;
         } else if (item.path) {
           locationInfo = `<div class="history-folder">📁 ${escapeHtml(item.path)}</div>`;
@@ -368,9 +346,7 @@ async function loadUpdateHistory() {
               <span class="history-type ${item.action}">${getActionText(item.action)}</span>
               <span class="history-time">${formatTime(item.timestamp)}</span>
             </div>
-            <div class="history-content">
-              ${escapeHtml(item.title || '(无标题)')}
-            </div>
+            <div class="history-content">${escapeHtml(item.title || '(无标题)')}</div>
             ${item.url ? `<div class="history-url">${escapeHtml(item.url)}</div>` : ''}
             ${locationInfo}
           </div>

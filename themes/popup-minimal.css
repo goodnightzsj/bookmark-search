@@ -113,10 +113,10 @@ body {
   font-size: 13px;
 }
 
-.count { display: none; }
+.count { display: inline; }
 
 .actions {
-  padding: 0;
+  padding: 0 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
