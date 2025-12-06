@@ -294,7 +294,7 @@ async function toggleBookmarkSearch() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     console.log("[Background] 当前标签页:", tab ? `id=${tab.id}, url=${tab.url}` : "未找到");
   
-    if (!tab?.id || !tab.url) {
+    if (!tab || !tab.id || !tab.url) {
       console.warn("[Background] 标签页信息不完整，退出");
       return;
     }
@@ -567,5 +567,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'syncBookmarks') {
     console.log("[Background] 定时器触发:", alarm.name);
     syncBookmarks();
+  }
+});
+
+// 监听安装事件，首次安装自动打开设置页面
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    console.log("[Background] 首次安装，自动打开设置页面");
+    chrome.runtime.openOptionsPage();
   }
 });

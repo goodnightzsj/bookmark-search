@@ -105,5 +105,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+// 暴露给全局作用域，供 settings.js 调用
+window.getCurrentTheme = getCurrentTheme;
+window.setTheme = setTheme;
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', initTheme);
