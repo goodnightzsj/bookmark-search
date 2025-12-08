@@ -1,8 +1,9 @@
 {
-  "name": "书签搜索",
-  "description": "管理书签",
-  "version": "1.6.1",
   "manifest_version": 3,
+  "name": "__MSG_appName__",
+  "default_locale": "zh_CN",
+  "version": "1.6.1",
+  "description": "__MSG_appDesc__",
   "permissions": [
     "bookmarks",
     "storage",
@@ -13,39 +14,45 @@
     "tabs",
     "alarms"
   ],
-  "options_page": "settings.html",
   "background": {
     "service_worker": "background.js"
   },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
+    "default_title": "__MSG_appName__"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_end"
+    }
+  ],
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "书签搜索",
-    "default_icon": {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
-    }
-  },
+  "options_page": "settings.html",
   "commands": {
     "toggle-overlay": {
       "suggested_key": {
         "default": "Ctrl+Space",
         "mac": "Command+Space"
       },
-      "description": "呼出搜索框"
+      "description": "__MSG_commandToggleOverlay__"
     }
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["content.css"],
-      "run_at": "document_end"
-    }
-  ]
+  }
 }

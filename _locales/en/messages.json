@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "Bookmark Search",
+    "description": "Extension name"
+  },
+  "appDesc": {
+    "message": "Manage bookmarks",
+    "description": "Extension description"
+  },
+  "commandToggleOverlay": {
+    "message": "Toggle search overlay",
+    "description": "Command description"
+  }
+}

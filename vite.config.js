@@ -65,7 +65,8 @@ export default defineConfig({
         { src: '*.png', dest: '.' },
         { src: 'themes', dest: '.' }, 
         { src: 'content.css', dest: '.' },
-        { src: 'LICENSE', dest: '.' }
+        { src: 'LICENSE', dest: '.' },
+        { src: '_locales', dest: '.' }
       ]
     }),
     // 使用自定义混淆插件

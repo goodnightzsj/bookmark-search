@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "书签搜索",
+    "description": "扩展名称"
+  },
+  "appDesc": {
+    "message": "管理书签",
+    "description": "扩展描述"
+  },
+  "commandToggleOverlay": {
+    "message": "呼出搜索框",
+    "description": "快捷键描述"
+  }
+}
