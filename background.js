@@ -1,6 +1,10 @@
 console.log("[Background] ===== background.js 开始加载 =====");
 let bookmarks = [];
 
+// 初始化 Promise，用于确保书签数据加载完成后再执行同步或更新
+let initResolve;
+const initPromise = new Promise(resolve => initResolve = resolve);
+
 // 检查存储的书签数据
 console.log("[Background] 检查存储的书签数据");
 chrome.storage.local.get(["bookmarks", "lastSyncTime"], (result) => {
@@ -8,6 +12,7 @@ chrome.storage.local.get(["bookmarks", "lastSyncTime"], (result) => {
     // 如果已有存储的数据，直接使用
     console.log("[Background] 从存储中获取书签数据，数量：", result.bookmarks.length);
     bookmarks = result.bookmarks;
+    initResolve();
   } else {
     // 没有存储的数据，获取并存储书签信息
     console.log("[Background] 存储中无书签数据，从浏览器获取");
@@ -19,6 +24,7 @@ chrome.storage.local.get(["bookmarks", "lastSyncTime"], (result) => {
       const syncTime = Date.now();
       chrome.storage.local.set({ bookmarks: bookmarks, lastSyncTime: syncTime }, () => {
         console.log("[Background] 书签数据已存储到 chrome.storage，同步时间:", new Date(syncTime).toLocaleString());
+        initResolve();
       });
     });
   }
@@ -106,6 +112,9 @@ async function addBookmarkHistory(action, bookmark) {
 
 // 更新书签数据的函数
 async function updateBookmarks(action, id, bookmark, fullBookmark = null) {
+  // 确保初始化完成
+  await initPromise;
+
   if (action === "add") {
     const path = await getBookmarkPath(bookmark.parentId || id);
     const newBookmark = {
@@ -168,8 +177,8 @@ async function updateBookmarks(action, id, bookmark, fullBookmark = null) {
       console.warn("[Background] 未找到要编辑的书签:", id);
     }
   } else if (action === "move") {
-    // 移动书签时更新路径
-    const newPath = await getBookmarkPath(id);
+    // 移动书签时更新路径，使用 parentId 获取新路径
+    const newPath = await getBookmarkPath(bookmark.parentId);
     bookmarks = bookmarks.map((mark) => {
       if (mark.id === id) {
         const oldPath = mark.path; // 保存旧路径
@@ -423,6 +432,9 @@ chrome.commands.onCommand.addListener((command) => {
 // 定时同步书签的函数（会对比差异并记录变更）
 async function syncBookmarks() {
   console.log("[Background] ==== 开始定时同步书签 ====");
+  
+  // 确保初始化完成，防止在 storage 读取前就开始同步导致误判为全部新增
+  await initPromise;
   
   return new Promise(async (resolve, reject) => {
     try {
