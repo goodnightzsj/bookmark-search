@@ -314,13 +314,13 @@ async function toggleBookmarkSearch() {
     console.log("[Background] 是否特殊页面:", isSpecialPage);
     
     if (isSpecialPage) {
-      console.log("[Background] 无法在系统页面中使用书签搜索，准备显示通知");
+      console.log("[Background] 无法在系统页面中使用书签搜索 - 极速收藏夹管理与查找工具，准备显示通知");
       
       // 显示通知提示用户
       try {
         const notificationId = await chrome.notifications.create({
           type: 'basic',
-          title: '书签搜索',
+          title: '书签搜索 - 极速收藏夹管理与查找工具',
           message: '由于浏览器安全限制，无法在系统页面（chrome://、edge://等）使用扩展。\n请在普通网页中使用。',
           priority: 1
         });

@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Bookmark Search",
+    "message": "Bookmark Search - Lightning-fast bookmark manager & finder",
     "description": "Extension name"
   },
   "appDesc": {
-    "message": "Manage bookmarks",
+    "message": "Lightning-fast bookmark search and management with sync, history, and export",
     "description": "Extension description"
   },
   "commandToggleOverlay": {

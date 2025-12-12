@@ -1,7 +1,7 @@
 {
   "name": "bookmark-search",
-  "version": "1.7.0",
-  "description": "Chrome extension for searching bookmarks",
+  "version": "1.8.0",
+  "description": "Lightning-fast bookmark manager and search tool for Chrome",
   "type": "module",
   "scripts": {
     "dev": "vite",

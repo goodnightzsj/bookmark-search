@@ -1,6 +1,6 @@
-# 书签搜索 (Bookmark Search)
+# 书签搜索 - 极速收藏夹管理与查找工具 (Bookmark Search - Lightning-fast bookmark manager & finder)
 
-一个现代化的浏览器书签搜索扩展，支持快捷键快速搜索和打开书签。
+一个现代化的浏览器书签搜索扩展，提供极速的收藏夹管理与查找体验，支持快捷键快速搜索和打开书签。
 
 ## ✨ 功能特性
 
@@ -28,7 +28,7 @@
 5. 选择本项目文件夹
 
 ### 使用
-- **快捷键唤起**：推荐使用 Ctrl+Shift+Q (Windows/Linux) 或 Command+Shift+Q (Mac)，可在浏览器扩展快捷键设置中自定义
+- **快捷键唤起**：默认 Ctrl+Space（Windows/Linux）与 Command+Space（Mac），可在浏览器扩展快捷键设置中自定义
 - **点击图标**：点击扩展图标查看状态和管理
 - **搜索**：输入关键词搜索书签
 - **导航**：使用方向键或鼠标选择
@@ -44,22 +44,17 @@
 
 ## ⌨️ 快捷键说明
 
-### 理想快捷键与限制
-我们希望使用 Ctrl+Space 作为快捷键，但由于浏览器限制（不允许使用功能键如 Space、Enter、Tab）和系统占用（输入法切换），实际无法使用。
+### 默认快捷键
+- **Windows/Linux**：`Ctrl+Space`
+- **Mac**：`Command+Space`
+
+可在浏览器的 `chrome://extensions/shortcuts` 页面自定义。如果与输入法切换冲突，参考下方替代组合。
 
 ### 推荐替代方案
-需要在浏览器扩展快捷键设置页面手动配置：
+- **Windows/Linux**：`Ctrl+Shift+Q`（首选），`Ctrl+Alt+B`，`Ctrl+Shift+;`
+- **Mac**：`Command+Shift+Q` 或 `Command+Shift+B`
 
-**Windows/Linux 推荐键位**：
-- **首选**：`Ctrl+Shift+Q` (Q = Quick，避免输入法冲突)
-- **备选1**：`Ctrl+Alt+B` (B = Bookmark，Alt 组合相对安全)
-- **备选2**：`Ctrl+Shift+;` (分号键，很少冲突)
-
-**Mac 推荐键位**：
-- **首选**：`Command+Shift+Q`
-- **备选**：`Command+Shift+B`
-
-**注意**：避免使用 `Ctrl+Shift+F`，该组合在 Windows 下与微软输入法的简繁体切换冲突
+**注意**：避免使用 `Ctrl+Shift+F`，该组合在 Windows 下与部分输入法冲突。
 
 ## 🔄 书签更新机制
 
@@ -129,6 +124,11 @@ Popup页面会显示最后同步时间和下次同步时间，让用户随时了
 - `content.css` - 样式文件，现代化UI设计
 
 ## 📝 更新日志
+
+### v1.8.0 - 品牌升级与快捷键调整
+- 🆕 **扩展名称升级**：更名为“书签搜索 - 极速收藏夹管理与查找工具”，英文名同步更新
+- ⌨️ **Mac 默认快捷键**：改为 `Command+Space`，与 Windows/Linux 的 `Ctrl+Space` 一起作为默认组合
+- 🧭 **文档与界面**：同步更新显示标题、占位提示与版本信息
 
 ### v1.7.0 - 同步机制重构与稳定性升级
 - 🐛 **修复竞态条件**：解决浏览器启动时，因后台脚本初始化延迟导致的误判“全量新增”书签的问题

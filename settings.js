@@ -519,7 +519,7 @@ function generateNetscapeBookmarkFile(bookmarks) {
 <TITLE>Bookmarks</TITLE>
 <H1>Bookmarks</H1>
 <DL><p>
-    <DT><H3 ADD_DATE="${timestamp}" LAST_MODIFIED="${timestamp}">书签搜索导出</H3>
+    <DT><H3 ADD_DATE="${timestamp}" LAST_MODIFIED="${timestamp}">书签搜索 - 极速收藏夹管理与查找工具 导出</H3>
     <DL><p>
 `;
 

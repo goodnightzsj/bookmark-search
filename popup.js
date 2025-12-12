@@ -6,13 +6,14 @@ const SPECIAL_PROTOCOLS = ['chrome://', 'edge://', 'about:', 'chrome-extension:/
 // 初始化
 async function init() {
   console.log("[Popup] 初始化开始");
+  const isMac = /Mac/i.test(navigator.userAgent || '');
   
   try {
     // 检测当前页面状态
     await checkCurrentPageStatus();
     
     // 加载快捷键信息
-    await loadShortcutInfo();
+    await loadShortcutInfo(isMac);
     
     // 加载书签数量
     await loadBookmarkCount();
@@ -69,7 +70,7 @@ function setStatus(indicator, textElement, isSupported, text) {
 }
 
 // 加载快捷键信息
-async function loadShortcutInfo() {
+async function loadShortcutInfo(isMac) {
   try {
     const commands = await chrome.commands.getAll();
     const toggleCommand = commands.find(cmd => cmd.name === 'toggle-overlay');
@@ -78,8 +79,9 @@ async function loadShortcutInfo() {
     const footerHint = document.getElementById('footerHint');
     
     if (toggleCommand && toggleCommand.shortcut) {
+      const rawShortcut = toggleCommand.shortcut;
       // 替换快捷键中的特殊键名
-      const shortcut = toggleCommand.shortcut
+      const shortcut = rawShortcut
         .replace('Ctrl', 'Ctrl')
         .replace('Alt', 'Alt')
         .replace('Shift', 'Shift')
@@ -87,17 +89,26 @@ async function loadShortcutInfo() {
       
       shortcutElement.innerHTML = `<span class="kbd">${shortcut}</span>`;
       
-      // 检查是否包含 Space 键（浏览器不支持）
-      if (shortcut.includes('Space')) {
-        footerHint.innerHTML = '⚠️ <kbd class="kbd">' + shortcut + '</kbd> 不被浏览器支持，请在设置中修改为 <kbd class="kbd">Ctrl+Shift+Q</kbd>';
+      const lowerShortcut = rawShortcut.toLowerCase();
+      const isSpaceCombo = lowerShortcut.includes('space');
+      const isApprovedSpaceCombo = /command\+space|ctrl\+space/.test(lowerShortcut);
+      
+      if (isSpaceCombo && !isApprovedSpaceCombo) {
+        footerHint.innerHTML = isMac
+          ? `<div class="hint-line"><span class="hint-title">⚠️ 当前组合不被支持</span><span class="hint-sep">请改为</span><kbd class="kbd">Command+Space</kbd><span class="hint-sep">或</span><kbd class="kbd">Command+Shift+Q</kbd></div>`
+          : `<div class="hint-line"><span class="hint-title">⚠️ 当前组合不被支持</span><span class="hint-sep">请改为</span><kbd class="kbd">Ctrl+Shift+Q</kbd><span class="hint-sep">或</span><kbd class="kbd">Ctrl+Space</kbd></div>`;
       } else {
-        footerHint.innerHTML = `按 <kbd class="kbd">${shortcut}</kbd> 在任意页面快速搜索`;
+        footerHint.innerHTML = `<div class="hint-line">按 <kbd class="kbd">${shortcut}</kbd> 在任意页面快速搜索</div>`;
       }
       
       console.log("[Popup] 快捷键:", shortcut);
     } else {
       shortcutElement.innerHTML = '<span class="kbd">未设置</span>';
-      footerHint.innerHTML = '⚠️ 快捷键未设置，请在设置中配置（推荐：<kbd class="kbd">Ctrl+Shift+Q</kbd>）';
+      footerHint.innerHTML = isMac
+        ? `<div class="hint-title">⚠️ 快捷键未设置，请在设置中配置</div>
+           <div class="hint-line">推荐：<kbd class="kbd">Command+Space</kbd><span class="hint-sep">或</span><kbd class="kbd">Command+Shift+Q</kbd></div>`
+        : `<div class="hint-title">⚠️ 快捷键未设置，请在设置中配置</div>
+           <div class="hint-line">推荐：<kbd class="kbd">Ctrl+Shift+Q</kbd><span class="hint-sep">或</span><kbd class="kbd">Ctrl+Space</kbd></div>`;
       console.warn("[Popup] 未找到快捷键配置");
     }
   } catch (error) {

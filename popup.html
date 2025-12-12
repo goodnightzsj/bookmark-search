@@ -3,18 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>书签搜索</title>
+  <title>书签搜索 - 极速收藏夹管理与查找工具</title>
   <style>
     /* 基础重置和防闪烁 */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { width: 320px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; opacity: 0; transition: opacity 0.15s; }
     body.theme-ready { opacity: 1; }
+    /* 底部提示布局，避免多行时重叠 */
+    #footerHint {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: center;
+      line-height: 1.4;
+      align-items: center;
+    }
+    .hint-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .hint-title { font-weight: 600; }
+    .hint-sep { opacity: 0.8; }
+    #footerHint .kbd { margin: 0 2px; }
   </style>
 </head>
 <body data-page="popup">
   <div class="header">
-    <h1>书签搜索</h1>
-    <p class="subtitle">快速访问您的书签</p>
+    <h1>书签搜索 - 极速收藏夹管理与查找工具</h1>
+    <p class="subtitle">快速访问与管理您的书签</p>
   </div>
 
   <div class="content">
@@ -36,7 +55,7 @@
           快捷键
         </span>
         <span class="info-value" id="shortcut">
-          <span class="kbd">Ctrl+Space</span>
+          <span class="kbd">Ctrl+Space (Win/Linux) / Command+Space (Mac)</span>
         </span>
       </div>
 
