@@ -1,7 +1,98 @@
+import { formatRelativeTime, formatFutureTime, SPECIAL_PROTOCOLS } from './utils.js';
+import { ALARM_NAMES } from './constants.js';
+import { getStorage, getValue, STORAGE_KEYS } from './storage-service.js';
+
+// 常量定义
+const BUTTON_RESET_DELAY_MS = 1500;  // 按钮状态恢复延时
+
 console.log("[Popup] popup.js 开始加载");
 
-// 特殊页面协议列表
-const SPECIAL_PROTOCOLS = ['chrome://', 'edge://', 'about:', 'chrome-extension://', 'edge-extension://'];
+// 检测当前页面状态
+async function checkCurrentPageStatus() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab || !tab.url) {
+      setStatus('unknown', '无法获取页面信息');
+      return;
+    }
+    
+    // 检查是否为特殊页面
+    const isSpecialPage = SPECIAL_PROTOCOLS.some(protocol => tab.url.startsWith(protocol));
+    
+    if (isSpecialPage) {
+      setStatus('warning', '特殊页面（需在普通页面使用）');
+    } else {
+      setStatus('success', '可用');
+    }
+  } catch (error) {
+    console.error("[Popup] 检测页面状态失败:", error);
+    setStatus('error', '检测失败');
+  }
+}
+
+// 设置状态显示
+function setStatus(type, text) {
+  const indicator = document.getElementById('statusIndicator');
+  const statusText = document.getElementById('statusText');
+  
+  if (!indicator || !statusText) return;
+  
+  // 清除所有状态类
+  indicator.className = 'status-indicator';
+  
+  // 添加对应状态类
+  switch (type) {
+    case 'success':
+      indicator.classList.add('status-success');
+      break;
+    case 'warning':
+      indicator.classList.add('status-warning');
+      break;
+    case 'error':
+      indicator.classList.add('status-error');
+      break;
+    default:
+      indicator.classList.add('status-unknown');
+  }
+  
+  statusText.textContent = text;
+}
+
+// 加载快捷键信息
+async function loadShortcutInfo(isMac) {
+  try {
+    const commands = await chrome.commands.getAll();
+    const toggleCommand = commands.find(cmd => cmd.name === 'toggle-overlay');
+    
+    const shortcutElement = document.getElementById('shortcut');
+    if (!shortcutElement) return;
+    
+    // 清空旧内容
+    shortcutElement.textContent = '';
+    
+    if (toggleCommand && toggleCommand.shortcut) {
+      const kbd = document.createElement('span');
+      kbd.className = 'kbd';
+      kbd.textContent = toggleCommand.shortcut;
+      shortcutElement.appendChild(kbd);
+      console.log("[Popup] 当前快捷键:", toggleCommand.shortcut);
+    } else {
+      // 显示默认建议
+      const defaultKey = isMac ? 'Command+Space' : 'Ctrl+Space';
+      const kbd = document.createElement('span');
+      kbd.className = 'kbd';
+      kbd.textContent = defaultKey;
+      const hint = document.createElement('span');
+      hint.style.opacity = '0.7';
+      hint.textContent = ' (未设置)';
+      shortcutElement.appendChild(kbd);
+      shortcutElement.appendChild(hint);
+    }
+  } catch (error) {
+    console.error("[Popup] 加载快捷键失败:", error);
+  }
+}
 
 // 初始化
 async function init() {
@@ -23,6 +114,9 @@ async function init() {
     
     // 绑定事件
     bindEvents();
+
+    // 监听 storage 变化，保持展示信息最新
+    setupStorageListener();
     
     console.log("[Popup] 初始化完成");
   } catch (error) {
@@ -30,176 +124,52 @@ async function init() {
   }
 }
 
-// 检测当前页面状态
-async function checkCurrentPageStatus() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const statusIndicator = document.getElementById('statusIndicator');
-    const statusText = document.getElementById('statusText');
-    
-    if (!tab || !tab.url) {
-      setStatus(statusIndicator, statusText, false, '未知');
-      return;
-    }
-    
-    const isSpecialPage = SPECIAL_PROTOCOLS.some(protocol => tab.url.startsWith(protocol));
-    
-    if (isSpecialPage) {
-      setStatus(statusIndicator, statusText, false, '不支持');
-      console.log("[Popup] 当前是特殊页面，不支持搜索");
-    } else {
-      setStatus(statusIndicator, statusText, true, '支持');
-      console.log("[Popup] 当前页面支持搜索");
-    }
-  } catch (error) {
-    console.error("[Popup] 检测页面状态失败:", error);
-    setStatus(document.getElementById('statusIndicator'), document.getElementById('statusText'), false, '错误');
-  }
-}
-
-// 设置状态显示
-function setStatus(indicator, textElement, isSupported, text) {
-  if (isSupported) {
-    indicator.classList.add('active');
-    indicator.classList.remove('inactive');
-  } else {
-    indicator.classList.add('inactive');
-    indicator.classList.remove('active');
-  }
-  textElement.textContent = text;
-}
-
-// 加载快捷键信息
-async function loadShortcutInfo(isMac) {
-  try {
-    const commands = await chrome.commands.getAll();
-    const toggleCommand = commands.find(cmd => cmd.name === 'toggle-overlay');
-    
-    const shortcutElement = document.getElementById('shortcut');
-    const footerHint = document.getElementById('footerHint');
-    
-    if (toggleCommand && toggleCommand.shortcut) {
-      const rawShortcut = toggleCommand.shortcut;
-      // 替换快捷键中的特殊键名
-      const shortcut = rawShortcut
-        .replace('Ctrl', 'Ctrl')
-        .replace('Alt', 'Alt')
-        .replace('Shift', 'Shift')
-        .replace('Command', '⌘');
-      
-      shortcutElement.innerHTML = `<span class="kbd">${shortcut}</span>`;
-      
-      const lowerShortcut = rawShortcut.toLowerCase();
-      const isSpaceCombo = lowerShortcut.includes('space');
-      const isApprovedSpaceCombo = /command\+space|ctrl\+space/.test(lowerShortcut);
-      
-      if (isSpaceCombo && !isApprovedSpaceCombo) {
-        footerHint.innerHTML = isMac
-          ? `<div class="hint-line"><span class="hint-title">⚠️ 当前组合不被支持</span><span class="hint-sep">请改为</span><kbd class="kbd">Command+Space</kbd><span class="hint-sep">或</span><kbd class="kbd">Command+Shift+Q</kbd></div>`
-          : `<div class="hint-line"><span class="hint-title">⚠️ 当前组合不被支持</span><span class="hint-sep">请改为</span><kbd class="kbd">Ctrl+Shift+Q</kbd><span class="hint-sep">或</span><kbd class="kbd">Ctrl+Space</kbd></div>`;
-      } else {
-        footerHint.innerHTML = `<div class="hint-line">按 <kbd class="kbd">${shortcut}</kbd> 在任意页面快速搜索</div>`;
-      }
-      
-      console.log("[Popup] 快捷键:", shortcut);
-    } else {
-      shortcutElement.innerHTML = '<span class="kbd">未设置</span>';
-      footerHint.innerHTML = isMac
-        ? `<div class="hint-title">⚠️ 快捷键未设置，请在设置中配置</div>
-           <div class="hint-line">推荐：<kbd class="kbd">Command+Space</kbd><span class="hint-sep">或</span><kbd class="kbd">Command+Shift+Q</kbd></div>`
-        : `<div class="hint-title">⚠️ 快捷键未设置，请在设置中配置</div>
-           <div class="hint-line">推荐：<kbd class="kbd">Ctrl+Shift+Q</kbd><span class="hint-sep">或</span><kbd class="kbd">Ctrl+Space</kbd></div>`;
-      console.warn("[Popup] 未找到快捷键配置");
-    }
-  } catch (error) {
-    console.error("[Popup] 加载快捷键失败:", error);
-    document.getElementById('shortcut').innerHTML = '<span class="kbd">加载失败</span>';
-  }
-}
-
 // 加载书签数量
 async function loadBookmarkCount() {
+  const countElement = document.getElementById('bookmarkCount');
+  if (!countElement) return;
+  
   try {
-    const result = await chrome.storage.local.get(['bookmarks']);
-    const countElement = document.getElementById('bookmarkCount');
+    const bookmarks = await getValue(STORAGE_KEYS.BOOKMARKS);
     
-    if (result.bookmarks && Array.isArray(result.bookmarks)) {
-      const count = result.bookmarks.length;
-      countElement.textContent = count;
-      console.log("[Popup] 书签数量:", count);
-    } else {
-      countElement.textContent = '0';
-      console.warn("[Popup] 未找到书签数据");
-    }
+    const count = Array.isArray(bookmarks) ? bookmarks.length : 0;
+    countElement.textContent = count;
+    console.log("[Popup] 书签数量:", count);
   } catch (error) {
     console.error("[Popup] 加载书签数量失败:", error);
     document.getElementById('bookmarkCount').textContent = '!';
   }
 }
 
-// 格式化相对时间
-function formatRelativeTime(timestamp) {
-  if (!timestamp) return '从未';
-  
-  const now = Date.now();
-  const diff = now - timestamp;
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  
-  if (seconds < 60) return '刚刚';
-  if (minutes < 60) return `${minutes}分钟前`;
-  if (hours < 24) return `${hours}小时前`;
-  if (days < 7) return `${days}天前`;
-  
-  const date = new Date(timestamp);
-  return date.toLocaleDateString('zh-CN');
-}
 
-// 格式化未来时间
-function formatFutureTime(timestamp) {
-  if (!timestamp) return '未知';
-  
-  const now = Date.now();
-  const diff = timestamp - now;
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  
-  if (diff < 0) return '即将';
-  if (minutes < 1) return '1分钟内';
-  if (minutes < 60) return `${minutes}分钟后`;
-  if (hours < 24) return `${hours}小时后`;
-  
-  const date = new Date(timestamp);
-  return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
 
 // 加载同步时间信息
 async function loadSyncTimes() {
   try {
-    const result = await chrome.storage.local.get(['lastSyncTime', 'syncInterval']);
+    const result = await getStorage([STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.SYNC_INTERVAL]);
     const lastSyncElement = document.getElementById('lastSyncTime');
     const nextSyncElement = document.getElementById('nextSyncTime');
     
+    const lastSyncTime = result[STORAGE_KEYS.LAST_SYNC_TIME];
+    const syncInterval = result[STORAGE_KEYS.SYNC_INTERVAL];
+
     // 显示最后同步时间
-    if (result.lastSyncTime) {
-      lastSyncElement.textContent = formatRelativeTime(result.lastSyncTime);
-      console.log("[Popup] 最后同步:", new Date(result.lastSyncTime).toLocaleString());
+    if (lastSyncTime) {
+      lastSyncElement.textContent = formatRelativeTime(lastSyncTime);
+      console.log("[Popup] 最后同步:", new Date(lastSyncTime).toLocaleString());
     } else {
       lastSyncElement.textContent = '从未';
     }
     
     // 计算并显示下次同步时间
-    if (result.lastSyncTime && result.syncInterval) {
-      const nextSyncTime = result.lastSyncTime + (result.syncInterval * 60 * 1000);
+    if (lastSyncTime && syncInterval) {
+      const nextSyncTime = lastSyncTime + (syncInterval * 60 * 1000);
       nextSyncElement.textContent = formatFutureTime(nextSyncTime);
       console.log("[Popup] 下次同步:", new Date(nextSyncTime).toLocaleString());
     } else {
       // 如果没有最后同步时间，获取alarm信息
       const alarms = await chrome.alarms.getAll();
-      const syncAlarm = alarms.find(alarm => alarm.name === 'syncBookmarks');
+      const syncAlarm = alarms.find(alarm => alarm.name === ALARM_NAMES.SYNC_BOOKMARKS);
       
       if (syncAlarm && syncAlarm.scheduledTime) {
         nextSyncElement.textContent = formatFutureTime(syncAlarm.scheduledTime);
@@ -226,32 +196,45 @@ function bindEvents() {
   document.getElementById('refreshBookmarks').addEventListener('click', async () => {
     console.log("[Popup] 刷新书签");
     const btn = document.getElementById('refreshBookmarks');
-    const originalText = btn.innerHTML;
+    const label = btn.querySelector('.btn-text');
+    const originalText = label ? label.textContent : '';
     
-    btn.innerHTML = '<span class="icon">⏳</span> 刷新中...';
+    if (label) label.textContent = '刷新中...';
     btn.disabled = true;
     
     try {
       // 发送消息给 background 刷新书签
-      await chrome.runtime.sendMessage({ action: 'refreshBookmarks' });
+      const result = await chrome.runtime.sendMessage({ action: 'refreshBookmarks' });
+      if (result && result.success === false && !result.skipped) {
+        throw new Error(result.error || '刷新失败');
+      }
       
       // 重新加载书签数量和同步时间
       await loadBookmarkCount();
       await loadSyncTimes();
       
-      btn.innerHTML = '<span class="icon">✓</span> 刷新成功';
+      if (label) label.textContent = '刷新成功';
       setTimeout(() => {
-        btn.innerHTML = originalText;
+        if (label) label.textContent = originalText;
         btn.disabled = false;
-      }, 1500);
+      }, BUTTON_RESET_DELAY_MS);
     } catch (error) {
       console.error("[Popup] 刷新书签失败:", error);
-      btn.innerHTML = '<span class="icon">✗</span> 刷新失败';
+      if (label) label.textContent = '刷新失败';
       setTimeout(() => {
-        btn.innerHTML = originalText;
+        if (label) label.textContent = originalText;
         btn.disabled = false;
-      }, 1500);
+      }, BUTTON_RESET_DELAY_MS);
     }
+  });
+}
+
+// 监听存储变化（当 popup 打开时自动刷新显示）
+function setupStorageListener() {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    if (changes.bookmarks) loadBookmarkCount();
+    if (changes.lastSyncTime || changes.syncInterval) loadSyncTimes();
   });
 }
 

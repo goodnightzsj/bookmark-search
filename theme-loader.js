@@ -1,33 +1,13 @@
-// 主题加载器
-const THEMES = {
-  original: { name: '经典渐变', preview: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-  minimal: { name: '极简白', preview: '#ffffff' },
-  glass: { name: '毛玻璃', preview: 'linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%)' },
-  dark: { name: '深色', preview: '#0a0a0a' }
-};
+import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme } from './theme-service.js';
 
-const DEFAULT_THEME = 'original';
-const THEME_CACHE_KEY = 'bookmark-search-theme';
+// 重新导出 getCurrentTheme 供外部使用
+export { getCurrentTheme };
 
-// 获取当前主题
-async function getCurrentTheme() {
-  try {
-    const result = await chrome.storage.local.get(['theme']);
-    const theme = result.theme || DEFAULT_THEME;
-    // 同步到 localStorage 作为缓存（用于快速加载）
-    localStorage.setItem(THEME_CACHE_KEY, theme);
-    return theme;
-  } catch (e) {
-    return localStorage.getItem(THEME_CACHE_KEY) || DEFAULT_THEME;
-  }
-}
-
-// 设置主题
-async function setTheme(themeName) {
+// 设置并应用主题
+export async function setTheme(themeName) {
   if (!THEMES[themeName]) themeName = DEFAULT_THEME;
-  // 同时保存到 storage 和 localStorage
-  localStorage.setItem(THEME_CACHE_KEY, themeName);
-  await chrome.storage.local.set({ theme: themeName });
+  // 保存设置（委托给 theme-service）
+  await saveTheme(themeName);
   applyTheme(themeName);
 }
 
@@ -47,6 +27,7 @@ function applyTheme(themeName) {
   }
   
   // 如果当前已经有主题CSS（说明不是第一次加载，而是切换），则刷新页面
+  // TODO [技术债]: 考虑使用 CSS 变量或动态替换 <link> href 实现无刷新切换
   if (currentLink) {
     // 先更新缓存，确保刷新后加载新主题
     localStorage.setItem(THEME_CACHE_KEY, themeName);
@@ -104,10 +85,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     applyTheme(changes.theme.newValue);
   }
 });
-
-// 暴露给全局作用域，供 settings.js 调用
-window.getCurrentTheme = getCurrentTheme;
-window.setTheme = setTheme;
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', initTheme);

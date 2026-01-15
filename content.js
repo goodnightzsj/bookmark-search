@@ -1,26 +1,33 @@
 // 防止重复加载 - 使用IIFE包装
 (function() {
-  // 检查是否已加载
-  if (window.__BOOKMARK_SEARCH_LOADED__) {
+  // 检查是否已加载/正在加载
+  if (window.__BOOKMARK_SEARCH_LOADED__ || window.__BOOKMARK_SEARCH_LOADING__) {
     console.log("[Content] content.js 已经加载过，跳过重复执行");
     return;
   }
   
   console.log("[Content] content.js 开始加载");
-  window.__BOOKMARK_SEARCH_LOADED__ = true;
+  window.__BOOKMARK_SEARCH_LOADING__ = true;
 
-let searchContainer = null;
-let searchOverlay = null;
-let searchInput = null;
-let resultsContainer = null;
-let bookmarks = [];
-let filteredResults = [];
-let selectedIndex = -1;
-let searchDebounceTimer = null;
+  let searchContainer = null;
+  let searchOverlay = null;
+  let searchInput = null;
+  let resultsContainer = null;
+	  let bookmarks = [];
+	  let filteredResults = [];
+	  let selectedIndex = -1;
+	  let searchDebounceTimer = null;
+	  let backgroundSearchToken = 0;
+
+  try {
 
 // 创建搜索界面
 function createSearchUI() {
   console.log("[Content] createSearchUI 被调用");
+
+  if (!document.body) {
+    throw new Error('document.body not ready');
+  }
   
   // 创建背景遮罩
   searchOverlay = document.createElement("div");
@@ -82,7 +89,24 @@ function createSearchUI() {
 // 显示搜索界面
 function showSearch() {
   console.log("[Content] showSearch 被调用");
-  
+
+  if (!document.body) {
+    console.log("[Content] document.body 未就绪，等待 DOMContentLoaded 后再显示");
+    document.addEventListener('DOMContentLoaded', showSearch, { once: true });
+    return;
+  }
+
+  // 若之前创建失败导致元素未挂载到 DOM，则重置并重建
+  if (searchOverlay && !document.body.contains(searchOverlay)) {
+    try { searchOverlay.remove(); } catch (e) {}
+    searchContainer = null;
+    searchOverlay = null;
+    searchInput = null;
+    resultsContainer = null;
+    filteredResults = [];
+    selectedIndex = -1;
+  }
+
   if (!searchOverlay) {
     console.log("[Content] searchOverlay 不存在，创建UI");
     createSearchUI();
@@ -105,8 +129,8 @@ function hideSearch() {
   }
   
   searchOverlay.style.display = "none";
-  searchInput.value = "";
-  resultsContainer.innerHTML = "";
+  if (searchInput) searchInput.value = "";
+  if (resultsContainer) resultsContainer.innerHTML = "";
   filteredResults = [];
   selectedIndex = -1;
   console.log("[Content] 搜索框已隐藏");
@@ -178,30 +202,85 @@ function updateSelection() {
   });
 }
 
-// 防抖搜索
-function handleSearchDebounced(e) {
-  clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(() => {
-    handleSearch(e.target.value);
-  }, 200);
-}
+	// 防抖搜索
+	function handleSearchDebounced(e) {
+	  clearTimeout(searchDebounceTimer);
+	  searchDebounceTimer = setTimeout(() => {
+	    handleSearch(e.target.value);
+	  }, 200);
+	}
 
-// 处理搜索
-function handleSearch(query) {
-  const queryLower = query.toLowerCase();
-  
-  if (!queryLower.trim()) {
-    filteredResults = [];
-    resultsContainer.innerHTML = "";
-    selectedIndex = -1;
-    return;
-  }
+	function sendMessagePromise(message) {
+	  return new Promise((resolve, reject) => {
+	    try {
+	      chrome.runtime.sendMessage(message, (response) => {
+	        const lastError = chrome.runtime && chrome.runtime.lastError;
+	        if (lastError) {
+	          reject(lastError);
+	          return;
+	        }
+	        resolve(response);
+	      });
+	    } catch (error) {
+	      reject(error);
+	    }
+	  });
+	}
 
-  filteredResults = bookmarks.filter(
-    (bookmark) =>
-      bookmark.title.toLowerCase().includes(queryLower) ||
-      bookmark.url.toLowerCase().includes(queryLower)
-  ).slice(0, 10); // 限制显示前10个结果
+	async function searchBookmarksInBackground(query) {
+	  const token = ++backgroundSearchToken;
+
+	  try {
+	    const response = await sendMessagePromise({ action: 'searchBookmarks', query });
+	    if (token !== backgroundSearchToken) return;
+
+	    if (!response || response.success === false) {
+	      throw new Error((response && response.error) || 'Search failed');
+	    }
+
+	    const results = Array.isArray(response.results) ? response.results : [];
+	    filteredResults = results.slice(0, 10);
+	    selectedIndex = filteredResults.length > 0 ? 0 : -1;
+	    displayResults(filteredResults);
+	  } catch (error) {
+	    if (token !== backgroundSearchToken) return;
+
+	    console.error("[Content] 后台搜索失败:", error);
+	    filteredResults = [];
+	    selectedIndex = -1;
+	    resultsContainer.innerHTML = "";
+
+	    const emptyMsg = document.createElement("div");
+	    emptyMsg.className = "bookmark-empty";
+	    emptyMsg.textContent = "搜索失败，请重试";
+	    resultsContainer.appendChild(emptyMsg);
+	  }
+	}
+
+	// 处理搜索
+	function handleSearch(query) {
+	  const rawQuery = String(query || '').trim();
+	  const queryLower = rawQuery.toLowerCase();
+	  
+	  if (!rawQuery) {
+	    filteredResults = [];
+	    resultsContainer.innerHTML = "";
+	    selectedIndex = -1;
+	    return;
+	  }
+
+	  if (!Array.isArray(bookmarks) || bookmarks.length === 0) {
+	    searchBookmarksInBackground(rawQuery);
+	    return;
+	  }
+
+	  filteredResults = bookmarks
+	    .filter((bookmark) => {
+	      const title = String((bookmark && bookmark.title) || '').toLowerCase();
+	      const url = String((bookmark && bookmark.url) || '').toLowerCase();
+      return title.includes(queryLower) || url.includes(queryLower);
+    })
+    .slice(0, 10); // 限制显示前10个结果
 
   selectedIndex = filteredResults.length > 0 ? 0 : -1;
   displayResults(filteredResults);
@@ -228,9 +307,7 @@ function displayResults(results) {
 
     const favicon = document.createElement("img");
     favicon.className = "bookmark-favicon";
-    favicon.src = `https://www.google.com/s2/favicons?domain=${
-      new URL(bookmark.url).hostname
-    }`;
+    favicon.src = chrome.runtime.getURL(`_favicon/?pageUrl=${encodeURIComponent(bookmark.url)}&size=32`);
     favicon.onerror = () => {
       favicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23999' d='M8 0a8 8 0 100 16A8 8 0 008 0z'/%3E%3C/svg%3E";
     };
@@ -269,10 +346,14 @@ function displayResults(results) {
 
 // 打开书签
 function openBookmark(bookmark, newTab = true) {
+  const url = bookmark && bookmark.url ? String(bookmark.url) : '';
+  if (!url) return;
+
   if (newTab) {
-    window.open(bookmark.url, "_blank");
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (opened) opened.opener = null;
   } else {
-    window.location.href = bookmark.url;
+    window.location.href = url;
   }
   hideSearch();
 }
@@ -282,14 +363,26 @@ function loadBookmarks() {
   console.log("[Content] loadBookmarks 被调用");
   
   chrome.storage.local.get(["bookmarks"], (result) => {
-    if (result.bookmarks) {
-      bookmarks = result.bookmarks;
+    const nextBookmarks = result.bookmarks;
+    bookmarks = Array.isArray(nextBookmarks) ? nextBookmarks : [];
+
+    if (bookmarks.length > 0) {
       console.log("[Content] 书签数据已加载，数量:", bookmarks.length);
     } else {
       console.warn("[Content] 未找到书签数据");
     }
   });
 }
+
+// 监听书签数据变化（避免页面驻留时数据过期）
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (!changes.bookmarks) return;
+
+  const nextBookmarks = changes.bookmarks.newValue;
+  bookmarks = Array.isArray(nextBookmarks) ? nextBookmarks : [];
+  console.log("[Content] 书签数据已更新，数量:", bookmarks.length);
+});
 
 // 监听来自background的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -317,22 +410,44 @@ function init() {
   console.log("[Content] init 被调用");
   
   // 防止重复初始化
-  if (searchOverlay) {
+  if (searchOverlay && (!document.body || document.body.contains(searchOverlay))) {
     console.log("[Content] 已经初始化过，跳过");
     return;
   }
-  
+
+  if (!document.body) {
+    console.log("[Content] document.body 未就绪，等待 DOMContentLoaded 后再初始化");
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+    return;
+  }
+
   try {
     createSearchUI();
     loadBookmarks();
     console.log("[Content] 初始化完成");
   } catch (error) {
     console.error("[Content] 初始化失败:", error);
+    try { if (searchOverlay) searchOverlay.remove(); } catch (e) {}
+    searchContainer = null;
+    searchOverlay = null;
+    searchInput = null;
+    resultsContainer = null;
+    filteredResults = [];
+    selectedIndex = -1;
   }
 }
 
   console.log("[Content] 准备调用 init");
   init();
+
+  // Mark loaded after all listeners are registered and init is attempted.
+  window.__BOOKMARK_SEARCH_LOADED__ = true;
   console.log("[Content] content.js 加载完成");
+
+  } catch (error) {
+    console.error("[Content] content.js 加载失败:", error);
+  } finally {
+    window.__BOOKMARK_SEARCH_LOADING__ = false;
+  }
 
 })(); // 结束 IIFE
