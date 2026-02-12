@@ -46,11 +46,27 @@ export function flattenBookmarksTree(nodes, parentPath = '', resultList = []) {
  */
 export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
   const changes = [];
-  const oldMap = new Map((oldList || []).map(b => [b.id, b]));
-  const newMap = new Map((newList || []).map(b => [b.id, b]));
+
+  // 直接构造 Map，避免 .map() 创建中间数组
+  const oldMap = new Map();
+  const oldItems = oldList || [];
+  for (let i = 0; i < oldItems.length; i++) {
+    const b = oldItems[i];
+    if (b && b.id) oldMap.set(b.id, b);
+  }
+
+  const newMap = new Map();
+  const newItems = newList || [];
+  for (let i = 0; i < newItems.length; i++) {
+    const b = newItems[i];
+    if (b && b.id) newMap.set(b.id, b);
+  }
 
   // Add / Move / Edit
-  (newList || []).forEach((newItem) => {
+  for (let i = 0; i < newItems.length; i++) {
+    const newItem = newItems[i];
+    if (!newItem) continue;
+
     const oldItem = oldMap.get(newItem.id);
     if (!oldItem) {
       changes.push({
@@ -60,7 +76,7 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
         path: newItem.path,
         timestamp: now()
       });
-      return;
+      continue;
     }
 
     if (oldItem.path !== newItem.path) {
@@ -72,7 +88,7 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
         newPath: newItem.path,
         timestamp: now()
       });
-      return;
+      continue;
     }
 
     if (oldItem.title !== newItem.title || oldItem.url !== newItem.url) {
@@ -86,10 +102,13 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
         timestamp: now()
       });
     }
-  });
+  }
 
   // Delete
-  (oldList || []).forEach((oldItem) => {
+  for (let i = 0; i < oldItems.length; i++) {
+    const oldItem = oldItems[i];
+    if (!oldItem) continue;
+
     if (!newMap.has(oldItem.id)) {
       changes.push({
         action: HISTORY_ACTIONS.DELETE,
@@ -99,7 +118,7 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
         timestamp: now()
       });
     }
-  });
+  }
 
   return changes;
 }

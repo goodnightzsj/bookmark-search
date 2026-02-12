@@ -66,6 +66,45 @@ export async function idbGet(key) {
   });
 }
 
+export async function idbGetMany(keys) {
+  const keyList = Array.isArray(keys)
+    ? Array.from(new Set(keys.filter((key) => typeof key === 'string' && key)))
+    : [];
+
+  if (keyList.length === 0) return {};
+
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const output = {};
+    let settled = false;
+
+    tx.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      resolve(output);
+    };
+    tx.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(tx.error || new Error('IndexedDB transaction failed'));
+    };
+    tx.onabort = () => {
+      if (settled) return;
+      settled = true;
+      reject(tx.error || new Error('IndexedDB transaction aborted'));
+    };
+
+    keyList.forEach((key) => {
+      const req = store.get(key);
+      req.onsuccess = () => {
+        output[key] = req.result ? req.result.value : undefined;
+      };
+    });
+  });
+}
+
 export async function idbSet(key, value) {
   const db = await getDb();
   return new Promise((resolve, reject) => {
@@ -77,6 +116,28 @@ export async function idbSet(key, value) {
     tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
 
     store.put({ key, value });
+  });
+}
+
+export async function idbSetMany(entries) {
+  const items = Array.isArray(entries)
+    ? entries.filter((item) => item && typeof item.key === 'string' && item.key)
+    : [];
+
+  if (items.length === 0) return true;
+
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
+    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+
+    for (const item of items) {
+      store.put({ key: item.key, value: item.value });
+    }
   });
 }
 

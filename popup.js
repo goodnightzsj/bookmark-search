@@ -1,5 +1,5 @@
 import { formatRelativeTime, formatFutureTime, SPECIAL_PROTOCOLS } from './utils.js';
-import { ALARM_NAMES } from './constants.js';
+import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { getStorage, getValue, STORAGE_KEYS } from './storage-service.js';
 
 // 常量定义
@@ -98,26 +98,22 @@ async function loadShortcutInfo(isMac) {
 async function init() {
   console.log("[Popup] 初始化开始");
   const isMac = /Mac/i.test(navigator.userAgent || '');
-  
+
   try {
-    // 检测当前页面状态
-    await checkCurrentPageStatus();
-    
-    // 加载快捷键信息
-    await loadShortcutInfo(isMac);
-    
-    // 加载书签数量
-    await loadBookmarkCount();
-    
-    // 加载同步时间信息
-    await loadSyncTimes();
-    
+    // 并行加载各模块数据（互不依赖）
+    await Promise.all([
+      checkCurrentPageStatus(),
+      loadShortcutInfo(isMac),
+      loadBookmarkCount(),
+      loadSyncTimes()
+    ]);
+
     // 绑定事件
     bindEvents();
 
     // 监听 storage 变化，保持展示信息最新
     setupStorageListener();
-    
+
     console.log("[Popup] 初始化完成");
   } catch (error) {
     console.error("[Popup] 初始化失败:", error);
@@ -130,9 +126,8 @@ async function loadBookmarkCount() {
   if (!countElement) return;
   
   try {
-    const bookmarks = await getValue(STORAGE_KEYS.BOOKMARKS);
-    
-    const count = Array.isArray(bookmarks) ? bookmarks.length : 0;
+    const countValue = await getValue(STORAGE_KEYS.BOOKMARK_COUNT);
+    const count = (typeof countValue === 'number' && Number.isFinite(countValue)) ? countValue : 0;
     countElement.textContent = count;
     console.log("[Popup] 书签数量:", count);
   } catch (error) {
@@ -204,14 +199,13 @@ function bindEvents() {
     
     try {
       // 发送消息给 background 刷新书签
-      const result = await chrome.runtime.sendMessage({ action: 'refreshBookmarks' });
+      const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS });
       if (result && result.success === false && !result.skipped) {
         throw new Error(result.error || '刷新失败');
       }
       
-      // 重新加载书签数量和同步时间
-      await loadBookmarkCount();
-      await loadSyncTimes();
+      // 并行重新加载书签数量和同步时间
+      await Promise.all([loadBookmarkCount(), loadSyncTimes()]);
       
       if (label) label.textContent = '刷新成功';
       setTimeout(() => {
@@ -233,7 +227,7 @@ function bindEvents() {
 function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-    if (changes.bookmarks) loadBookmarkCount();
+    if (changes.bookmarkCount || changes.bookmarks) loadBookmarkCount();
     if (changes.lastSyncTime || changes.syncInterval) loadSyncTimes();
   });
 }

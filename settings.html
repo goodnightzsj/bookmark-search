@@ -117,6 +117,21 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label">Favicon 缓存大小</label>
+          <select id="faviconCacheSize" class="form-input">
+            <option value="500">500 条</option>
+            <option value="1000">1000 条</option>
+            <option value="2000" selected>2000 条（推荐）</option>
+            <option value="5000">5000 条</option>
+            <option value="10000">10000 条</option>
+          </select>
+          <p class="help-text">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12c.6.5 1 1.4 1 2.3V18h6v-1.7c0-.9.4-1.8 1-2.3A7 7 0 0012 2z"/></svg></span>
+            <span>内存中缓存的网站图标数量，数值越大搜索时图标加载越快，但占用内存越多</span>
+          </p>
+        </div>
+
+        <div class="form-group">
           <div style="display: flex; gap: 12px; font-size: 13px;">
             <div style="flex: 1;">
               <p style="margin-bottom: 4px; opacity: 0.7;">最后同步时间</p>

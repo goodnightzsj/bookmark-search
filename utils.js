@@ -67,14 +67,18 @@ export function formatFutureTime(timestamp) {
  * @param {*} text - 需要转义的文本
  * @returns {string} 转义后的安全字符串
  */
+const HTML_ESCAPE_MAP = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#039;'
+};
+const HTML_ESCAPE_REGEX = /[&<>"']/g;
+
 export function escapeHtml(text) {
   if (text == null) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  return String(text).replace(HTML_ESCAPE_REGEX, char => HTML_ESCAPE_MAP[char]);
 }
 
 /**
@@ -85,3 +89,36 @@ export const formatTime = formatRelativeTime;
 
 // 特殊页面协议列表
 export const SPECIAL_PROTOCOLS = ['chrome://', 'edge://', 'about:', 'chrome-extension://', 'edge-extension://'];
+
+/**
+ * 提取根域名（用于 favicon 缓存键）
+ * @param {string} domain - 域名
+ * @returns {string} 根域名
+ */
+export function getRootDomain(domain) {
+  const safe = typeof domain === 'string' ? domain.trim() : '';
+  if (!safe) return '';
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return safe;
+  if (safe === 'localhost') return safe;
+  if (safe.indexOf('.') === -1) return safe;
+
+  const parts = safe.split('.');
+  if (parts.length <= 2) return safe;
+  return parts.slice(-2).join('.');
+}
+
+/**
+ * 从 URL 提取主机名
+ * @param {string} url - URL
+ * @returns {string} 主机名
+ */
+export function getHostnameFromUrl(url) {
+  const safe = typeof url === 'string' ? url.trim() : '';
+  if (!safe) return '';
+  try {
+    const u = new URL(safe);
+    return u && u.hostname ? u.hostname : '';
+  } catch (error) {
+    return '';
+  }
+}

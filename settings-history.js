@@ -1,13 +1,15 @@
 import { formatTime, escapeHtml } from './utils.js';
-import { HISTORY_ACTIONS } from './constants.js';
+import { HISTORY_ACTIONS, MESSAGE_ACTIONS } from './constants.js';
 import { generateNetscapeBookmarkFile } from './bookmark-export.js';
-import { getStorage, setValue, STORAGE_KEYS } from './storage-service.js';
+import { getStorage, STORAGE_KEYS } from './storage-service.js';
 
 // 状态变量
 let exportMode = false;
 // Store stable keys (not indices) to avoid selection shifting when list re-sorts/updates
 let selectedItems = new Set();
 let currentHistory = [];
+// 缓存 DOM 引用，避免重复 querySelectorAll
+let cachedSelectableItems = null;
 
 /**
  * 加载更新历史
@@ -76,6 +78,9 @@ export async function loadUpdateHistory() {
         `;
       }).join('');
 
+      // DOM 已重建，清除缓存的 DOM 引用
+      cachedSelectableItems = null;
+
       // 绑定选择事件
       if (exportMode) {
         bindSelectionEvents();
@@ -84,6 +89,7 @@ export async function loadUpdateHistory() {
       console.log("[Settings] 加载了 %d 条历史记录", history.length);
     } else {
       currentHistory = [];
+      cachedSelectableItems = null; // 清除缓存
       historyCount.textContent = '0';
       historyList.innerHTML = `
         <div class="empty-state">
@@ -117,7 +123,11 @@ export function bindHistoryEvents() {
       }
 
       try {
-        await setValue(STORAGE_KEYS.BOOKMARK_HISTORY, []);
+        // 通知 background 清空历史（同步内存和存储）
+        const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_HISTORY });
+        if (result && result.success === false) {
+          throw new Error(result.error || '清空失败');
+        }
         await loadUpdateHistory();
         console.log("[Settings] 历史记录已清空");
       } catch (error) {
@@ -223,9 +233,17 @@ function getActionText(action) {
   return texts[action] || action;
 }
 
+// 获取可选择的历史项（带缓存）
+function getSelectableItems() {
+  if (!cachedSelectableItems) {
+    cachedSelectableItems = document.querySelectorAll('.history-item.selectable');
+  }
+  return cachedSelectableItems;
+}
+
 // 绑定选择事件
 function bindSelectionEvents() {
-  const historyItems = document.querySelectorAll('.history-item.selectable');
+  const historyItems = getSelectableItems();
   historyItems.forEach(item => {
     item.addEventListener('click', (e) => {
       // 如果点击的是checkbox本身，不需要额外处理
@@ -234,7 +252,7 @@ function bindSelectionEvents() {
         toggleSelection(index);
         return;
       }
-      
+
       // 点击整行也可以选择
       const index = parseInt(item.dataset.index);
       toggleSelection(index);
@@ -258,12 +276,13 @@ function toggleSelection(index) {
 function updateSelectionUI() {
   // 更新选中计数
   document.getElementById('selectInfo').textContent = `已选择 ${selectedItems.size} 条`;
-  
-  // 更新每个item的选中状态
-  document.querySelectorAll('.history-item.selectable').forEach(item => {
+
+  // 更新每个item的选中状态（使用缓存的 DOM 引用）
+  const items = getSelectableItems();
+  items.forEach(item => {
     const index = parseInt(item.dataset.index);
     const checkbox = item.querySelector('.history-checkbox');
-    
+
     const historyItem = currentHistory[index];
     const selected = historyItem ? selectedItems.has(getHistoryItemKey(historyItem)) : false;
 

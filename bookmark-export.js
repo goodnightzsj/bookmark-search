@@ -25,26 +25,24 @@ function buildFolderTree(bookmarks) {
   return root;
 }
 
-function renderTree(node, indent, timestampSec) {
-  let out = '';
-
+function renderTree(node, indent, timestampSec, parts = []) {
   // Folders first
   const folderNames = Array.from(node.children.keys()).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   for (const folderName of folderNames) {
     const child = node.children.get(folderName);
-    out += `${indent}<DT><H3 ADD_DATE="${timestampSec}" LAST_MODIFIED="${timestampSec}">${escapeHtml(folderName)}</H3>\n`;
-    out += `${indent}<DL><p>\n`;
-    out += renderTree(child, indent + '    ', timestampSec);
-    out += `${indent}</DL><p>\n`;
+    parts.push(`${indent}<DT><H3 ADD_DATE="${timestampSec}" LAST_MODIFIED="${timestampSec}">${escapeHtml(folderName)}</H3>\n`);
+    parts.push(`${indent}<DL><p>\n`);
+    renderTree(child, indent + '    ', timestampSec, parts);
+    parts.push(`${indent}</DL><p>\n`);
   }
 
   // Then bookmarks
   for (const bookmark of node.bookmarks) {
     const addDate = Math.floor(((bookmark.timestamp || Date.now())) / 1000);
-    out += `${indent}<DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`;
+    parts.push(`${indent}<DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`);
   }
 
-  return out;
+  return parts;
 }
 
 // Generate Netscape bookmark file format.
@@ -64,7 +62,8 @@ export function generateNetscapeBookmarkFile(bookmarks, { now = Date.now } = {})
     <DL><p>
 `;
 
-  content += renderTree(tree, '        ', timestampSec);
+  const treeParts = renderTree(tree, '        ', timestampSec);
+  content += treeParts.join('');
 
   content += `    </DL><p>
 </DL><p>

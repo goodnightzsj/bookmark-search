@@ -3,6 +3,17 @@ import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme } fr
 // 重新导出 getCurrentTheme 供外部使用
 export { getCurrentTheme };
 
+let themeLoadToken = 0;
+// 缓存 theme selector DOM 引用，避免重复查询
+let cachedThemeOptions = null;
+
+function getThemeOptions() {
+  if (!cachedThemeOptions) {
+    cachedThemeOptions = document.querySelectorAll('.theme-option');
+  }
+  return cachedThemeOptions;
+}
+
 // 设置并应用主题
 export async function setTheme(themeName) {
   if (!THEMES[themeName]) themeName = DEFAULT_THEME;
@@ -15,9 +26,14 @@ export async function setTheme(themeName) {
 function applyTheme(themeName) {
   const page = document.body.dataset.page || 'popup';
   const expectedHref = `themes/${page}-${themeName}.css`;
-  
+
   const currentLink = document.getElementById('theme-css');
-  
+  const token = ++themeLoadToken;
+  const markReady = () => {
+    if (token !== themeLoadToken) return;
+    document.body.classList.add('theme-ready');
+  };
+
   // 检查是否已经是当前主题（防止初始化时重复加载或刷新）
   if (currentLink && currentLink.href.includes(expectedHref)) {
     // 即使是当前主题，也要确保 body class 正确
@@ -25,13 +41,15 @@ function applyTheme(themeName) {
     updateThemeSelector(themeName);
     return;
   }
-  
-  // 如果当前已经有主题CSS（说明不是第一次加载，而是切换），则刷新页面
-  // TODO [技术债]: 考虑使用 CSS 变量或动态替换 <link> href 实现无刷新切换
+
+  // 如果当前已经有主题CSS（说明不是第一次加载，而是切换），则直接替换 href
   if (currentLink) {
-    // 先更新缓存，确保刷新后加载新主题
+    currentLink.onload = markReady;
+    currentLink.href = expectedHref;
+
+    // 更新缓存
     localStorage.setItem(THEME_CACHE_KEY, themeName);
-    location.reload();
+    updateThemeSelector(themeName);
     return;
   }
 
@@ -40,20 +58,19 @@ function applyTheme(themeName) {
   link.id = 'theme-css';
   link.rel = 'stylesheet';
   link.href = expectedHref;
-  
-  link.onload = () => {
-    document.body.classList.add('theme-ready');
-  };
-  
+
+  link.onload = markReady;
+
   document.head.appendChild(link);
-  
+
   // 更新 localStorage 缓存
   localStorage.setItem(THEME_CACHE_KEY, themeName);
   updateThemeSelector(themeName);
 }
 
 function updateThemeSelector(themeName) {
-  document.querySelectorAll('.theme-option').forEach(el => {
+  const options = getThemeOptions();
+  options.forEach(el => {
     el.classList.toggle('active', el.dataset.theme === themeName);
   });
 }
@@ -65,17 +82,15 @@ async function initTheme() {
   const currentLink = document.getElementById('theme-css');
   const page = document.body.dataset.page || 'popup';
   const expectedHref = `themes/${page}-${theme}.css`;
-  
+
   if (!currentLink || !currentLink.href.endsWith(expectedHref)) {
     applyTheme(theme);
   } else {
     document.body.classList.add('theme-ready');
   }
-  
+
   // 更新主题选择器UI
-  document.querySelectorAll('.theme-option').forEach(el => {
-    el.classList.toggle('active', el.dataset.theme === theme);
-  });
+  updateThemeSelector(theme);
 }
 
 // 监听主题变化（跨页面同步）

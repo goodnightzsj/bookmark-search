@@ -6,19 +6,23 @@
 // 存储键名常量
 export const STORAGE_KEYS = {
   BOOKMARKS: 'bookmarks',
+  BOOKMARK_COUNT: 'bookmarkCount',
   BOOKMARK_HISTORY: 'bookmarkHistory',
   LAST_SYNC_TIME: 'lastSyncTime',
   SYNC_INTERVAL: 'syncInterval',
-  THEME: 'theme'
+  THEME: 'theme',
+  FAVICON_CACHE_SIZE: 'faviconCacheSize'
 };
 
 // 默认值
 const DEFAULTS = {
   [STORAGE_KEYS.BOOKMARKS]: [],
+  [STORAGE_KEYS.BOOKMARK_COUNT]: 0,
   [STORAGE_KEYS.BOOKMARK_HISTORY]: [],
   [STORAGE_KEYS.LAST_SYNC_TIME]: null,
   [STORAGE_KEYS.SYNC_INTERVAL]: 30,
-  [STORAGE_KEYS.THEME]: 'original'
+  [STORAGE_KEYS.THEME]: 'original',
+  [STORAGE_KEYS.FAVICON_CACHE_SIZE]: 2000
 };
 
 /**

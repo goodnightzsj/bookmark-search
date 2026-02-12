@@ -15,8 +15,8 @@ export async function loadShortcutInfo() {
       shortcutInput.value = toggleCommand.shortcut;
       console.log("[Settings] 当前快捷键:", toggleCommand.shortcut);
 
-      // 检测快捷键冲突
-      await checkShortcutConflicts(toggleCommand.shortcut);
+      // 检测快捷键冲突（传入已获取的 commands 避免重复 API 调用）
+      checkShortcutConflicts(toggleCommand.shortcut, commands);
     } else {
       shortcutInput.value = '未设置';
       shortcutInput.placeholder = '点击下方按钮设置快捷键';
@@ -39,7 +39,7 @@ export function bindShortcutEvents() {
 }
 
 // 内部函数：检测快捷键冲突
-async function checkShortcutConflicts(shortcut) {
+function checkShortcutConflicts(shortcut, allCommands) {
   try {
     const conflictAlert = document.getElementById('shortcutConflict');
     const conflictMessage = document.getElementById('conflictMessage');
@@ -59,8 +59,6 @@ async function checkShortcutConflicts(shortcut) {
       'Alt+Tab': '切换窗口'
     };
 
-    // 检测所有已注册的命令
-    const allCommands = await chrome.commands.getAll();
     let hasConflict = false;
     let conflictsWith = [];
 
@@ -70,8 +68,8 @@ async function checkShortcutConflicts(shortcut) {
       conflictsWith.push(commonConflicts[shortcut]);
     }
 
-    // 检测与本扩展其他命令的冲突（chrome.commands.getAll 仅返回本扩展命令）
-    allCommands.forEach(cmd => {
+    // 检测与本扩展其他命令的冲突（使用传入的 commands 数组）
+    (allCommands || []).forEach(cmd => {
       if (cmd.name !== 'toggle-overlay' && cmd.shortcut === shortcut) {
         hasConflict = true;
         conflictsWith.push(`本扩展其他命令: ${cmd.description || cmd.name}`);

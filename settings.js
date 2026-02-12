@@ -10,12 +10,14 @@ async function init() {
   console.log("[Settings] 初始化开始");
 
   try {
-    // 初始化各模块
-    await initThemeSelector();
-    await loadShortcutInfo();
-    await loadBookmarkStats();
-    await loadSyncSettings();
-    await loadUpdateHistory();
+    // 并行初始化各模块（互不依赖，可同时加载）
+    await Promise.all([
+      initThemeSelector(),
+      loadShortcutInfo(),
+      loadBookmarkStats(),
+      loadSyncSettings(),
+      loadUpdateHistory()
+    ]);
 
     // 绑定事件
     bindAllEvents();
@@ -44,7 +46,7 @@ function setupStorageListener() {
     console.log("[Settings] 存储发生变化:", Object.keys(changes));
 
     // 书签数据变化时，更新统计
-    if (changes.bookmarks) {
+    if (changes.bookmarkCount || changes.bookmarks) {
       console.log("[Settings] 检测到书签数据变化，重新加载统计");
       loadBookmarkStats();
     }

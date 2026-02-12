@@ -1,5 +1,5 @@
 import { formatRelativeTime, formatFutureTime } from './utils.js';
-import { ALARM_NAMES } from './constants.js';
+import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { getStorage, setValue, STORAGE_KEYS } from './storage-service.js';
 
 /**
@@ -7,11 +7,12 @@ import { getStorage, setValue, STORAGE_KEYS } from './storage-service.js';
  */
 export async function loadSyncSettings() {
   try {
-    const result = await getStorage([STORAGE_KEYS.SYNC_INTERVAL, STORAGE_KEYS.LAST_SYNC_TIME]);
+    const result = await getStorage([STORAGE_KEYS.SYNC_INTERVAL, STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.FAVICON_CACHE_SIZE]);
     const syncIntervalSelect = document.getElementById('syncInterval');
+    const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
     const lastSyncDisplay = document.getElementById('lastSyncDisplay');
     const nextSyncDisplay = document.getElementById('nextSyncDisplay');
-    
+
     if (!syncIntervalSelect || !lastSyncDisplay || !nextSyncDisplay) {
       console.warn("[Settings] 同步设置所需的 DOM 元素未完全找到");
       return;
@@ -21,14 +22,21 @@ export async function loadSyncSettings() {
     const interval = result[STORAGE_KEYS.SYNC_INTERVAL];
     syncIntervalSelect.value = interval;
     console.log("[Settings] 同步间隔:", interval, "分钟");
-    
+
+    // 设置 Favicon 缓存大小
+    if (faviconCacheSizeSelect) {
+      const cacheSize = result[STORAGE_KEYS.FAVICON_CACHE_SIZE] || 2000;
+      faviconCacheSizeSelect.value = cacheSize;
+      console.log("[Settings] Favicon 缓存大小:", cacheSize);
+    }
+
     // 显示最后同步时间
     if (result[STORAGE_KEYS.LAST_SYNC_TIME]) {
       lastSyncDisplay.textContent = formatRelativeTime(result[STORAGE_KEYS.LAST_SYNC_TIME]);
     } else {
       lastSyncDisplay.textContent = '从未';
     }
-    
+
     // 计算并显示下次同步时间
     if (interval > 0) {
       if (result[STORAGE_KEYS.LAST_SYNC_TIME]) {
@@ -38,7 +46,7 @@ export async function loadSyncSettings() {
         // 如果没有最后同步时间，获取alarm信息
         const alarms = await chrome.alarms.getAll();
         const syncAlarm = alarms.find(alarm => alarm.name === ALARM_NAMES.SYNC_BOOKMARKS);
-        
+
         if (syncAlarm && syncAlarm.scheduledTime) {
           nextSyncDisplay.textContent = formatFutureTime(syncAlarm.scheduledTime);
         } else {
@@ -58,18 +66,14 @@ export async function loadSyncSettings() {
  */
 export async function loadBookmarkStats() {
   try {
-    const result = await getStorage(STORAGE_KEYS.BOOKMARKS);
+    const result = await getStorage([STORAGE_KEYS.BOOKMARK_COUNT]);
     const totalElement = document.getElementById('totalBookmarks');
 
-    const bookmarks = result[STORAGE_KEYS.BOOKMARKS];
-    if (bookmarks && Array.isArray(bookmarks)) {
-      const count = bookmarks.length;
-      totalElement.textContent = count;
-      console.log("[Settings] 书签总数:", count);
-    } else {
-      totalElement.textContent = '0';
-      console.warn("[Settings] 未找到书签数据");
-    }
+    const countValue = result[STORAGE_KEYS.BOOKMARK_COUNT];
+    const count = (typeof countValue === 'number' && Number.isFinite(countValue)) ? countValue : 0;
+
+    totalElement.textContent = count;
+    console.log("[Settings] 书签总数:", count);
   } catch (error) {
     console.error("[Settings] 加载书签统计失败:", error);
     document.getElementById('totalBookmarks').textContent = '!';
@@ -91,12 +95,12 @@ export function bindSyncEvents() {
     btn.disabled = true;
 
     try {
-      const result = await chrome.runtime.sendMessage({ action: 'refreshBookmarks' });
+      const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS });
       if (result && result.success === false && !result.skipped) {
         throw new Error(result.error || '同步失败');
       }
-      await loadBookmarkStats();
-      await loadSyncSettings();
+      // 并行重新加载书签统计和同步设置
+      await Promise.all([loadBookmarkStats(), loadSyncSettings()]);
 
       if (label) label.textContent = '同步成功';
       setTimeout(() => {
@@ -121,20 +125,37 @@ export function bindSyncEvents() {
     try {
       // 保存到storage
       await setValue(STORAGE_KEYS.SYNC_INTERVAL, interval);
-      
+
       // 通知background更新定时器
-      await chrome.runtime.sendMessage({ 
-        action: 'updateSyncInterval', 
-        interval: interval 
+      await chrome.runtime.sendMessage({
+        action: MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL,
+        interval: interval
       });
-      
+
       // 重新加载同步设置显示
       await loadSyncSettings();
-      
+
       console.log("[Settings] 同步间隔已更新");
     } catch (error) {
       console.error("[Settings] 更新同步间隔失败:", error);
       alert('设置失败：' + error.message);
     }
   });
+
+  // Favicon 缓存大小变化
+  const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
+  if (faviconCacheSizeSelect) {
+    faviconCacheSizeSelect.addEventListener('change', async (e) => {
+      const cacheSize = parseInt(e.target.value);
+      console.log("[Settings] 修改 Favicon 缓存大小为:", cacheSize);
+
+      try {
+        await setValue(STORAGE_KEYS.FAVICON_CACHE_SIZE, cacheSize);
+        console.log("[Settings] Favicon 缓存大小已更新");
+      } catch (error) {
+        console.error("[Settings] 更新 Favicon 缓存大小失败:", error);
+        alert('设置失败：' + error.message);
+      }
+    });
+  }
 }
