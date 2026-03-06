@@ -126,7 +126,11 @@ export function bindHistoryEvents() {
         // 通知 background 清空历史（同步内存和存储）
         const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_HISTORY });
         if (result && result.success === false) {
-          throw new Error(result.error || '清空失败');
+          const err = result && result.error;
+          const message = (err && typeof err === 'object' && typeof err.message === 'string')
+            ? err.message
+            : (typeof err === 'string' ? err : '清空失败');
+          throw new Error(message);
         }
         await loadUpdateHistory();
         console.log("[Settings] 历史记录已清空");
@@ -146,7 +150,6 @@ export function bindHistoryEvents() {
   if (selectAllBtn) {
     selectAllBtn.addEventListener('click', () => {
       selectAllItems();
-      loadUpdateHistory();
     });
   }
 
@@ -154,7 +157,6 @@ export function bindHistoryEvents() {
   if (deselectAllBtn) {
     deselectAllBtn.addEventListener('click', () => {
       deselectAllItems();
-      loadUpdateHistory();
     });
   }
 
@@ -163,6 +165,9 @@ export function bindHistoryEvents() {
     exportSelectedBtn.addEventListener('click', exportSelectedBookmarks);
   }
 }
+
+let notificationTimerOuter = null;
+let notificationTimerInner = null;
 
 /**
  * 显示更新通知
@@ -173,6 +178,10 @@ export function showUpdateNotification() {
 
   const historyCard = historyList.closest('.card');
   if (!historyCard) return;
+
+  // 清除旧的通知定时器
+  if (notificationTimerOuter !== null) { clearTimeout(notificationTimerOuter); notificationTimerOuter = null; }
+  if (notificationTimerInner !== null) { clearTimeout(notificationTimerInner); notificationTimerInner = null; }
 
   // 移除已存在的通知
   const existingNotice = historyCard.querySelector('.update-notice');
@@ -195,10 +204,14 @@ export function showUpdateNotification() {
   cardTitle.insertAdjacentElement('afterend', notice);
 
   // 3秒后自动消失
-  setTimeout(() => {
+  notificationTimerOuter = setTimeout(() => {
+    notificationTimerOuter = null;
     notice.style.transition = 'opacity 0.3s';
     notice.style.opacity = '0';
-    setTimeout(() => notice.remove(), 300);
+    notificationTimerInner = setTimeout(() => {
+      notificationTimerInner = null;
+      notice.remove();
+    }, 300);
   }, 3000);
 }
 
@@ -241,22 +254,22 @@ function getSelectableItems() {
   return cachedSelectableItems;
 }
 
-// 绑定选择事件
-function bindSelectionEvents() {
-  const historyItems = getSelectableItems();
-  historyItems.forEach(item => {
-    item.addEventListener('click', (e) => {
-      // 如果点击的是checkbox本身，不需要额外处理
-      if (e.target.classList.contains('history-checkbox')) {
-        const index = parseInt(e.target.dataset.index);
-        toggleSelection(index);
-        return;
-      }
+let selectionDelegationBound = false;
 
-      // 点击整行也可以选择
-      const index = parseInt(item.dataset.index);
-      toggleSelection(index);
-    });
+// 事件委托：在 historyList 容器上绑定单个 click 监听器
+function bindSelectionEvents() {
+  if (selectionDelegationBound) return;
+  const historyList = document.getElementById('historyList');
+  if (!historyList) return;
+
+  selectionDelegationBound = true;
+  historyList.addEventListener('click', (e) => {
+    if (!exportMode) return;
+    const item = e.target.closest('.history-item.selectable');
+    if (!item) return;
+    const index = parseInt(item.dataset.index);
+    if (Number.isNaN(index)) return;
+    toggleSelection(index);
   });
 }
 
@@ -275,7 +288,8 @@ function toggleSelection(index) {
 // 更新选择UI
 function updateSelectionUI() {
   // 更新选中计数
-  document.getElementById('selectInfo').textContent = `已选择 ${selectedItems.size} 条`;
+  const selectInfo = document.getElementById('selectInfo');
+  if (selectInfo) selectInfo.textContent = `已选择 ${selectedItems.size} 条`;
 
   // 更新每个item的选中状态（使用缓存的 DOM 引用）
   const items = getSelectableItems();

@@ -1,0 +1,58 @@
+# How to Sync Bookmarks
+
+## Sync Trigger Methods
+
+### Automatic Triggers
+
+1. **Periodic Sync:** Configured via `STORAGE_KEYS.SYNC_INTERVAL` (default 30 minutes). Alarm fires `ALARM_NAMES.SYNC_BOOKMARKS`, handled by `background-sync.js:28-32`.
+
+2. **Event-Driven Sync:** Native bookmark changes (create/remove/change/move) trigger debounced sync after 500ms idle. See `background.js:66-92`.
+
+3. **Import Completion:** `onImportEnded` triggers full refresh via `forceRefresh` event. See `background.js:105-111`.
+
+### Manual Triggers
+
+1. **Message API:** Send `MESSAGE_ACTIONS.REFRESH_BOOKMARKS` via `chrome.runtime.sendMessage()`. Handled by `background-messages.js:50-57`.
+
+2. **Direct Call:** From background context, call `refreshBookmarks()` from `background-data.js:76-85`.
+
+## Incremental vs Full Refresh Logic
+
+| Condition | Sync Type | Code Reference |
+|-----------|-----------|----------------|
+| Single bookmark create/change/move/remove | Incremental | `background-data.js:240-359` |
+| Event queue > 200 items | Full refresh | `background-data.js:205-208` |
+| Event queue > 500 items | Full refresh | `background-data.js:97-99` |
+| Folder-level change/move | Full refresh | `background-data.js:220-227` |
+| Import operation | Full refresh | `background-data.js:216-218` |
+| Service Worker restart (lost queue) | Full refresh | `background.js:126-128` |
+
+## Adding a New Message Handler
+
+1. **Define Action:** Add constant to `constants.js` in `MESSAGE_ACTIONS` object.
+
+2. **Implement Handler:** Add case to switch in `background-messages.js:49-230`. Pattern:
+   ```javascript
+   case MESSAGE_ACTIONS.YOUR_ACTION: {
+     yourAsyncFunction()
+       .then((result) => sendResponse({ success: true, ...result }))
+       .catch((error) => sendResponse({ success: false, error: error.message }));
+     return true; // Keep channel open for async response
+   }
+   ```
+
+3. **Call from Client:** Use `chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.YOUR_ACTION, ...params })`.
+
+## Modifying Sync Intervals
+
+1. **Change Default:** Edit `DEFAULTS.syncInterval` in `storage-service.js` (value in minutes, 0 disables).
+
+2. **Runtime Update:** Send `MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL` with `{ interval: minutes }`. Handled by `background-messages.js:59-70`.
+
+3. **Debounce Delay:** Modify `DEBOUNCE_DELAY_MS` constant in `background.js:46` (value in milliseconds).
+
+## Verification
+
+- Check `chrome://extensions` → Service Worker → Inspect → Console for `[Background]` logs.
+- Verify alarm status: `chrome.alarms.getAll()` in DevTools console.
+- Check storage: `chrome.storage.local.get(['lastSyncTime', 'bookmarkCount'])`.

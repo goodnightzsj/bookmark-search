@@ -7,9 +7,15 @@ import { getStorage, setValue, STORAGE_KEYS } from './storage-service.js';
  */
 export async function loadSyncSettings() {
   try {
-    const result = await getStorage([STORAGE_KEYS.SYNC_INTERVAL, STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.FAVICON_CACHE_SIZE]);
+    const result = await getStorage([
+      STORAGE_KEYS.SYNC_INTERVAL,
+      STORAGE_KEYS.LAST_SYNC_TIME,
+      STORAGE_KEYS.FAVICON_CACHE_SIZE,
+      STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES
+    ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
     const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
+    const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
     const lastSyncDisplay = document.getElementById('lastSyncDisplay');
     const nextSyncDisplay = document.getElementById('nextSyncDisplay');
 
@@ -28,6 +34,13 @@ export async function loadSyncSettings() {
       const cacheSize = result[STORAGE_KEYS.FAVICON_CACHE_SIZE] || 2000;
       faviconCacheSizeSelect.value = cacheSize;
       console.log("[Settings] Favicon 缓存大小:", cacheSize);
+    }
+
+    // 设置主缓存过期时间
+    if (bookmarkCacheTtlSelect) {
+      const ttlMinutes = result[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] || 30;
+      bookmarkCacheTtlSelect.value = ttlMinutes;
+      console.log("[Settings] 主缓存 TTL:", ttlMinutes, "分钟");
     }
 
     // 显示最后同步时间
@@ -97,7 +110,11 @@ export function bindSyncEvents() {
     try {
       const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS });
       if (result && result.success === false && !result.skipped) {
-        throw new Error(result.error || '同步失败');
+        const err = result && result.error;
+        const message = (err && typeof err === 'object' && typeof err.message === 'string')
+          ? err.message
+          : (typeof err === 'string' ? err : '同步失败');
+        throw new Error(message);
       }
       // 并行重新加载书签统计和同步设置
       await Promise.all([loadBookmarkStats(), loadSyncSettings()]);
@@ -118,8 +135,10 @@ export function bindSyncEvents() {
   });
 
   // 同步间隔变化
+  const VALID_SYNC_INTERVALS = [0, 5, 10, 15, 30, 60, 120, 360, 720, 1440];
   document.getElementById('syncInterval').addEventListener('change', async (e) => {
     const interval = parseInt(e.target.value);
+    if (!VALID_SYNC_INTERVALS.includes(interval)) return;
     console.log("[Settings] 修改同步间隔为:", interval, "分钟");
 
     try {
@@ -142,11 +161,32 @@ export function bindSyncEvents() {
     }
   });
 
+  // 主缓存过期时间变化
+  const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
+  const VALID_CACHE_TTL = [30, 60, 360, 720, 1440];
+  if (bookmarkCacheTtlSelect) {
+    bookmarkCacheTtlSelect.addEventListener('change', async (e) => {
+      const ttlMinutes = parseInt(e.target.value);
+      if (!VALID_CACHE_TTL.includes(ttlMinutes)) return;
+      console.log("[Settings] 修改主缓存 TTL 为:", ttlMinutes, "分钟");
+
+      try {
+        await setValue(STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES, ttlMinutes);
+        console.log("[Settings] 主缓存 TTL 已更新");
+      } catch (error) {
+        console.error("[Settings] 更新主缓存 TTL 失败:", error);
+        alert('设置失败：' + error.message);
+      }
+    });
+  }
+
   // Favicon 缓存大小变化
   const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
+  const VALID_FAVICON_SIZES = [500, 1000, 2000, 5000, 10000];
   if (faviconCacheSizeSelect) {
     faviconCacheSizeSelect.addEventListener('change', async (e) => {
       const cacheSize = parseInt(e.target.value);
+      if (!VALID_FAVICON_SIZES.includes(cacheSize)) return;
       console.log("[Settings] 修改 Favicon 缓存大小为:", cacheSize);
 
       try {

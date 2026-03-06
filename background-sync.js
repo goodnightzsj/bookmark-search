@@ -1,6 +1,6 @@
 import { refreshBookmarks } from './background-data.js';
 import { ALARM_NAMES } from './constants.js';
-import { getValue, STORAGE_KEYS } from './storage-service.js';
+import { getStorageWithStatus, STORAGE_KEYS } from './storage-service.js';
 
 /**
  * 设置自动同步
@@ -23,10 +23,10 @@ export async function setupAutoSync(intervalMinutes) {
 }
 
 /**
- * 处理定时任务警报
+ * 处理定时任务警报（仅同步 alarm）
  */
-export async function handleAlarm(alarm) {
-  if (alarm.name === ALARM_NAMES.SYNC_BOOKMARKS) {
+export async function handleSyncAlarm(alarm) {
+  if (alarm && alarm.name === ALARM_NAMES.SYNC_BOOKMARKS) {
     console.log("[Background] 定时任务触发: 同步书签");
     await refreshBookmarks();
   }
@@ -36,6 +36,12 @@ export async function handleAlarm(alarm) {
  * 初始化同步设置
  */
 export async function initSyncSettings() {
-  const interval = await getValue(STORAGE_KEYS.SYNC_INTERVAL);
+  const read = await getStorageWithStatus(STORAGE_KEYS.SYNC_INTERVAL);
+  if (!read.success && read.state && read.state[STORAGE_KEYS.SYNC_INTERVAL] === 'failed') {
+    console.warn('[Background][Observe] sync_interval_read_failed_use_default', { error: read.error || 'unknown' });
+  }
+
+  const intervalRaw = read.data ? read.data[STORAGE_KEYS.SYNC_INTERVAL] : null;
+  const interval = (typeof intervalRaw === 'number' && Number.isFinite(intervalRaw) && intervalRaw >= 0) ? intervalRaw : 30;
   await setupAutoSync(interval);
 }

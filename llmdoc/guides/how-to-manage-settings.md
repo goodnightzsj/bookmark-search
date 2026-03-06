@@ -1,0 +1,43 @@
+# How to Manage Settings
+
+## Available Settings
+
+| Setting | Location | Options | Default | Storage Key |
+|---------|----------|---------|---------|-------------|
+| Theme | Theme card | original, minimal, glass, dark | original | `STORAGE_KEYS.THEME` |
+| Sync Interval | Sync card dropdown | 5/10/15/30/60/120/360/720/1440 min, 0 (disabled) | 30 | `STORAGE_KEYS.SYNC_INTERVAL` |
+| Bookmark Cache TTL | Sync card dropdown | 30/60/360/720/1440 min | 30 | `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` |
+| Keyboard Shortcut | Shortcuts card | Read-only (modify via Chrome) | - | `chrome.commands` |
+
+## Configure Sync Interval
+
+1. Open settings page via popup or `chrome-extension://[id]/settings.html`.
+2. Locate "书签同步设置" card, find the dropdown `#syncInterval`.
+3. Select desired interval. `settings-sync.js:121-143` saves to storage and sends `MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL` to background.
+4. Background service worker updates `chrome.alarms` schedule.
+5. Verify: "下次同步时间" display updates immediately.
+
+## Configure Main Cache TTL
+
+1. In "书签同步设置", locate dropdown `#bookmarkCacheTtl`.
+2. Choose one of 30 分钟 / 1 小时 / 6 小时 / 12 小时 / 24 小时.
+3. `settings-sync.js:162-177` writes `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` to `chrome.storage.local`.
+4. Search path (`background-data.js:627-636`) reads this value and compares against `lastSyncTime`.
+5. If stale, it triggers `refreshBookmarks()` asynchronously (non-blocking), so current search result returns immediately and data self-heals in background.
+
+## View and Export History
+
+1. Scroll to "书签更新历史" card.
+2. Click "导出书签" button to enter export mode (`settings-history.js:281-302`).
+3. Use "全选" / "取消全选" or click individual items to select.
+4. Click "导出选中" to generate Netscape HTML file (`bookmark-export.js`).
+5. File downloads as `bookmarks_export.html`, importable to any browser.
+
+## Add a New Setting
+
+1. Add storage key to `storage-service.js` (`STORAGE_KEYS`) and default value to `DEFAULTS`.
+2. Create or update sub-module in `settings-*.js` with load/bind functions.
+3. Add UI elements to `settings.html` in appropriate card section.
+4. Import and call new functions in `settings.js` (`init` and `bindAllEvents`).
+5. If setting affects background, add message handler in `background-messages.js` using `MESSAGE_ACTIONS`.
+6. Add storage key to `setupStorageListener` in `settings.js:40-68` if real-time UI update is needed.

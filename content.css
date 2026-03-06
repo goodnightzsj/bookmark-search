@@ -109,6 +109,7 @@
 .bookmark-results {
   max-height: min(60vh, 500px);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 @media (max-height: 600px) {
@@ -277,6 +278,93 @@
   color: #4b5563;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   font-family: monospace;
+}
+
+/* === Dark theme === */
+.bookmark-search-overlay[data-bs-theme="dark"] {
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.8) 100%);
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-container {
+  background: linear-gradient(to bottom, #1e1e2e 0%, #181825 100%);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-container::before {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f849c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input {
+  color: #cdd6f4;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input:focus {
+  border-bottom-color: #89b4fa;
+  background: rgba(137, 180, 250, 0.04);
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input::placeholder {
+  color: #6c7086;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-track {
+  background: #1e1e2e;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-thumb {
+  background: #45475a;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item:hover {
+  background: linear-gradient(90deg, rgba(137, 180, 250, 0.1) 0%, rgba(137, 180, 250, 0.04) 100%);
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item.selected {
+  background: linear-gradient(90deg, rgba(137, 180, 250, 0.15) 0%, rgba(137, 180, 250, 0.06) 100%);
+  border-left-color: #89b4fa;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-favicon {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-title {
+  color: #cdd6f4;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-url {
+  color: #7f849c;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-empty {
+  color: #6c7086;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-empty::before {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-shortcuts {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.04));
+  border-top-color: rgba(255, 255, 255, 0.06);
+  color: #7f849c;
+}
+
+.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-shortcut kbd {
+  background: #313244;
+  border-color: #45475a;
+  color: #bac2de;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 @media (prefers-reduced-motion: reduce) {

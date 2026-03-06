@@ -4,6 +4,8 @@ import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme } fr
 export { getCurrentTheme };
 
 let themeLoadToken = 0;
+// 防止 storage change listener 重复应用本 tab 刚刚设置的主题
+let lastAppliedBySetTheme = '';
 // 缓存 theme selector DOM 引用，避免重复查询
 let cachedThemeOptions = null;
 
@@ -17,6 +19,7 @@ function getThemeOptions() {
 // 设置并应用主题
 export async function setTheme(themeName) {
   if (!THEMES[themeName]) themeName = DEFAULT_THEME;
+  lastAppliedBySetTheme = themeName;
   // 保存设置（委托给 theme-service）
   await saveTheme(themeName);
   applyTheme(themeName);
@@ -45,6 +48,7 @@ function applyTheme(themeName) {
   // 如果当前已经有主题CSS（说明不是第一次加载，而是切换），则直接替换 href
   if (currentLink) {
     currentLink.onload = markReady;
+    currentLink.onerror = markReady;
     currentLink.href = expectedHref;
 
     // 更新缓存
@@ -60,6 +64,7 @@ function applyTheme(themeName) {
   link.href = expectedHref;
 
   link.onload = markReady;
+  link.onerror = markReady;
 
   document.head.appendChild(link);
 
@@ -96,8 +101,15 @@ async function initTheme() {
 // 监听主题变化（跨页面同步）
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes.theme) {
-    localStorage.setItem(THEME_CACHE_KEY, changes.theme.newValue);
-    applyTheme(changes.theme.newValue);
+    const newTheme = changes.theme.newValue;
+    if (!newTheme || !THEMES[newTheme]) return;
+    // 跳过本 tab 刚通过 setTheme() 发起的变更，避免重复 applyTheme
+    if (lastAppliedBySetTheme === newTheme) {
+      lastAppliedBySetTheme = '';
+      return;
+    }
+    localStorage.setItem(THEME_CACHE_KEY, newTheme);
+    applyTheme(newTheme);
   }
 });
 

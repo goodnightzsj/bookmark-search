@@ -1,7 +1,7 @@
-import { getStorage, setStorage, setValue, STORAGE_KEYS } from './storage-service.js';
+import { getStorageWithStatus, setStorage, setValue, STORAGE_KEYS } from './storage-service.js';
 import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
-import { HISTORY_ACTIONS } from './constants.js';
-import { idbGet, idbSet } from './idb-service.js';
+import { HISTORY_ACTIONS, PATH_SEPARATOR } from './constants.js';
+import { idbGet, idbSet, idbSetMany } from './idb-service.js';
 import { getRootDomain } from './utils.js';
 
 // 书签数据管理模块
@@ -10,7 +10,36 @@ import { getRootDomain } from './utils.js';
 const MAX_HISTORY_ITEMS = 100;  // 历史记录最大条数
 const IDB_CACHE_KEY_BOOKMARKS = 'cachedBookmarks';
 const IDB_CACHE_KEY_TIMESTAMP = 'cachedBookmarksTime';  // IDB 缓存时间戳，用于与 storage 比较新鲜度
-const PATH_SEPARATOR = ' > ';
+const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';  // 最近打开过的根域名快照（用于 warmup 优先级，防 SW 重启丢失）
+const BOOKMARK_CACHE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 默认主缓存 TTL：30 分钟
+const STALE_REFRESH_MIN_GAP_MS = 30 * 1000; // 过期触发全量刷新的最小间隔
+
+function normalizeCacheMeta(meta, fallbackCount = 0, fallbackUpdatedAt = 0) {
+  const safeMeta = (meta && typeof meta === 'object') ? meta : {};
+  const updatedAtRaw = safeMeta.updatedAt;
+  const countRaw = safeMeta.count;
+
+  const updatedAt = (typeof updatedAtRaw === 'number' && Number.isFinite(updatedAtRaw) && updatedAtRaw > 0)
+    ? updatedAtRaw
+    : ((typeof fallbackUpdatedAt === 'number' && Number.isFinite(fallbackUpdatedAt) && fallbackUpdatedAt > 0) ? fallbackUpdatedAt : 0);
+
+  const count = (typeof countRaw === 'number' && Number.isFinite(countRaw) && countRaw >= 0)
+    ? Math.floor(countRaw)
+    : ((typeof fallbackCount === 'number' && Number.isFinite(fallbackCount) && fallbackCount >= 0) ? Math.floor(fallbackCount) : 0);
+
+  return { updatedAt, count };
+}
+
+function buildCacheMeta(bookmarks, updatedAt) {
+  const list = Array.isArray(bookmarks) ? bookmarks : [];
+  const safeUpdatedAt = (typeof updatedAt === 'number' && Number.isFinite(updatedAt) && updatedAt > 0) ? updatedAt : Date.now();
+  return { updatedAt: safeUpdatedAt, count: list.length };
+}
+
+function getMetaFreshness(meta) {
+  const safeMeta = normalizeCacheMeta(meta);
+  return safeMeta.updatedAt;
+}
 
 // 本地存储的书签数据
 let cachedBookmarks = [];
@@ -25,6 +54,99 @@ let pendingRefresh = false;
 let pendingBookmarkEvents = [];
 // 缓存是否已从 storage 加载（避免重复 IO）
 let isCacheLoaded = false;
+let loadCachePromise = null;
+let lastStaleRefreshAt = 0;
+let runtimeCacheTtlMinutes = null;
+let runtimeCacheTtlLoaded = false;
+// 最近在搜索结果中实际打开过的根域名（用于 favicon 预热优先级）
+// key: rootDomain -> { count, lastAt, sampleUrl }
+const recentOpenedRootMap = new Map();
+const RECENT_OPEN_ROOT_MAX = 200;
+const RECENT_OPEN_ROOT_WINDOW_MS = 60 * 60 * 1000; // 1 小时窗口
+// 最近已用于 favicon 预热的根域名，避免多 tab 重复 warmup
+// key: rootDomain -> lastWarmupAt
+const recentWarmupDomains = new Map();
+const RECENT_WARMUP_WINDOW_MS = 30 * 60 * 1000; // 30 分钟窗口
+
+// 持久化：最近打开过的根域名（防 MV3 SW 重启/休眠丢失 warmup 优先级）
+let recentOpenedRootsPersistChain = Promise.resolve();
+
+function buildRecentOpenedRootsSnapshot(nowTs = Date.now()) {
+  const now = (typeof nowTs === 'number' && Number.isFinite(nowTs) && nowTs > 0) ? nowTs : Date.now();
+  const cutoff = now - RECENT_OPEN_ROOT_WINDOW_MS;
+  const entries = [];
+
+  for (const [root, info] of recentOpenedRootMap.entries()) {
+    if (!root) continue;
+    const lastAt = info && typeof info.lastAt === 'number' ? info.lastAt : 0;
+    if (!lastAt || lastAt < cutoff) continue;
+    const count = (info && typeof info.count === 'number' && Number.isFinite(info.count) && info.count >= 0) ? Math.floor(info.count) : 0;
+    const sampleUrl = (info && typeof info.sampleUrl === 'string') ? info.sampleUrl : '';
+    entries.push({ root, count, lastAt, sampleUrl });
+  }
+
+  entries.sort((a, b) => {
+    const av = typeof a.lastAt === 'number' ? a.lastAt : 0;
+    const bv = typeof b.lastAt === 'number' ? b.lastAt : 0;
+    return bv - av;
+  });
+
+  if (entries.length > RECENT_OPEN_ROOT_MAX) {
+    entries.length = RECENT_OPEN_ROOT_MAX;
+  }
+
+  return entries;
+}
+
+function restoreRecentOpenedRootsFromSnapshot(snapshot, nowTs = Date.now()) {
+  recentOpenedRootMap.clear();
+
+  const now = (typeof nowTs === 'number' && Number.isFinite(nowTs) && nowTs > 0) ? nowTs : Date.now();
+  const cutoff = now - RECENT_OPEN_ROOT_WINDOW_MS;
+  const list = Array.isArray(snapshot) ? snapshot : [];
+  if (list.length === 0) return;
+
+  const valid = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (!item || typeof item !== 'object') continue;
+
+    const root = (typeof item.root === 'string') ? item.root.trim().toLowerCase() : '';
+    if (!root) continue;
+
+    const lastAt = (typeof item.lastAt === 'number' && Number.isFinite(item.lastAt)) ? item.lastAt : 0;
+    if (!lastAt || lastAt < cutoff) continue;
+
+    const count = (typeof item.count === 'number' && Number.isFinite(item.count) && item.count >= 0) ? Math.floor(item.count) : 0;
+    const sampleUrl = (typeof item.sampleUrl === 'string') ? item.sampleUrl : '';
+    valid.push({ root, count, lastAt, sampleUrl });
+  }
+
+  valid.sort((a, b) => {
+    const av = typeof a.lastAt === 'number' ? a.lastAt : 0;
+    const bv = typeof b.lastAt === 'number' ? b.lastAt : 0;
+    return bv - av;
+  });
+
+  for (let i = 0; i < valid.length && i < RECENT_OPEN_ROOT_MAX; i++) {
+    const item = valid[i];
+    recentOpenedRootMap.set(item.root, { count: item.count, lastAt: item.lastAt, sampleUrl: item.sampleUrl });
+  }
+}
+
+function persistRecentOpenedRootsToIdb(nowTs = Date.now()) {
+  const snapshot = buildRecentOpenedRootsSnapshot(nowTs);
+
+  recentOpenedRootsPersistChain = recentOpenedRootsPersistChain
+    .catch(() => {})
+    .then(() => idbSet(IDB_KEY_RECENT_OPENED_ROOTS, snapshot))
+    .catch((error) => {
+      console.warn('[Background][Observe] recent_open_roots_persist_failed', { message: error && error.message ? error.message : String(error) });
+    });
+
+  return recentOpenedRootsPersistChain;
+}
+
 
 function rebuildBookmarkIndex() {
   const next = new Map();
@@ -35,6 +157,104 @@ function rebuildBookmarkIndex() {
     next.set(String(b.id), i);
   }
   bookmarkIndexById = next;
+}
+
+function maybeScheduleStaleRefresh() {
+  const now = Date.now();
+  const tooSoon = (now - lastStaleRefreshAt) < STALE_REFRESH_MIN_GAP_MS;
+  if (tooSoon) return;
+
+  lastStaleRefreshAt = now;
+  console.log('[Background][Observe] stale_refresh_trigger', { reason: 'ttl_expired', at: now });
+  refreshBookmarks().catch((error) => {
+    console.warn('[Background][Observe] stale_refresh_failed', { message: error && error.message ? error.message : String(error) });
+  });
+}
+
+async function ensureRuntimeCacheTtlMinutes() {
+  if (runtimeCacheTtlLoaded && typeof runtimeCacheTtlMinutes === 'number' && runtimeCacheTtlMinutes > 0) {
+    return runtimeCacheTtlMinutes;
+  }
+
+  const ttlRead = await getStorageWithStatus(STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES);
+  if (!ttlRead.success && ttlRead.state && ttlRead.state[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] === 'failed') {
+    console.warn('[Background][Observe] ttl_storage_read_failed', { error: ttlRead.error || 'unknown' });
+  }
+
+  const ttlRaw = ttlRead.data ? ttlRead.data[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] : null;
+  const ttl = (typeof ttlRaw === 'number' && Number.isFinite(ttlRaw) && ttlRaw > 0) ? ttlRaw : 30;
+
+  runtimeCacheTtlMinutes = ttl;
+  runtimeCacheTtlLoaded = true;
+  return runtimeCacheTtlMinutes;
+}
+
+export function updateRuntimeCacheTtlMinutes(nextValue) {
+  const ttl = (typeof nextValue === 'number' && Number.isFinite(nextValue) && nextValue > 0)
+    ? Math.floor(nextValue)
+    : null;
+
+  if (ttl) {
+    runtimeCacheTtlMinutes = ttl;
+    runtimeCacheTtlLoaded = true;
+    return;
+  }
+
+  runtimeCacheTtlMinutes = null;
+  runtimeCacheTtlLoaded = false;
+}
+
+export async function recordBookmarkOpen(url) {
+  const safeUrl = typeof url === 'string' ? url.trim() : '';
+  if (!safeUrl) return;
+  let host = '';
+  let href = '';
+  try {
+    const u = new URL(safeUrl);
+    host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
+    href = u && u.href ? u.href : safeUrl;
+  } catch (e) {
+    return;
+  }
+  if (!host) return;
+  const root = getRootDomain(host);
+  if (!root) return;
+
+  const nowTs = Date.now();
+  const prev = recentOpenedRootMap.get(root) || { count: 0, lastAt: 0, sampleUrl: '' };
+  const next = {
+    count: (prev.count || 0) + 1,
+    lastAt: nowTs,
+    sampleUrl: prev.sampleUrl || href
+  };
+  recentOpenedRootMap.set(root, next);
+
+  // 清理过期或过多的记录
+  const cutoff = nowTs - RECENT_OPEN_ROOT_WINDOW_MS;
+  const toDelete = [];
+  for (const [key, value] of recentOpenedRootMap.entries()) {
+    if (!value || typeof value.lastAt !== 'number' || value.lastAt < cutoff) {
+      toDelete.push(key);
+    }
+  }
+  for (const key of toDelete) {
+    recentOpenedRootMap.delete(key);
+  }
+  // 最多保留 RECENT_OPEN_ROOT_MAX 条，按 lastAt 从新到旧
+  if (recentOpenedRootMap.size > RECENT_OPEN_ROOT_MAX) {
+    const entries = Array.from(recentOpenedRootMap.entries());
+    entries.sort((a, b) => {
+      const av = a[1] && typeof a[1].lastAt === 'number' ? a[1].lastAt : 0;
+      const bv = b[1] && typeof b[1].lastAt === 'number' ? b[1].lastAt : 0;
+      return bv - av;
+    });
+    for (let i = RECENT_OPEN_ROOT_MAX; i < entries.length; i++) {
+      recentOpenedRootMap.delete(entries[i][0]);
+    }
+  }
+
+  // Best-effort: persist snapshot so warmup priority survives SW restarts
+  await persistRecentOpenedRootsToIdb(nowTs);
 }
 
 async function runUpdateLoop() {
@@ -128,23 +348,16 @@ async function refreshBookmarksOnce() {
       console.log("[Background] 检测到 %d 个书签变化", changes.length);
       // 更新历史记录
       await updateHistory(changes);
-      
+
       // 更新缓存
       cachedBookmarks = flatBookmarks;
       rebuildBookmarkIndex();
-      
+
       // 保存到本地存储
       await saveToStorage(syncTime);
     } else {
       console.log("[Background] 书签无变化");
-      // 即使没变化，也更新最后同步时间和书签数量（确保 count 始终与实际一致）
-      const ok = await setStorage({
-        [STORAGE_KEYS.LAST_SYNC_TIME]: syncTime,
-        [STORAGE_KEYS.BOOKMARK_COUNT]: flatBookmarks.length
-      });
-      if (!ok) {
-        console.warn("[Background] 写入同步状态失败");
-      }
+      await ensureCacheConsistency(syncTime);
     }
     
     return { success: true, count: flatBookmarks.length, changes: changes.length };
@@ -240,6 +453,7 @@ async function applyBookmarkEventsOnce(events) {
   // 过大批次直接走全量刷新，避免长时间占用 service worker
   if (list.length > 200) {
     pendingRefresh = true;
+    console.log('[Background][Observe] incremental_fallback_full', { reason: 'batch_too_large', size: list.length });
     return { success: false, fallback: true };
   }
 
@@ -262,6 +476,7 @@ async function applyBookmarkEventsOnce(events) {
     if (!type) continue;
     if (type === 'forceRefresh' || type === 'importBegan' || type === 'importEnded') {
       pendingRefresh = true;
+      console.log('[Background][Observe] incremental_fallback_full', { reason: type });
       return { success: false, fallback: true };
     }
     if (type === 'changed' || type === 'moved') {
@@ -269,6 +484,7 @@ async function applyBookmarkEventsOnce(events) {
       // 允许本批次新创建的书签被修改/移动
       if (!id || (!bookmarkIndexById.has(id) && !createdIdsInBatch.has(id))) {
         pendingRefresh = true;
+        console.log('[Background][Observe] incremental_fallback_full', { reason: type + '_without_baseline', id });
         return { success: false, fallback: true };
       }
     }
@@ -385,6 +601,12 @@ async function applyBookmarkEventsOnce(events) {
       const removedIds = [];
       collectRemovedBookmarkIds(node, removedIds);
 
+      // 兜底：某些场景 removeInfo.node 不完整时，至少删除当前事件 ID
+      const fallbackRemovedId = String(evt.id || '');
+      if (fallbackRemovedId && removedIds.indexOf(fallbackRemovedId) === -1) {
+        removedIds.push(fallbackRemovedId);
+      }
+
       for (let j = 0; j < removedIds.length; j++) {
         const removedId = removedIds[j];
         const idx = bookmarkIndexById.get(removedId);
@@ -426,75 +648,144 @@ async function applyBookmarkEventsOnce(events) {
 
 async function loadCacheFromStorage() {
   if (isCacheLoaded) return;
+  if (loadCachePromise) return loadCachePromise;
+  loadCachePromise = loadCacheFromStorageOnce();
+  try { await loadCachePromise; } finally { loadCachePromise = null; }
+}
 
+async function loadCacheFromStorageOnce() {
+  // IDB is the primary store for the full bookmark list
   let idbBookmarks;
   let idbCacheTime = 0;
+  let idbRecentOpenedRoots;
   try {
-    const [bookmarksResult, timeResult] = await Promise.all([
+    const [bookmarksResult, timeResult, recentOpenedRootsResult] = await Promise.all([
       idbGet(IDB_CACHE_KEY_BOOKMARKS),
-      idbGet(IDB_CACHE_KEY_TIMESTAMP)
+      idbGet(IDB_CACHE_KEY_TIMESTAMP),
+      idbGet(IDB_KEY_RECENT_OPENED_ROOTS)
     ]);
     idbBookmarks = bookmarksResult;
     idbCacheTime = typeof timeResult === 'number' ? timeResult : 0;
+    idbRecentOpenedRoots = recentOpenedRootsResult;
   } catch (error) {
     console.warn("[Background] 从 IndexedDB 读取书签缓存失败:", error);
   }
 
-  const result = await getStorage([STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.BOOKMARK_HISTORY, STORAGE_KEYS.LAST_SYNC_TIME]);
-  const storageBookmarksRaw = result[STORAGE_KEYS.BOOKMARKS];
-  const storageBookmarks = Array.isArray(storageBookmarksRaw) ? storageBookmarksRaw : [];
-  const storageHistoryRaw = result[STORAGE_KEYS.BOOKMARK_HISTORY];
+  // chrome.storage.local: only metadata + history (no full bookmark list)
+  const storageRead = await getStorageWithStatus([
+    STORAGE_KEYS.BOOKMARK_HISTORY,
+    STORAGE_KEYS.LAST_SYNC_TIME,
+    STORAGE_KEYS.BOOKMARKS_META
+  ]);
+  const storageData = storageRead.data || {};
+
+  const storageHistoryRaw = storageData[STORAGE_KEYS.BOOKMARK_HISTORY];
   const storageHistory = Array.isArray(storageHistoryRaw) ? storageHistoryRaw : [];
-  const storageSyncTime = typeof result[STORAGE_KEYS.LAST_SYNC_TIME] === 'number' ? result[STORAGE_KEYS.LAST_SYNC_TIME] : 0;
 
-  // 优先使用更新的数据源：比较 IDB 缓存时间与 storage 同步时间
-  // 1. 如果 IDB 有数据且时间戳 >= storage 时间戳，用 IDB
-  // 2. 如果 storage 有数据且时间戳 > IDB 时间戳（IDB 写失败的 fallback 场景），用 storage
-  // 3. 两者都为空或时间戳相同时，优先 IDB（正常路径）
   const idbHasData = Array.isArray(idbBookmarks) && idbBookmarks.length > 0;
-  const storageHasData = storageBookmarks.length > 0;
-  const storageFresher = storageHasData && storageSyncTime > idbCacheTime;
 
-  if (storageFresher) {
-    cachedBookmarks = storageBookmarks;
-    console.log("[Background] 使用 storage 书签缓存（更新）: IDB=%d, storage=%d", idbCacheTime, storageSyncTime);
-  } else if (idbHasData) {
+  if (idbHasData) {
     cachedBookmarks = idbBookmarks;
+    console.log('[Background][Observe] cache_source_selected', { source: 'idb', idbCacheTime, count: cachedBookmarks.length });
   } else {
-    cachedBookmarks = storageBookmarks;
+    cachedBookmarks = [];
+    console.log('[Background][Observe] cache_source_selected', { source: 'empty', idbCacheTime, count: 0 });
   }
 
-  // Migrate/backfill: if IndexedDB is empty/stale but storage has fresher data, write once.
-  if (storageFresher || ((!idbHasData) && storageHasData)) {
-    try {
-      await Promise.all([
-        idbSet(IDB_CACHE_KEY_BOOKMARKS, cachedBookmarks),
-        idbSet(IDB_CACHE_KEY_TIMESTAMP, storageSyncTime || Date.now())
-      ]);
-    } catch (error) {
-      console.warn("[Background] 回填 IndexedDB 书签缓存失败:", error);
-    }
+  if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
+    console.warn('[Background][Observe] history_load_failed_keep_memory', { error: storageRead.error || 'unknown' });
+  } else {
+    bookmarkHistory = storageHistory;
   }
-
-  bookmarkHistory = storageHistory;
+  // Restore recently opened roots snapshot (warmup prioritization)
+  try {
+    restoreRecentOpenedRootsFromSnapshot(idbRecentOpenedRoots);
+  } catch (e) {
+    // best-effort only
+  }
   rebuildBookmarkIndex();
   isCacheLoaded = true;
+}
+
+async function ensureCacheConsistency(syncTime) {
+  const list = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+  const meta = buildCacheMeta(list, syncTime);
+
+  // Only check IDB for bookmark list consistency (storage no longer holds full list)
+  let needBackfillIdb = false;
+  try {
+    const [idbBookmarks, idbTimeRaw] = await Promise.all([
+      idbGet(IDB_CACHE_KEY_BOOKMARKS),
+      idbGet(IDB_CACHE_KEY_TIMESTAMP)
+    ]);
+    const idbTime = (typeof idbTimeRaw === 'number' && Number.isFinite(idbTimeRaw) && idbTimeRaw > 0) ? idbTimeRaw : 0;
+    const idbCount = Array.isArray(idbBookmarks) ? idbBookmarks.length : 0;
+    needBackfillIdb = idbTime < meta.updatedAt || idbCount !== meta.count;
+  } catch (error) {
+    needBackfillIdb = true;
+  }
+
+  // Check storage meta consistency
+  let needUpdateStorageMeta = false;
+  const storageRead = await getStorageWithStatus([STORAGE_KEYS.BOOKMARKS_META]);
+  if (storageRead.success && storageRead.data) {
+    const storageMeta = normalizeCacheMeta(storageRead.data[STORAGE_KEYS.BOOKMARKS_META]);
+    needUpdateStorageMeta = storageMeta.updatedAt < meta.updatedAt || storageMeta.count !== meta.count;
+  }
+
+  if (!needBackfillIdb && !needUpdateStorageMeta) {
+    return;
+  }
+
+  console.log('[Background][Observe] consistency_check_backfill', { needBackfillIdb, needUpdateStorageMeta, updatedAt: meta.updatedAt, count: meta.count });
+
+  const tasks = [];
+  if (needBackfillIdb) {
+    tasks.push(
+      Promise.all([
+        idbSet(IDB_CACHE_KEY_BOOKMARKS, list),
+        idbSet(IDB_CACHE_KEY_TIMESTAMP, meta.updatedAt)
+      ]).catch((error) => {
+        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'idb', message: error && error.message ? error.message : String(error) });
+      })
+    );
+  }
+
+  if (needUpdateStorageMeta) {
+    tasks.push(
+      setStorage({
+        [STORAGE_KEYS.BOOKMARKS_META]: meta,
+        [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
+        [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt
+      }).then((ok) => {
+        if (!ok) {
+          console.warn('[Background][Observe] consistency_backfill_failed', { target: 'storage_meta', message: 'setStorage returned false' });
+        }
+      }).catch((error) => {
+        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'storage_meta', message: error && error.message ? error.message : String(error) });
+      })
+    );
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
+  }
 }
 
 /**
  * 更新历史记录
  * @param {Array} changes - 新变更
- * @param {boolean} [forceReload=false] - 是否强制重新读取 storage（用于 SW 刚重启场景）
  */
-async function updateHistory(changes, forceReload = false) {
-  // 仅在缓存未加载或强制刷新时读取 storage，避免冗余 I/O
-  let existing = bookmarkHistory;
-  if (!isCacheLoaded || forceReload) {
-    const result = await getStorage(STORAGE_KEYS.BOOKMARK_HISTORY);
-    existing = Array.isArray(result[STORAGE_KEYS.BOOKMARK_HISTORY])
-      ? result[STORAGE_KEYS.BOOKMARK_HISTORY]
-      : [];
+async function updateHistory(changes) {
+  const storageRead = await getStorageWithStatus([STORAGE_KEYS.BOOKMARK_HISTORY]);
+  if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
+    console.warn('[Background][Observe] history_read_failed_skip_override', { error: storageRead.error || 'unknown' });
+    return;
   }
+
+  const existing = Array.isArray(storageRead.data ? storageRead.data[STORAGE_KEYS.BOOKMARK_HISTORY] : null)
+    ? storageRead.data[STORAGE_KEYS.BOOKMARK_HISTORY]
+    : [];
 
   // 仅保留最近的 MAX_HISTORY_ITEMS 条记录
   bookmarkHistory = [...changes, ...existing].slice(0, MAX_HISTORY_ITEMS);
@@ -502,36 +793,49 @@ async function updateHistory(changes, forceReload = false) {
 
 /**
  * 保存到存储
+ * IDB: 完整书签列表 + 时间戳（主存储）
+ * chrome.storage.local: 仅元数据（count/history/syncTime/meta），不再写入完整列表
  */
 async function saveToStorage(syncTime) {
-  // 同时写入 IDB 书签和时间戳
-  const writeIdb = Promise.all([
-    idbSet(IDB_CACHE_KEY_BOOKMARKS, cachedBookmarks),
-    idbSet(IDB_CACHE_KEY_TIMESTAMP, syncTime)
-  ])
+  const meta = buildCacheMeta(cachedBookmarks, syncTime);
+
+  const idbEntries = [
+    { key: IDB_CACHE_KEY_BOOKMARKS, value: cachedBookmarks },
+    { key: IDB_CACHE_KEY_TIMESTAMP, value: meta.updatedAt }
+  ];
+
+  const writeIdb = idbSetMany(idbEntries)
     .then(() => true)
     .catch((error) => {
-      console.warn("[Background] 写入 IndexedDB 书签缓存失败:", error);
-      return false;
+      console.warn("[Background] 写入 IndexedDB 书签缓存失败，2s 后重试:", error);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          idbSetMany(idbEntries)
+            .then(() => { resolve(true); })
+            .catch((retryErr) => {
+              console.warn("[Background] IndexedDB 重试仍失败:", retryErr);
+              resolve(false);
+            });
+        }, 2000);
+      });
     });
 
-  const okPromise = setStorage({
-    [STORAGE_KEYS.BOOKMARK_COUNT]: Array.isArray(cachedBookmarks) ? cachedBookmarks.length : 0,
+  const writeStorage = setStorage({
+    [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
     [STORAGE_KEYS.BOOKMARK_HISTORY]: bookmarkHistory,
-    [STORAGE_KEYS.LAST_SYNC_TIME]: syncTime
+    [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
+    [STORAGE_KEYS.BOOKMARKS_META]: meta
   });
 
-  const results = await Promise.all([writeIdb, okPromise]);
+  const results = await Promise.all([writeIdb, writeStorage]);
   const idbOk = results[0];
-  const ok = results[1];
+  const storageOk = results[1];
 
-  // Fallback: if IndexedDB write fails, keep a storage copy so the UI/search can still work.
-  // 下次加载时会通过时间戳比较发现 storage 更新，自动使用 storage 数据
   if (!idbOk) {
-    await setStorage({ [STORAGE_KEYS.BOOKMARKS]: cachedBookmarks });
+    console.warn('[Background][Observe] cache_write_degraded', { source: 'idb_failed', updatedAt: meta.updatedAt, count: meta.count });
   }
-  if (!ok) {
-    console.warn("[Background] 写入缓存书签失败");
+  if (!storageOk) {
+    console.warn('[Background][Observe] cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
   }
 }
 
@@ -561,7 +865,6 @@ function searchInList(bookmarkList, query, limit) {
   if (tokens.length === 0) return [];
 
   const max = typeof limit === 'number' && limit > 0 ? limit : 10;
-  // 使用固定大小数组维护 top-K，避免泛查询时对所有匹配项排序
   const topK = [];
 
   for (let i = 0; i < list.length; i++) {
@@ -582,22 +885,34 @@ function searchInList(bookmarkList, query, limit) {
         matched = false;
         break;
       }
-      // Prefer title matches over URL matches.
-      score += ti >= 0 ? ti : (1000 + ui);
+
+      if (ti >= 0) {
+        let tokenScore = ti;
+        if (ti === 0) tokenScore -= 50;
+        const beforeChar = ti > 0 ? titleLower.charCodeAt(ti - 1) : 0;
+        if (beforeChar === 32 || beforeChar === 45 || beforeChar === 95 || beforeChar === 124) {
+          tokenScore -= 20;
+        }
+        score += tokenScore;
+      } else {
+        score += 1000 + ui;
+      }
     }
 
     if (!matched) continue;
 
+    if (tokens.length === 1 && titleLower === queryLower) {
+      score -= 200;
+    }
+
     // Top-K 插入：保持 topK 按 score 升序，最多 max 个元素
     if (topK.length < max) {
-      // 数组未满，插入排序
       let insertIdx = topK.length;
       while (insertIdx > 0 && topK[insertIdx - 1].score > score) {
         insertIdx--;
       }
       topK.splice(insertIdx, 0, { score, bookmark: b });
     } else if (score < topK[max - 1].score) {
-      // 数组已满且当前 score 比最差的好，替换并重新插入
       topK.pop();
       let insertIdx = topK.length;
       while (insertIdx > 0 && topK[insertIdx - 1].score > score) {
@@ -616,6 +931,21 @@ function searchInList(bookmarkList, query, limit) {
  */
 export async function searchBookmarks(query, { limit = 10 } = {}) {
   await loadCacheFromStorage();
+
+  const syncRead = await getStorageWithStatus(STORAGE_KEYS.LAST_SYNC_TIME);
+  const lastSync = syncRead.data ? syncRead.data[STORAGE_KEYS.LAST_SYNC_TIME] : null;
+
+  if (!syncRead.success && syncRead.state && syncRead.state[STORAGE_KEYS.LAST_SYNC_TIME] === 'failed') {
+    console.warn('[Background][Observe] last_sync_read_failed', { error: syncRead.error || 'unknown' });
+  }
+
+  const ttlMinutes = await ensureRuntimeCacheTtlMinutes();
+  const ttlMs = ttlMinutes * 60 * 1000 || BOOKMARK_CACHE_TTL_DEFAULT_MS;
+
+  if (typeof lastSync === 'number' && lastSync > 0 && (Date.now() - lastSync) > ttlMs) {
+    // 不阻塞当前搜索：异步触发刷新，避免用户感知延迟
+    maybeScheduleStaleRefresh();
+  }
 
   const list = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
   if (list.length > 0) {
@@ -656,9 +986,92 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
   const max = (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) ? Math.floor(limit) : 400;
   const output = Object.create(null);
   let count = 0;
+  const nowTs = Date.now();
 
-  for (let i = 0; i < list.length; i++) {
-    if (count >= max) break;
+  // 清理最近 warmup 记录中过期的项目
+  const warmupCutoff = nowTs - RECENT_WARMUP_WINDOW_MS;
+  for (const [root, ts] of recentWarmupDomains.entries()) {
+    if (typeof ts !== 'number' || ts < warmupCutoff) {
+      recentWarmupDomains.delete(root);
+    }
+  }
+
+  // 1) 最近实际打开过的根域名（根据 recordBookmarkOpen 记录），按最近打开时间排序
+  if (recentOpenedRootMap.size > 0 && count < max) {
+    const openedEntries = Array.from(recentOpenedRootMap.entries())
+      .slice()
+      .sort((a, b) => {
+        const av = a[1] && typeof a[1].lastAt === 'number' ? a[1].lastAt : 0;
+        const bv = b[1] && typeof b[1].lastAt === 'number' ? b[1].lastAt : 0;
+        return bv - av;
+      });
+    for (let i = 0; i < openedEntries.length && count < max; i++) {
+      const root = openedEntries[i][0];
+      const info = openedEntries[i][1] || {};
+      if (!root || output[root]) continue;
+      if (recentWarmupDomains.has(root)) continue;
+      const sampleUrl = typeof info.sampleUrl === 'string' && info.sampleUrl ? info.sampleUrl : ("https://" + root);
+      output[root] = sampleUrl;
+      recentWarmupDomains.set(root, nowTs);
+      count++;
+    }
+  }
+
+  // 2) 根据 bookmarkHistory 中最近的变更记录统计高频根域名
+  if (Array.isArray(bookmarkHistory) && bookmarkHistory.length > 0 && count < max) {
+    const freq = Object.create(null);
+    const recent = bookmarkHistory.slice(0, MAX_HISTORY_ITEMS);
+    for (let i = 0; i < recent.length; i++) {
+      const item = recent[i];
+      if (!item || typeof item.url !== 'string') continue;
+      const rawUrl = String(item.url || '').trim();
+      if (!rawUrl) continue;
+      try {
+        const u = new URL(rawUrl);
+        const host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
+        if (!host) continue;
+        const root = getRootDomain(host);
+        if (!root) continue;
+        freq[root] = (freq[root] || 0) + 1;
+      } catch (e) {}
+    }
+
+    const hotRoots = Object.keys(freq)
+      .sort((a, b) => freq[b] - freq[a]);
+
+    for (let i = 0; i < hotRoots.length && count < max; i++) {
+      const root = hotRoots[i];
+      if (!root || output[root]) continue;
+      if (recentWarmupDomains.has(root)) continue;
+      // 从 bookmarks 中找一条该 root 对应的 URL 作为 sample
+      let sampleUrl = '';
+      for (let j = 0; j < list.length; j++) {
+        const bookmark = list[j];
+        if (!bookmark || !bookmark.url) continue;
+        const rawUrl = String(bookmark.url || '').trim();
+        if (!rawUrl) continue;
+        try {
+          const u = new URL(rawUrl);
+          const host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
+          if (!host) continue;
+          const r = getRootDomain(host);
+          if (r === root) {
+            sampleUrl = u.href || ("https://" + root);
+            break;
+          }
+        } catch (e) {}
+      }
+      if (!sampleUrl) {
+        sampleUrl = "https://" + root;
+      }
+      output[root] = sampleUrl;
+      recentWarmupDomains.set(root, nowTs);
+      count++;
+    }
+  }
+
+  // 3) 兜底：按原逻辑从完整书签列表中按顺序填充剩余名额
+  for (let i = 0; i < list.length && count < max; i++) {
     const bookmark = list[i];
     if (!bookmark || !bookmark.url) continue;
     const rawUrl = String(bookmark.url || '').trim();
@@ -671,7 +1084,9 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
       const root = getRootDomain(host);
       if (!root) continue;
       if (output[root]) continue;
+      if (recentWarmupDomains.has(root)) continue;
       output[root] = u.href || ("https://" + root);
+      recentWarmupDomains.set(root, nowTs);
       count++;
     } catch (e) {}
   }

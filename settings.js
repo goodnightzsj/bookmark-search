@@ -52,7 +52,7 @@ function setupStorageListener() {
     }
 
     // 同步时间变化时，更新显示
-    if (changes.lastSyncTime || changes.syncInterval) {
+    if (changes.lastSyncTime || changes.syncInterval || changes.bookmarkCacheTtlMinutes) {
       console.log("[Settings] 检测到同步设置变化，重新加载同步信息");
       loadSyncSettings();
     }

@@ -98,7 +98,10 @@ export const SPECIAL_PROTOCOLS = ['chrome://', 'edge://', 'about:', 'chrome-exte
 export function getRootDomain(domain) {
   const safe = typeof domain === 'string' ? domain.trim() : '';
   if (!safe) return '';
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return safe;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) {
+    const octets = safe.split('.');
+    if (octets.every(o => { const n = Number(o); return n >= 0 && n <= 255; })) return safe;
+  }
   if (safe === 'localhost') return safe;
   if (safe.indexOf('.') === -1) return safe;
 

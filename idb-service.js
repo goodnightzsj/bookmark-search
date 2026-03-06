@@ -47,7 +47,34 @@ function getDb() {
   return dbPromise;
 }
 
+function isConnectionClosed(error) {
+  return error && (error.name === 'InvalidStateError' || (error.message && error.message.indexOf('InvalidStateError') >= 0));
+}
+
+function resetConnection() {
+  dbPromise = null;
+}
+
+function validateKey(key) {
+  if (typeof key !== 'string' || !key) {
+    throw new Error('IDB key must be a non-empty string');
+  }
+}
+
 export async function idbGet(key) {
+  validateKey(key);
+  try {
+    return await idbGetOnce(key);
+  } catch (error) {
+    if (isConnectionClosed(error)) {
+      resetConnection();
+      return await idbGetOnce(key);
+    }
+    throw error;
+  }
+}
+
+async function idbGetOnce(key) {
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -73,6 +100,18 @@ export async function idbGetMany(keys) {
 
   if (keyList.length === 0) return {};
 
+  try {
+    return await idbGetManyOnce(keyList);
+  } catch (error) {
+    if (isConnectionClosed(error)) {
+      resetConnection();
+      return await idbGetManyOnce(keyList);
+    }
+    throw error;
+  }
+}
+
+async function idbGetManyOnce(keyList) {
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -106,6 +145,19 @@ export async function idbGetMany(keys) {
 }
 
 export async function idbSet(key, value) {
+  validateKey(key);
+  try {
+    return await idbSetOnce(key, value);
+  } catch (error) {
+    if (isConnectionClosed(error)) {
+      resetConnection();
+      return await idbSetOnce(key, value);
+    }
+    throw error;
+  }
+}
+
+async function idbSetOnce(key, value) {
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -126,6 +178,18 @@ export async function idbSetMany(entries) {
 
   if (items.length === 0) return true;
 
+  try {
+    return await idbSetManyOnce(items);
+  } catch (error) {
+    if (isConnectionClosed(error)) {
+      resetConnection();
+      return await idbSetManyOnce(items);
+    }
+    throw error;
+  }
+}
+
+async function idbSetManyOnce(items) {
   const db = await getDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -141,16 +205,3 @@ export async function idbSetMany(entries) {
   });
 }
 
-export async function idbDelete(key) {
-  const db = await getDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
-    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
-
-    store.delete(key);
-  });
-}

@@ -16,20 +16,47 @@
 	  let filteredResults = [];
 	  let selectedIndex = -1;
 	  let cachedResultItems = null; // 缓存搜索结果 DOM 引用，避免 updateSelection 重复查询
+	  // 记录最近一次真实鼠标移动时间，用于避免“键盘滚动导致光标下元素变化”触发 hover 抢夺选中态
+	  let lastPointerMoveAt = 0;
 	  let searchDebounceTimer = null;
 	  let backgroundSearchToken = 0;
 	  let imeComposing = false;
-	  let imeIgnoreNextEnter = false;
 	  let imeEnterDuringComposition = false;
-	  let imeCompositionEndAt = 0;
+	  // Suppress stray/synthetic Enter events right after IME composition ends (esp. macOS built-in IME).
+	  // Keep the window small so the user's next real Enter (to open) still works.
+	  let imeSuppressEnterUntil = 0;
+	  // SYNC: values must match constants.js MESSAGE_ACTIONS (IIFE cannot import ES modules)
 	  const MESSAGE_ACTIONS = {
 	    SEARCH_BOOKMARKS: 'searchBookmarks',
 	    GET_WARMUP_DOMAINS: 'getWarmupDomains',
 	    GET_BROWSER_FAVICON: 'getBrowserFavicon',
+	    GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
 	    GET_FAVICONS: 'getFavicons',
 	    SET_FAVICONS: 'setFavicons',
+	    TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
 	    TOGGLE_SEARCH: 'toggleSearch'
 	  };
+	  const REQUIRED_MESSAGE_ACTIONS = {
+	    SEARCH_BOOKMARKS: true,
+	    GET_WARMUP_DOMAINS: true,
+	    GET_BROWSER_FAVICON: true,
+	    GET_BROWSER_FAVICONS_BATCH: true,
+	    GET_FAVICONS: true,
+	    SET_FAVICONS: true,
+	    TRACK_BOOKMARK_OPEN: true,
+	    TOGGLE_SEARCH: true
+	  };
+	  function validateMessageActionsConfig() {
+	    const keys = Object.keys(REQUIRED_MESSAGE_ACTIONS);
+	    for (let i = 0; i < keys.length; i++) {
+	      const key = keys[i];
+	      const value = MESSAGE_ACTIONS[key];
+	      if (typeof value !== 'string' || !value) {
+	        console.warn('[Content] MESSAGE_ACTIONS 配置缺失或无效:', key);
+	        return;
+	      }
+	    }
+	  }
 	  // In-memory favicon cache (domain -> icon URL) with LRU eviction using Map for O(1) operations
 	  const FAVICON_CACHE_DEFAULT_SIZE = 2000;
 	  let faviconCacheMaxSize = FAVICON_CACHE_DEFAULT_SIZE;
@@ -48,29 +75,74 @@
 	    }
 	  }
 
-	  // 监听 storage 变化，实时更新缓存大小
 	  chrome.storage.onChanged.addListener((changes, area) => {
-	    if (area === 'local' && changes.faviconCacheSize) {
+	    if (area !== 'local') return;
+	    if (changes.faviconCacheSize) {
 	      const newSize = changes.faviconCacheSize.newValue;
 	      if (typeof newSize === 'number' && newSize > 0) {
 	        faviconCacheMaxSize = newSize;
 	        console.log('[Content] Favicon 缓存大小已更新:', faviconCacheMaxSize);
-	        // 如果新大小比当前缓存小，触发淘汰（Map 迭代顺序即插入顺序）
 	        while (faviconCache.size > faviconCacheMaxSize) {
 	          const oldest = faviconCache.keys().next().value;
 	          faviconCache.delete(oldest);
 	        }
 	      }
 	    }
+	    if (changes.theme) {
+	      const newTheme = changes.theme.newValue;
+	      if (typeof newTheme === 'string' && newTheme) {
+	        currentTheme = newTheme;
+	        applyThemeToOverlay();
+	      }
+	    }
 	  });
+
+	  // NOTE: keep helper declarations before first usage.
+	  // javascript-obfuscator may treat identifiers referenced before declaration as globals and skip renaming,
+	  // which can cause runtime ReferenceError in the obfuscated dist build.
+	  function getRootDomain(domain) {
+	    const safe = typeof domain === 'string' ? domain.trim() : '';
+	    if (!safe) return '';
+	    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return safe;
+	    if (safe === 'localhost') return safe;
+	    if (safe.indexOf('.') === -1) return safe;
+
+	    const parts = safe.split('.');
+	    if (parts.length <= 2) return safe;
+	    return parts.slice(-2).join('.');
+	  }
+
+	  function normalizeFaviconDomain(domain) {
+	    const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
+	    if (!safe) return '';
+	    if (safe.indexOf('www.') === 0) return safe.slice(4);
+	    return safe;
+	  }
 
 	  function setFaviconCache(domain, src) {
 	    if (!domain || typeof src !== 'string') return;
-	    // 如果已存在，先删除再插入（移到末尾，表示最近使用）
-	    if (faviconCache.has(domain)) {
-	      faviconCache.delete(domain);
+	    const safeDomain = String(domain).trim().toLowerCase();
+	    if (!safeDomain) return;
+	    const domainsToSet = [];
+	    domainsToSet.push(safeDomain);
+	    // 额外为根域名写一份缓存键，提升跨子域命中率（例如 foo.example.com 与 bar.example.com 共用）
+	    const root = getRootDomain(safeDomain);
+	    if (root && root !== safeDomain) {
+	      const rootNormalized = normalizeFaviconDomain(root);
+	      if (rootNormalized && rootNormalized !== safeDomain) {
+	        domainsToSet.push(rootNormalized);
+	      } else if (root !== safeDomain) {
+	        domainsToSet.push(root);
+	      }
 	    }
-	    faviconCache.set(domain, src);
+	    for (let i = 0; i < domainsToSet.length; i++) {
+	      const key = domainsToSet[i];
+	      if (!key) continue;
+	      if (faviconCache.has(key)) {
+	        faviconCache.delete(key);
+	      }
+	      faviconCache.set(key, src);
+	    }
 	    // LRU 淘汰（Map 迭代顺序即插入顺序，第一个是最旧的）
 	    while (faviconCache.size > faviconCacheMaxSize) {
 	      const oldest = faviconCache.keys().next().value;
@@ -92,13 +164,31 @@
 	  let faviconWarmupRunId = 0;
 	  // Focus retries (some pages may steal focus immediately after injection/show).
 	  let focusRetryTimer = null;
-	  let focusRetryTimer2 = null;
 	  let focusTrapEnabled = false;
 	  let globalKeydownTrapEnabled = false;
 	  let focusEnforcerTimer = null;
 
+	  let currentTheme = 'original';
+
+	  async function loadThemeSetting() {
+	    try {
+	      const result = await chrome.storage.local.get('theme');
+	      if (result.theme && typeof result.theme === 'string') {
+	        currentTheme = result.theme;
+	        applyThemeToOverlay();
+	      }
+	    } catch (e) {}
+	  }
+
+	  function applyThemeToOverlay() {
+	    if (!searchOverlay) return;
+	    searchOverlay.setAttribute('data-bs-theme', currentTheme);
+	  }
+
 	  // 初始化时加载缓存设置
+	  validateMessageActionsConfig();
 	  loadFaviconCacheSettings();
+	  loadThemeSetting();
 
   try {
 
@@ -113,7 +203,10 @@ function createSearchUI() {
   // 创建背景遮罩
   searchOverlay = document.createElement("div");
   searchOverlay.className = "bookmark-search-overlay";
-  // Make overlay focusable so we can reliably take focus away from active inputs/iframes.
+  searchOverlay.setAttribute('data-bs-theme', currentTheme);
+  searchOverlay.setAttribute('role', 'dialog');
+  searchOverlay.setAttribute('aria-modal', 'true');
+  searchOverlay.setAttribute('aria-label', '书签搜索');
   searchOverlay.tabIndex = -1;
   console.log("[Content] 搜索遮罩层已创建");
   
@@ -123,9 +216,20 @@ function createSearchUI() {
   searchInput = document.createElement("input");
   searchInput.className = "bookmark-search-input";
   searchInput.placeholder = "搜索书签...";
+  searchInput.setAttribute('role', 'combobox');
+  searchInput.setAttribute('aria-label', '搜索书签');
+  searchInput.setAttribute('aria-expanded', 'false');
+  searchInput.setAttribute('aria-controls', 'bs-results-listbox');
+  searchInput.setAttribute('aria-autocomplete', 'list');
 
   resultsContainer = document.createElement("div");
   resultsContainer.className = "bookmark-results";
+  resultsContainer.id = "bs-results-listbox";
+  resultsContainer.setAttribute('role', 'listbox');
+  resultsContainer.setAttribute('aria-live', 'polite');
+  resultsContainer.addEventListener('mousemove', () => {
+    lastPointerMoveAt = Date.now();
+  });
 
   // 创建快捷键提示
   const shortcuts = document.createElement("div");
@@ -166,11 +270,16 @@ function createSearchUI() {
   });
   searchInput.addEventListener('compositionend', () => {
     imeComposing = false;
-    imeCompositionEndAt = Date.now();
-    if (imeEnterDuringComposition) {
-      imeIgnoreNextEnter = true;
-    }
+    // Some IMEs emit an extra "Enter" keydown after compositionend (same physical keypress used to commit).
+    // Suppress Enter briefly to avoid accidental navigation; use a slightly longer window when Enter was used.
+    const now = Date.now();
+    imeSuppressEnterUntil = now + (imeEnterDuringComposition ? 80 : 30);
     imeEnterDuringComposition = false;
+  });
+  searchInput.addEventListener('blur', () => {
+    imeComposing = false;
+    imeEnterDuringComposition = false;
+    imeSuppressEnterUntil = 0;
   });
 
   // 点击遮罩关闭搜索框
@@ -189,7 +298,11 @@ function showSearch() {
 
   if (!document.body) {
     console.log("[Content] document.body 未就绪，等待 DOMContentLoaded 后再显示");
-    document.addEventListener('DOMContentLoaded', showSearch, { once: true });
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', showSearch, { once: true });
+    } else {
+      setTimeout(showSearch, 0);
+    }
     return;
   }
 
@@ -227,7 +340,6 @@ function showSearch() {
     }
   } catch (e) {}
   if (focusRetryTimer) clearTimeout(focusRetryTimer);
-  if (focusRetryTimer2) clearTimeout(focusRetryTimer2);
   focusSearchInput();
   // 精简焦点重试：1 次 rAF + 1 次 setTimeout（原 5 次过度重试）
   requestAnimationFrame(() => {
@@ -257,7 +369,6 @@ function hideSearch() {
   disableGlobalKeydownTrap();
 
   if (focusRetryTimer) { clearTimeout(focusRetryTimer); focusRetryTimer = null; }
-  if (focusRetryTimer2) { clearTimeout(focusRetryTimer2); focusRetryTimer2 = null; }
   
   clearTimeout(searchDebounceTimer);
   // Cancel any in-flight background search so it can't repopulate the UI after close.
@@ -393,7 +504,7 @@ function startFocusEnforcer() {
     if (!searchInput) return;
     if (document.activeElement === searchInput) return;
     focusSearchInput();
-  }, 120);
+  }, 350);
 }
 
 function stopFocusEnforcer() {
@@ -427,13 +538,15 @@ function toggleSearch() {
 
 // 处理键盘导航
 function handleKeydown(e) {
-  const composing = !!(imeComposing || (e && (e.isComposing || e.keyCode === 229)));
+  // Prefer our own composition state over legacy keyCode=229 (macOS IME can keep 229 briefly after commit).
+  const composing = !!(imeComposing || (e && e.isComposing));
   switch (e.key) {
     case "Escape":
       hideSearch();
       break;
     case "ArrowDown":
       if (composing) return;
+      lastPointerMoveAt = 0;
       e.preventDefault();
       if (filteredResults.length > 0) {
         selectedIndex = selectedIndex >= filteredResults.length - 1 ? 0 : selectedIndex + 1;
@@ -442,6 +555,7 @@ function handleKeydown(e) {
       break;
     case "ArrowUp":
       if (composing) return;
+      lastPointerMoveAt = 0;
       e.preventDefault();
       if (filteredResults.length > 0) {
         selectedIndex = selectedIndex <= 0 ? filteredResults.length - 1 : selectedIndex - 1;
@@ -453,17 +567,13 @@ function handleKeydown(e) {
         imeEnterDuringComposition = true;
         return;
       }
-      if (imeIgnoreNextEnter) {
-        imeIgnoreNextEnter = false;
-        imeCompositionEndAt = 0;
+      if (imeSuppressEnterUntil && Date.now() < imeSuppressEnterUntil) {
         e.preventDefault();
+        // 仅抑制一次，避免某些 IME 场景下需要 3 次 Enter 才能打开
+        imeSuppressEnterUntil = 0;
         return;
       }
-      if (imeCompositionEndAt && (Date.now() - imeCompositionEndAt) < 80) {
-        imeCompositionEndAt = 0;
-        e.preventDefault();
-        return;
-      }
+      imeSuppressEnterUntil = 0;
       e.preventDefault();
       if (selectedIndex >= 0 && filteredResults[selectedIndex]) {
         // 按住 Ctrl/Cmd 时在当前页打开，否则在新标签打开
@@ -474,17 +584,35 @@ function handleKeydown(e) {
 }
 
 // 更新选中项的高亮
-function updateSelection() {
+function updateSelection(options) {
+  const shouldScroll = !(options && typeof options === 'object' && options.scroll === false);
   // 使用缓存的 DOM 引用（由 displayResults 设置），避免每次导航都查询
   const items = cachedResultItems || resultsContainer.querySelectorAll(".bookmark-item");
+  let activeId = '';
   items.forEach((item, index) => {
     if (index === selectedIndex) {
       item.classList.add("selected");
-      item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      item.setAttribute('aria-selected', 'true');
+      if (shouldScroll) {
+        // 直接操作 scrollTop，避免 scrollIntoView 连带滚动宿主页面
+        const ct = resultsContainer;
+        const itemTop = item.offsetTop - ct.offsetTop;
+        const itemBottom = itemTop + item.offsetHeight;
+        if (itemTop < ct.scrollTop) {
+          ct.scrollTop = itemTop;
+        } else if (itemBottom > ct.scrollTop + ct.clientHeight) {
+          ct.scrollTop = itemBottom - ct.clientHeight;
+        }
+      }
+      activeId = item.id || '';
     } else {
       item.classList.remove("selected");
+      item.setAttribute('aria-selected', 'false');
     }
   });
+  if (searchInput) {
+    searchInput.setAttribute('aria-activedescendant', activeId);
+  }
 }
 
 	// 防抖搜索
@@ -495,10 +623,18 @@ function updateSelection() {
 	  }, 200);
 	}
 
-	function sendMessagePromise(message) {
+	function sendMessagePromise(message, timeoutMs) {
+	  const limit = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 30000;
 	  return new Promise((resolve, reject) => {
+	    let settled = false;
+	    const timer = setTimeout(() => {
+	      if (!settled) { settled = true; reject(new Error('sendMessage timeout')); }
+	    }, limit);
 	    try {
 	      chrome.runtime.sendMessage(message, (response) => {
+	        if (settled) return;
+	        settled = true;
+	        clearTimeout(timer);
 	        const lastError = chrome.runtime && chrome.runtime.lastError;
 	        if (lastError) {
 	          reject(lastError);
@@ -507,39 +643,24 @@ function updateSelection() {
 	        resolve(response);
 	      });
 	    } catch (error) {
-	      reject(error);
+	      if (!settled) { settled = true; clearTimeout(timer); reject(error); }
 	    }
 	  });
 	}
 
-	function getRootDomain(domain) {
-	  const safe = typeof domain === 'string' ? domain.trim() : '';
-	  if (!safe) return '';
-	  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return safe;
-	  if (safe === 'localhost') return safe;
-	  if (safe.indexOf('.') === -1) return safe;
-
-	  const parts = safe.split('.');
-	  if (parts.length <= 2) return safe;
-	  return parts.slice(-2).join('.');
-	}
-
-	function normalizeFaviconDomain(domain) {
-	  const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
-	  if (!safe) return '';
-	  if (safe.indexOf('www.') === 0) return safe.slice(4);
-	  return safe;
-	}
 
 	function isLoadableIconSrc(src) {
 	  const safe = typeof src === 'string' ? src.trim() : '';
 	  if (!safe) return false;
 	  if (safe === defaultIcon) return false;
-	  if (safe.indexOf('chrome://') === 0) return false;
-	  if (safe.indexOf('edge://') === 0) return false;
-	  if (safe.indexOf('about:') === 0) return false;
-	  if (safe.indexOf('chrome-extension://') === 0) return false;
-	  if (safe.indexOf('edge-extension://') === 0) return false;
+	  const lower = safe.toLowerCase();
+	  if (lower.indexOf('chrome://') === 0) return false;
+	  if (lower.indexOf('edge://') === 0) return false;
+	  if (lower.indexOf('about:') === 0) return false;
+	  if (lower.indexOf('chrome-extension://') === 0) return false;
+	  if (lower.indexOf('edge-extension://') === 0) return false;
+	  if (lower.indexOf('javascript:') === 0) return false;
+	  if (lower.indexOf('data:text/html') === 0) return false;
 	  return true;
 	}
 
@@ -611,7 +732,13 @@ function updateSelection() {
 	    clearTimeout(faviconPersistFlushTimer);
 	    faviconPersistFlushTimer = null;
 	  }
-	  if (faviconPersistFlushPromise) return faviconPersistFlushPromise;
+	  if (faviconPersistFlushPromise) {
+	    // Chain a follow-up flush for items queued during the current in-flight flush
+	    faviconPersistFlushPromise.then(() => {
+	      if (faviconPersistQueueSize > 0) scheduleFaviconPersistFlush();
+	    });
+	    return faviconPersistFlushPromise;
+	  }
 	  if (!faviconPersistQueue || faviconPersistQueueSize === 0) return Promise.resolve();
 
 	  const entries = [];
@@ -643,18 +770,11 @@ function updateSelection() {
 	  // Avoid persisting browser-provided favicons (data URLs). Browser cache is the source of truth here.
 	  if (safeSrc.indexOf('data:') === 0) return;
 
-	  function enqueue(d) {
-	    if (!d) return;
-	    const existed = !!faviconPersistQueue[d];
-	    faviconPersistQueue[d] = { domain: d, src: safeSrc, updatedAt: Date.now() };
-	    if (!existed) faviconPersistQueueSize++;
-	  }
-
-	  const normalized = normalizeFaviconDomain(safeDomain);
-	  enqueue(safeDomain);
-	  if (normalized && normalized !== safeDomain) {
-	    enqueue(normalized);
-	  }
+	  // 只持久化 normalized key（去 www.），避免 IDB 双 key 浪费
+	  const key = normalizeFaviconDomain(safeDomain) || safeDomain;
+	  const existed = !!faviconPersistQueue[key];
+	  faviconPersistQueue[key] = { domain: key, src: safeSrc, updatedAt: Date.now() };
+	  if (!existed) faviconPersistQueueSize++;
 
 	  if (faviconPersistQueueSize >= 50) {
 	    flushFaviconPersistQueue();
@@ -768,18 +888,10 @@ function updateSelection() {
 	  return '';
 	}
 
-	function getCachedBrowserFaviconForDomain(domain) {
-	  const src = getCachedFaviconForDomain(domain);
-	  if (src && typeof src === 'string' && src.indexOf('data:') === 0) return src;
-	  return '';
-	}
-
 	function hydrateFaviconsForDomains(domains, domainToImages, domainToPageUrl, token) {
 	  const list = Array.isArray(domains) ? domains : [];
 	  if (list.length === 0) return;
 
-	  // Normalize + de-dupe: the keys in `domainToImages`/`domainToPageUrl` are already normalized for `www.`
-	  // (e.g. "example.com"). Keep them lower-case to avoid cache misses.
 	  const uniq = [];
 	  const seen = Object.create(null);
 	  for (let i = 0; i < list.length; i++) {
@@ -791,115 +903,121 @@ function updateSelection() {
 	  }
 	  if (uniq.length === 0) return;
 
-	  const browserMissing = [];
-	  const concurrency = Math.min(4, uniq.length);
+	  // Phase 1: apply memory cache hits immediately (populated by search response favicons)
+	  const afterMemory = [];
+	  for (let i = 0; i < uniq.length; i++) {
+	    const domain = uniq[i];
+	    const cached = getCachedFaviconForDomain(domain);
+	    if (cached) {
+	      applyFaviconToImages(domainToImages[domain], cached, token);
+	    } else {
+	      afterMemory.push(domain);
+	    }
+	  }
+	  if (afterMemory.length === 0) return;
+
+	  // Phase 2: batch IDB → batch browser favicon → external fallback (all async)
+	  doAsyncHydration(afterMemory, domainToImages, domainToPageUrl, token)
+	    .catch(() => {});
+	}
+
+	async function doAsyncHydration(domains, domainToImages, domainToPageUrl, token) {
+	  // 2a) Batch IDB load
+	  const requestDomains = [];
+	  const reqSeen = Object.create(null);
+	  for (let i = 0; i < domains.length; i++) {
+	    const domain = domains[i];
+	    if (!reqSeen[domain]) { reqSeen[domain] = true; requestDomains.push(domain); }
+	    const root = getRootDomain(domain);
+	    if (root && !reqSeen[root]) { reqSeen[root] = true; requestDomains.push(root); }
+	  }
+
+	  try {
+	    const persisted = await fetchPersistedFavicons(requestDomains);
+	    const map = (persisted && typeof persisted === 'object') ? persisted : {};
+	    for (const key in map) {
+	      if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+	      const entry = map[key];
+	      if (!entry || typeof entry !== 'object') continue;
+	      if (typeof entry.src !== 'string' || !entry.src) continue;
+	      if (!isLoadableIconSrc(entry.src)) continue;
+	      setFaviconCache(key, entry.src);
+	    }
+	  } catch (e) { /* proceed with remaining sources */ }
+
+	  if (token !== faviconRenderToken) return;
+
+	  // Apply IDB hits and collect still-missing domains
+	  const afterIdb = [];
+	  for (let i = 0; i < domains.length; i++) {
+	    const domain = domains[i];
+	    const cached = getCachedFaviconForDomain(domain);
+	    if (cached) {
+	      applyFaviconToImages(domainToImages[domain], cached, token);
+	    } else {
+	      afterIdb.push(domain);
+	    }
+	  }
+	  if (afterIdb.length === 0) return;
+
+	  // 2b) Batch browser favicon request (single message round-trip for all remaining domains)
+	  try {
+	    const items = afterIdb.map((domain) => ({
+	      domain,
+	      pageUrl: domainToPageUrl[domain] || ("https://" + domain)
+	    }));
+	    const response = await sendMessagePromise({
+	      action: MESSAGE_ACTIONS.GET_BROWSER_FAVICONS_BATCH,
+	      items
+	    });
+	    if (token !== faviconRenderToken) return;
+	    const favicons = (response && response.favicons && typeof response.favicons === 'object') ? response.favicons : {};
+	    for (const domain in favicons) {
+	      if (!Object.prototype.hasOwnProperty.call(favicons, domain)) continue;
+	      const src = typeof favicons[domain] === 'string' ? favicons[domain] : '';
+	      if (!src || !isLoadableIconSrc(src)) continue;
+	      setFaviconCache(domain, src);
+	      applyFaviconToImages(domainToImages[domain], src, token);
+	    }
+	  } catch (e) { /* proceed to external */ }
+
+	  if (token !== faviconRenderToken) return;
+
+	  // 2c) External sources for still-missing domains (DDG/Google/Faviconkit)
+	  const afterBrowser = [];
+	  for (let i = 0; i < afterIdb.length; i++) {
+	    const domain = afterIdb[i];
+	    if (!getCachedFaviconForDomain(domain)) afterBrowser.push(domain);
+	  }
+	  if (afterBrowser.length === 0) return;
+
+	  const concurrency = Math.min(4, afterBrowser.length);
 	  let nextIndex = 0;
 
 	  async function worker() {
-	    while (nextIndex < uniq.length) {
+	    while (nextIndex < afterBrowser.length) {
+	      if (token !== faviconRenderToken) return;
 	      const idx = nextIndex++;
-	      const domain = uniq[idx];
-	      if (token !== faviconRenderToken) return;
-
-	      // 1) Browser cache first (including any previously fetched browser favicon in memory).
-	      const cachedBrowser = getCachedBrowserFaviconForDomain(domain);
-	      if (cachedBrowser) {
-	        applyFaviconToImages(domainToImages[domain], cachedBrowser, token);
-	        continue;
-	      }
-
+	      const domain = afterBrowser[idx];
 	      const pageUrl = domainToPageUrl[domain] || ("https://" + domain);
-	      const src = await fetchBrowserFaviconForPageUrl(pageUrl);
-	      if (token !== faviconRenderToken) return;
-
-	      if (src) {
-	        setFaviconCache(domain, src);
-	        const normalized = normalizeFaviconDomain(domain);
-	        if (normalized) setFaviconCache(normalized, src);
-	        applyFaviconToImages(domainToImages[domain], src, token);
-	      } else {
-	        browserMissing.push(domain);
-	      }
+	      await new Promise((resolve) => {
+	        loadFavicon(domain, pageUrl, function(url) {
+	          if (token !== faviconRenderToken) { resolve(); return; }
+	          const safeUrl = typeof url === 'string' ? url : '';
+	          if (safeUrl && isLoadableIconSrc(safeUrl)) {
+	            setFaviconCache(domain, safeUrl);
+	            applyFaviconToImages(domainToImages[domain], safeUrl, token);
+	            queuePersistFavicon(domain, safeUrl);
+	          }
+	          resolve();
+	        }, { allowBrowserCache: false, allowExternal: true });
+	      });
 	    }
 	  }
 
 	  const workers = [];
 	  for (let i = 0; i < concurrency; i++) workers.push(worker());
-
-	  Promise.all(workers).then(() => {
-	    if (token !== faviconRenderToken) return;
-	    if (browserMissing.length === 0) return;
-
-	    // 2) If browser cache missed, use in-memory/persisted cache.
-	    const needPersisted = [];
-	    for (let i = 0; i < browserMissing.length; i++) {
-	      const domain = browserMissing[i];
-	      const src = getCachedFaviconForDomain(domain);
-	      if (src) {
-	        applyFaviconToImages(domainToImages[domain], src, token);
-	      } else {
-	        needPersisted.push(domain);
-	      }
-	    }
-
-	    if (needPersisted.length === 0) return;
-
-	    // 3) Fetch persisted favicons only for browser-miss domains.
-	    const requestDomains = [];
-	    const reqSeen = Object.create(null);
-	    for (let i = 0; i < needPersisted.length; i++) {
-	      const domain = needPersisted[i];
-	      if (!reqSeen[domain]) {
-	        reqSeen[domain] = true;
-	        requestDomains.push(domain);
-	      }
-	      const root = getRootDomain(domain);
-	      if (root && !reqSeen[root]) {
-	        reqSeen[root] = true;
-	        requestDomains.push(root);
-	      }
-	    }
-
-	    fetchPersistedFavicons(requestDomains).then((persisted) => {
-	      if (token !== faviconRenderToken) return;
-
-	      for (const key in persisted) {
-	        if (!Object.prototype.hasOwnProperty.call(persisted, key)) continue;
-	        const entry = persisted[key];
-	        if (!entry || typeof entry !== 'object') continue;
-	        if (typeof entry.src !== 'string' || !entry.src) continue;
-	        if (!isLoadableIconSrc(entry.src)) continue;
-	        setFaviconCache(key, entry.src);
-	        const normalized = normalizeFaviconDomain(key);
-	        if (normalized) setFaviconCache(normalized, entry.src);
-	      }
-
-	      // 4) Still missing: fetch externally (skip browser cache since we already tried it).
-	      for (let i = 0; i < needPersisted.length; i++) {
-	        const domain = needPersisted[i];
-	        if (token !== faviconRenderToken) return;
-
-	        const cached = getCachedFaviconForDomain(domain);
-	        if (cached) {
-	          applyFaviconToImages(domainToImages[domain], cached, token);
-	          continue;
-	        }
-
-	        const pageUrl = domainToPageUrl[domain] || ("https://" + domain);
-	        loadFavicon(domain, pageUrl, function(url) {
-	          if (token !== faviconRenderToken) return;
-	          const safeUrl = typeof url === 'string' ? url : '';
-	          if (!safeUrl) return;
-	          if (!isLoadableIconSrc(safeUrl)) return;
-	          const normalized = normalizeFaviconDomain(domain);
-	          if (normalized) setFaviconCache(normalized, safeUrl);
-	          setFaviconCache(domain, safeUrl);
-	          applyFaviconToImages(domainToImages[domain], safeUrl, token);
-	          queuePersistFavicon(domain, safeUrl);
-	        }, { allowBrowserCache: false, allowExternal: true });
-	      }
-	    });
-	  });
+	  await Promise.all(workers);
 	}
 
 	function cancelFaviconWarmup() {
@@ -923,39 +1041,6 @@ function updateSelection() {
 	  }, 1500);
 	}
 
-	function getBookmarksFromStorage() {
-	  return new Promise((resolve) => {
-	    try {
-	      chrome.storage.local.get(["bookmarks"], (result) => {
-	        const nextBookmarks = result && result.bookmarks;
-	        resolve(Array.isArray(nextBookmarks) ? nextBookmarks : []);
-	      });
-	    } catch (e) {
-	      resolve([]);
-	    }
-	  });
-	}
-
-	function buildDomainWarmupMap(bookmarkList) {
-	  const output = Object.create(null);
-	  const list = Array.isArray(bookmarkList) ? bookmarkList : [];
-	  for (let i = 0; i < list.length; i++) {
-	    const bookmark = list[i];
-	    if (!bookmark || !bookmark.url) continue;
-	    try {
-	      const urlObj = new URL(String(bookmark.url));
-	      const host = urlObj.hostname;
-	      if (!host) continue;
-	      const root = getRootDomain(host);
-	      if (!root) continue;
-	      if (!output[root]) {
-	        output[root] = urlObj.href || ("https://" + root);
-	      }
-	    } catch (e) {}
-	  }
-	  return output;
-	}
-
 	function fetchWarmupDomainMapFromBackground(limit) {
 	  const max = (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) ? Math.floor(limit) : 400;
 	  return sendMessagePromise({ action: MESSAGE_ACTIONS.GET_WARMUP_DOMAINS, limit: max })
@@ -977,9 +1062,10 @@ function updateSelection() {
 
 	  function loadFaviconPromise(domain, pageUrl) {
 	    return new Promise((resolve) => {
-	      // Warmup should only persist icons for sites that the browser doesn't already know about.
-	      // `queuePersistFavicon` skips browser (data:) icons, so enabling external sources here is safe.
-	      loadFavicon(domain, pageUrl, resolve, { allowExternal: true });
+	      // Warmup domains have already missed memory + IDB caches.
+	      // Skip browser cache (250ms timeout per domain) to avoid warmup being heavy.
+	      // During actual search, hydrateOne step 3 still checks browser cache.
+	      loadFavicon(domain, pageUrl, resolve, { allowBrowserCache: false, allowExternal: true });
 	    });
 	  }
 
@@ -1015,11 +1101,8 @@ function updateSelection() {
 	  const runId = ++faviconWarmupRunId;
 	  faviconWarmupInProgress = true;
 	  try {
-	    let domainToPageUrl = await fetchWarmupDomainMapFromBackground(600);
-	    if (!domainToPageUrl) {
-	      const bookmarkList = await getBookmarksFromStorage();
-	      domainToPageUrl = buildDomainWarmupMap(bookmarkList);
-	    }
+	    const domainToPageUrl = await fetchWarmupDomainMapFromBackground(600);
+	    if (!domainToPageUrl) return;
 
 	    const domains = Object.keys(domainToPageUrl || {});
 	    if (domains.length === 0) return;
@@ -1034,8 +1117,6 @@ function updateSelection() {
 	      if (typeof entry.src !== 'string' || !entry.src) continue;
 	      if (!isLoadableIconSrc(entry.src)) continue;
 	      setFaviconCache(key, entry.src);
-	      const normalized = normalizeFaviconDomain(key);
-	      if (normalized) setFaviconCache(normalized, entry.src);
 	    }
 
 	    const missing = [];
@@ -1070,7 +1151,11 @@ async function searchBookmarksInBackground(query) {
 	    if (token !== backgroundSearchToken) return;
 
 	    if (!response || response.success === false) {
-	      throw new Error((response && response.error) || 'Search failed');
+	      const err = response && response.error;
+	      const message = (err && typeof err === 'object' && typeof err.message === 'string')
+	        ? err.message
+	        : (typeof err === 'string' ? err : 'Search failed');
+	      throw new Error(message);
 	    }
 
 	    const favicons = response && response.favicons;
@@ -1083,8 +1168,6 @@ async function searchBookmarksInBackground(query) {
 	        if (!src) continue;
 	        if (!isLoadableIconSrc(src)) continue;
 	        setFaviconCache(domain, src);
-	        const normalized = normalizeFaviconDomain(domain);
-	        if (normalized) setFaviconCache(normalized, src);
 	      }
 	    }
 
@@ -1098,6 +1181,7 @@ async function searchBookmarksInBackground(query) {
 	    console.error("[Content] 后台搜索失败:", error);
 	    filteredResults = [];
 	    selectedIndex = -1;
+	    cachedResultItems = null;
 	    resultsContainer.innerHTML = "";
 
 	    const emptyMsg = document.createElement("div");
@@ -1116,7 +1200,12 @@ async function searchBookmarksInBackground(query) {
 	  if (!rawQuery) {
 	    filteredResults = [];
 	    resultsContainer.innerHTML = "";
+	    cachedResultItems = null;
 	    selectedIndex = -1;
+	    if (searchInput) {
+	      searchInput.setAttribute('aria-expanded', 'false');
+	      searchInput.setAttribute('aria-activedescendant', '');
+	    }
 	    return;
 	  }
 
@@ -1131,7 +1220,9 @@ function displayResults(results) {
   const domainToImages = Object.create(null);
   const domainToPageUrl = Object.create(null);
 
+  searchInput.setAttribute('aria-expanded', results.length > 0 ? 'true' : 'false');
   if (results.length === 0) {
+    searchInput.setAttribute('aria-activedescendant', '');
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "bookmark-empty";
     emptyMsg.textContent = "未找到匹配的书签";
@@ -1145,8 +1236,12 @@ function displayResults(results) {
   results.forEach((bookmark, index) => {
     const item = document.createElement("div");
     item.className = "bookmark-item";
+    item.id = 'bs-result-' + index;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', index === selectedIndex ? 'true' : 'false');
     if (index === selectedIndex) {
       item.classList.add("selected");
+      searchInput.setAttribute('aria-activedescendant', item.id);
     }
 
     const favicon = document.createElement("img");
@@ -1196,8 +1291,10 @@ function displayResults(results) {
 
     // 鼠标悬停时更新选中项
     item.addEventListener("mouseenter", () => {
+      if (!lastPointerMoveAt || Date.now() - lastPointerMoveAt > 200) return;
       selectedIndex = index;
-      updateSelection();
+      // Hover 只更新高亮，不应改变滚动位置（否则会出现“列表顶部跳到当前悬浮项”的体验）
+      updateSelection({ scroll: false });
     });
 
     item.addEventListener("click", (e) => {
@@ -1221,7 +1318,29 @@ function displayResults(results) {
 }
 
 // 加载 Favicon
-var defaultIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23999' d='M8 0a8 8 0 100 16A8 8 0 008 0z'/%3E%3C/svg%3E";
+	var defaultIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23999' d='M8 0a8 8 0 100 16A8 8 0 008 0z'/%3E%3C/svg%3E";
+  var externalFaviconFailTimestamps = [];
+  var externalFaviconCircuitUntil = 0;
+
+  function canUseExternalFavicons() {
+    var now = Date.now();
+    return now >= externalFaviconCircuitUntil;
+  }
+
+  function recordExternalFaviconFailure() {
+    var now = Date.now();
+    externalFaviconFailTimestamps.push(now);
+    // 只保留最近 10 秒的失败记录
+    var windowMs = 10000;
+    var cutoff = now - windowMs;
+    externalFaviconFailTimestamps = externalFaviconFailTimestamps.filter(function (ts) {
+      return typeof ts === 'number' && ts >= cutoff;
+    });
+    if (externalFaviconFailTimestamps.length >= 20 && now >= externalFaviconCircuitUntil) {
+      // 10 秒内失败 >= 20 次，30 秒内不再请求外部 favicon
+      externalFaviconCircuitUntil = now + 30000;
+    }
+  }
 
 function loadFavicon(domain, pageUrl, callback, options) {
   // 提取一级域名（IP/localhost 直接返回自身）
@@ -1267,22 +1386,43 @@ function loadFavicon(domain, pageUrl, callback, options) {
   }
 
   function tryLoad(idx) {
+    if (done) return;
     if (idx >= sources.length) {
+      finish(defaultIcon);
+      return;
+    }
+    if (!allowExternal || !canUseExternalFavicons()) {
       finish(defaultIcon);
       return;
     }
     var url = sources[idx];
     var isDDG = url.indexOf("duckduckgo.com") !== -1;
+    var settled = false;
+    var timer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      img.onload = null;
+      img.onerror = null;
+      tryLoad(idx + 1);
+    }, 3000);
 
     var img = new Image();
     img.onload = function() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (isDDG && img.naturalWidth === 48 && img.naturalHeight === 48) {
+        recordExternalFaviconFailure();
         tryLoad(idx + 1);
         return;
       }
       finish(url);
     };
     img.onerror = function() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      recordExternalFaviconFailure();
       tryLoad(idx + 1);
     };
     img.src = url;
@@ -1318,6 +1458,11 @@ function openBookmark(bookmark, newTab = true) {
 
   // Best-effort: ensure favicon cache writes are kicked off before navigation / focus changes.
   flushFaviconPersistQueue();
+
+	  // 记录用户实际选择的搜索结果，供 favicon 预热优先级使用（仅发送到 background，最佳努力）
+	  try {
+	    sendMessagePromise({ action: MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN, url }).catch(() => {});
+	  } catch (e) {}
 
   if (newTab) {
     const opened = window.open(url, "_blank", "noopener,noreferrer");
@@ -1365,7 +1510,11 @@ function init() {
 
   if (!document.body) {
     console.log("[Content] document.body 未就绪，等待 DOMContentLoaded 后再初始化");
-    document.addEventListener('DOMContentLoaded', init, { once: true });
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+      setTimeout(init, 0);
+    }
     return;
   }
 

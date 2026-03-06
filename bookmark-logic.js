@@ -1,6 +1,4 @@
-import { HISTORY_ACTIONS } from './constants.js';
-
-const PATH_SEPARATOR = ' > ';
+import { HISTORY_ACTIONS, PATH_SEPARATOR } from './constants.js';
 
 export function flattenBookmarksTree(nodes, parentPath = '', resultList = []) {
   if (!Array.isArray(nodes)) return resultList;
@@ -79,7 +77,10 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
       continue;
     }
 
-    if (oldItem.path !== newItem.path) {
+    const moved = oldItem.path !== newItem.path;
+    const edited = oldItem.title !== newItem.title || oldItem.url !== newItem.url;
+
+    if (moved) {
       changes.push({
         action: HISTORY_ACTIONS.MOVE,
         title: newItem.title,
@@ -88,10 +89,9 @@ export function compareBookmarks(oldList, newList, { now = Date.now } = {}) {
         newPath: newItem.path,
         timestamp: now()
       });
-      continue;
     }
 
-    if (oldItem.title !== newItem.title || oldItem.url !== newItem.url) {
+    if (edited) {
       changes.push({
         action: HISTORY_ACTIONS.EDIT,
         oldTitle: oldItem.title,

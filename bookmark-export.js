@@ -1,6 +1,5 @@
 import { escapeHtml } from './utils.js';
-
-const PATH_SEPARATOR = ' > ';
+import { PATH_SEPARATOR } from './constants.js';
 
 function buildFolderTree(bookmarks) {
   const root = { children: new Map(), bookmarks: [] };
@@ -38,6 +37,7 @@ function renderTree(node, indent, timestampSec, parts = []) {
 
   // Then bookmarks
   for (const bookmark of node.bookmarks) {
+    if (!bookmark.url) continue;
     const addDate = Math.floor(((bookmark.timestamp || Date.now())) / 1000);
     parts.push(`${indent}<DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`);
   }

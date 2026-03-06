@@ -44,6 +44,9 @@ function obfuscator(options = {}) {
     ,
     renderChunk(code, chunk) {
       if (!chunk || !chunk.fileName || !chunk.fileName.endsWith('.js')) return null;
+      // content.js 运行在网页上下文中，window 天然存在；
+      // 注入 var window=globalThis 会在 Terser 压缩后与混淆器变量名冲突
+      if (chunk.fileName === 'content.js') return null;
       return {
         code: injectWindowAliasAfterImports(code),
         map: null
@@ -79,12 +82,11 @@ export default defineConfig({
       }
     },
     
-    // 生产环境移除 console
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
-        drop_debugger: true
+        drop_debugger: true,
+        pure_funcs: ['console.log']
       }
     }
   },

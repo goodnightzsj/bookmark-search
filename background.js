@@ -1,6 +1,6 @@
-import { applyBookmarkEvents, loadInitialData, refreshBookmarks } from './background-data.js';
-import { handleAlarm, initSyncSettings } from './background-sync.js';
-import { handleMessage } from './background-messages.js';
+import { applyBookmarkEvents, loadInitialData, refreshBookmarks, updateRuntimeCacheTtlMinutes } from './background-data.js';
+import { handleSyncAlarm, initSyncSettings } from './background-sync.js';
+import { handleMessage, setEnsureInit } from './background-messages.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 
@@ -42,18 +42,33 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // 监听书签变化事件（浏览器原生书签变化时自动触发同步）
-// 使用防抖避免批量导入时频繁刷新
+// 使用 setTimeout 防抖（chrome.alarms 最短延迟约 30s，不适合短间隔防抖）
 const DEBOUNCE_DELAY_MS = 500;
 
 let debounceBookmarkEvents = [];
 let importInProgress = false;
+let debounceTimer = null;
 
 function scheduleBookmarkDebounce() {
-  chrome.alarms.clear(ALARM_NAMES.BOOKMARK_REFRESH_DEBOUNCE)
-    .catch(() => {}) // ignore
-    .finally(() => {
-      chrome.alarms.create(ALARM_NAMES.BOOKMARK_REFRESH_DEBOUNCE, { when: Date.now() + DEBOUNCE_DELAY_MS });
-    });
+  if (debounceTimer !== null) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(flushBookmarkDebounce, DEBOUNCE_DELAY_MS);
+}
+
+async function flushBookmarkDebounce() {
+  debounceTimer = null;
+  const events = debounceBookmarkEvents;
+  debounceBookmarkEvents = [];
+
+  console.log("[Background] 防抖触发，开始同步（事件数=%d）", Array.isArray(events) ? events.length : 0);
+  await ensureInit();
+  if (importInProgress) return;
+
+  if (!Array.isArray(events) || events.length === 0) {
+    await refreshBookmarks();
+    return;
+  }
+
+  await applyBookmarkEvents(events);
 }
 
 function enqueueBookmarkEvent(evt) {
@@ -98,7 +113,7 @@ if (chrome.bookmarks && chrome.bookmarks.onImportBegan) {
     console.log("[Background] 书签导入开始，暂停增量并等待结束后全量刷新");
     importInProgress = true;
     debounceBookmarkEvents = [];
-    chrome.alarms.clear(ALARM_NAMES.BOOKMARK_REFRESH_DEBOUNCE).catch(() => {});
+    if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
   });
 }
 
@@ -110,28 +125,30 @@ if (chrome.bookmarks && chrome.bookmarks.onImportEnded) {
   });
 }
 
+function handleStorageChanged(changes, area) {
+  if (area !== 'local' || !changes || typeof changes !== 'object') return;
+
+  if (changes.bookmarkCacheTtlMinutes) {
+    const nextValue = changes.bookmarkCacheTtlMinutes.newValue;
+    updateRuntimeCacheTtlMinutes(nextValue);
+    console.log('[Background][Observe] ttl_runtime_updated', { value: nextValue });
+  }
+}
+
+chrome.storage.onChanged.addListener(handleStorageChanged);
+
 // 监听定时任务
-chrome.alarms.onAlarm.addListener(handleAlarm);
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === ALARM_NAMES.BOOKMARK_REFRESH_DEBOUNCE) {
-    const events = debounceBookmarkEvents;
-    debounceBookmarkEvents = [];
+  if (!alarm || !alarm.name) return;
 
-    console.log("[Background] 防抖 alarm 触发，开始同步（事件数=%d）", Array.isArray(events) ? events.length : 0);
+  if (alarm.name === ALARM_NAMES.SYNC_BOOKMARKS) {
     await ensureInit();
-    if (importInProgress) return;
-
-    // If the service worker restarted after scheduling the alarm, the in-memory event queue may be lost.
-    // In that case, fall back to a full refresh to keep data consistent.
-    if (!Array.isArray(events) || events.length === 0) {
-      await refreshBookmarks();
-      return;
-    }
-
-    // Prefer incremental updates; will auto-fallback to full refresh when needed.
-    await applyBookmarkEvents(events);
+    await handleSyncAlarm(alarm);
   }
 });
+
+// 注入 ensureInit 供消息处理器使用（避免循环导入）
+setEnsureInit(ensureInit);
 
 // 监听消息
 chrome.runtime.onMessage.addListener(handleMessage);

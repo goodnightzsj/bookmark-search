@@ -11,7 +11,9 @@ export const STORAGE_KEYS = {
   LAST_SYNC_TIME: 'lastSyncTime',
   SYNC_INTERVAL: 'syncInterval',
   THEME: 'theme',
-  FAVICON_CACHE_SIZE: 'faviconCacheSize'
+  FAVICON_CACHE_SIZE: 'faviconCacheSize',
+  BOOKMARK_CACHE_TTL_MINUTES: 'bookmarkCacheTtlMinutes',
+  BOOKMARKS_META: 'bookmarksMeta'
 };
 
 // 默认值
@@ -22,7 +24,9 @@ const DEFAULTS = {
   [STORAGE_KEYS.LAST_SYNC_TIME]: null,
   [STORAGE_KEYS.SYNC_INTERVAL]: 30,
   [STORAGE_KEYS.THEME]: 'original',
-  [STORAGE_KEYS.FAVICON_CACHE_SIZE]: 2000
+  [STORAGE_KEYS.FAVICON_CACHE_SIZE]: 2000,
+  [STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES]: 30,
+  [STORAGE_KEYS.BOOKMARKS_META]: { updatedAt: 0, count: 0 }
 };
 
 /**
@@ -32,26 +36,65 @@ const DEFAULTS = {
  */
 export async function getStorage(keys) {
   const keyArray = Array.isArray(keys) ? keys : [keys];
-  
+
   try {
     const result = await chrome.storage.local.get(keyArray);
-    
+
     // 为缺失的键填充默认值
     const output = {};
     for (const key of keyArray) {
       output[key] = result[key] !== undefined ? result[key] : DEFAULTS[key];
     }
-    
+
     return output;
   } catch (error) {
     console.error('[Storage] 读取失败:', error);
-    
+
     // 返回默认值
     const fallback = {};
     for (const key of keyArray) {
       fallback[key] = DEFAULTS[key];
     }
     return fallback;
+  }
+}
+
+/**
+ * 获取存储数据（区分 missing 与 failed）
+ * @param {string|string[]} keys - 要获取的键名或键名数组
+ * @returns {Promise<{success:boolean,error?:string,data:Object,state:Object}>}
+ */
+export async function getStorageWithStatus(keys) {
+  const keyArray = Array.isArray(keys) ? keys : [keys];
+
+  try {
+    const result = await chrome.storage.local.get(keyArray);
+    const data = {};
+    const state = {};
+
+    for (const key of keyArray) {
+      if (result[key] === undefined) {
+        data[key] = DEFAULTS[key];
+        state[key] = 'missing';
+      } else {
+        data[key] = result[key];
+        state[key] = 'ok';
+      }
+    }
+
+    return { success: true, data, state };
+  } catch (error) {
+    console.error('[Storage] 读取失败:', error);
+
+    const fallback = {};
+    const state = {};
+    for (const key of keyArray) {
+      fallback[key] = DEFAULTS[key];
+      state[key] = 'failed';
+    }
+
+    const message = error && error.message ? error.message : String(error);
+    return { success: false, error: message, data: fallback, state };
   }
 }
 

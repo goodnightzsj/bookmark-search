@@ -1,3 +1,5 @@
+import { escapeHtml } from './utils.js';
+
 /**
  * 加载快捷键信息
  */
@@ -79,7 +81,7 @@ function checkShortcutConflicts(shortcut, allCommands) {
     if (hasConflict) {
       conflictMessage.innerHTML = `
         此快捷键可能与以下功能冲突：<br>
-        ${conflictsWith.map(c => `• ${c}`).join('<br>')}
+        ${conflictsWith.map(c => `• ${escapeHtml(c)}`).join('<br>')}
       `;
       conflictAlert.style.display = 'flex';
       console.warn("[Settings] 检测到快捷键冲突:", conflictsWith);

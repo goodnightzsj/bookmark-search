@@ -62,9 +62,9 @@ export async function saveTheme(themeName) {
     themeName = DEFAULT_THEME;
   }
   
-  // 同时保存到 storage 和 localStorage
-  localStorage.setItem(THEME_CACHE_KEY, themeName);
+  // 先写 chrome.storage；成功后再更新 localStorage 保持一致性
   await setValue(STORAGE_KEYS.THEME, themeName);
+  localStorage.setItem(THEME_CACHE_KEY, themeName);
   
   return true;
 }
