@@ -25,5 +25,8 @@ A step-by-step guide for using the bookmark search overlay.
 
 **Notes:**
 - IME users (Chinese/Japanese input): Enter key is ignored during composition to prevent accidental navigation.
-- Favicons load asynchronously with multi-tier fallback: in-memory → persisted (IndexedDB) → browser cache (`chrome.favicon`) → external sources.
-- Background warmup prefetches favicons after overlay closes for faster subsequent searches.
+- Favicons load asynchronously with state-aware fallback: in-memory → persisted success/failure records (IndexedDB) → browser cache (`chrome.favicon`) → external/local sources.
+- Real favicon successes are kept for reuse, while failures or browser/external placeholder results enter a retry cooldown instead of being stored as long-lived successes.
+- Background warmup prefetches favicons after overlay closes for faster subsequent searches, but only trusted real successes are promoted into the persistent success cache.
+- If you clear favicon cache from `settings.html`, both persisted favicon records and content-script in-memory state are invalidated, so the next search re-enters the favicon fetch chain.
+- The overlay now follows all 4 themes (`original`, `minimal`, `glass`, `dark`) through the shared theme setting, including container, input, hover/selected states, empty state, shortcut bar, and scrollbar styling.

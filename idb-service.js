@@ -61,6 +61,12 @@ function validateKey(key) {
   }
 }
 
+function validatePrefix(prefix) {
+  if (typeof prefix !== 'string' || !prefix) {
+    throw new Error('IDB prefix must be a non-empty string');
+  }
+}
+
 export async function idbGet(key) {
   validateKey(key);
   try {
@@ -202,6 +208,60 @@ async function idbSetManyOnce(items) {
     for (const item of items) {
       store.put({ key: item.key, value: item.value });
     }
+  });
+}
+
+export async function idbDeleteByPrefix(prefix) {
+  validatePrefix(prefix);
+  try {
+    return await idbDeleteByPrefixOnce(prefix);
+  } catch (error) {
+    if (isConnectionClosed(error)) {
+      resetConnection();
+      return await idbDeleteByPrefixOnce(prefix);
+    }
+    throw error;
+  }
+}
+
+async function idbDeleteByPrefixOnce(prefix) {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const range = IDBKeyRange.bound(prefix, prefix + '\uffff');
+    const cursorReq = store.openCursor(range);
+    let deletedCount = 0;
+    let settled = false;
+
+    tx.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      resolve(deletedCount);
+    };
+    tx.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(tx.error || new Error('IndexedDB transaction failed'));
+    };
+    tx.onabort = () => {
+      if (settled) return;
+      settled = true;
+      reject(tx.error || new Error('IndexedDB transaction aborted'));
+    };
+
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      deletedCount++;
+      cursor.delete();
+      cursor.continue();
+    };
+    cursorReq.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(cursorReq.error || new Error('IndexedDB cursor failed'));
+    };
   });
 }
 

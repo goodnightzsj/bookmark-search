@@ -4,4 +4,5 @@ dist/
 *.zip
 .ace-tool/
 .claude/
+.serena/
 CLAUDE.md

@@ -1,7 +1,7 @@
 import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen } from './background-data.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
-import { idbGetMany, idbSetMany } from './idb-service.js';
+import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
 import { getRootDomain } from './utils.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
@@ -15,10 +15,28 @@ const BROWSER_FAVICON_NEGATIVE_TTL_MS = 5 * 60 * 1000; // 5m
 const BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS = 30 * 1000; // 30s
 const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 250;
 const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = 1200;
-const PERSISTED_FAVICON_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const PERSISTED_FAVICON_FAILURE_TTL_MS = 30 * 60 * 1000; // 30m
+const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = 60 * 1000; // 1m
+const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = 24 * 60 * 60 * 1000; // 24h
 
-const browserFaviconCache = new Map(); // key -> { src, expiresAt }
-const browserFaviconInFlight = new Map(); // key -> Promise<string>
+const browserFaviconCache = new Map(); // key -> { src, isPlaceholder, expiresAt }
+const browserFaviconInFlight = new Map(); // key -> Promise<{ src, isPlaceholder }>
+
+function decodeSvgDataUrlContent(src) {
+  const safeSrc = typeof src === 'string' ? src.trim() : '';
+  if (!safeSrc) return '';
+  const match = safeSrc.match(/^data:image\/svg\+xml(?:;charset=[^;,]+)?(?:;base64)?,(.*)$/i);
+  if (!match) return '';
+  const payload = match[1] || '';
+  try {
+    if (/;base64,/i.test(safeSrc.slice(0, safeSrc.indexOf(',') + 1))) {
+      return atob(payload);
+    }
+    return decodeURIComponent(payload);
+  } catch (error) {
+    return payload;
+  }
+}
 
 function isIpAddress(host) {
   const safe = typeof host === 'string' ? host.trim() : '';
@@ -82,22 +100,112 @@ function getCachedBrowserFaviconSrc(key) {
   browserFaviconCache.delete(key);
   browserFaviconCache.set(key, entry);
 
-  const src = entry.src;
-  return typeof src === 'string' ? src : '';
+  return {
+    src: typeof entry.src === 'string' ? entry.src : '',
+    isPlaceholder: !!entry.isPlaceholder
+  };
 }
 
-function setCachedBrowserFaviconSrc(key, src, ttlMs) {
+function setCachedBrowserFaviconSrc(key, src, ttlMs, isPlaceholder = false) {
   if (!key) return;
   const safeSrc = typeof src === 'string' ? src : '';
   const ttl = (typeof ttlMs === 'number' && Number.isFinite(ttlMs) && ttlMs > 0) ? ttlMs : BROWSER_FAVICON_NEGATIVE_TTL_MS;
 
   browserFaviconCache.delete(key);
-  browserFaviconCache.set(key, { src: safeSrc, expiresAt: Date.now() + ttl });
+  browserFaviconCache.set(key, { src: safeSrc, isPlaceholder: !!isPlaceholder, expiresAt: Date.now() + ttl });
 
   while (browserFaviconCache.size > BROWSER_FAVICON_CACHE_MAX_SIZE) {
     const oldestKey = browserFaviconCache.keys().next().value;
     browserFaviconCache.delete(oldestKey);
   }
+}
+
+function getPersistedFaviconFailureTtlMs(domain) {
+  return isLikelyPrivateHost(domain) ? PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS : PERSISTED_FAVICON_FAILURE_TTL_MS;
+}
+
+function clampRetryAt(retryAt, domain) {
+  const now = Date.now();
+  const fallback = now + getPersistedFaviconFailureTtlMs(domain);
+  const raw = (typeof retryAt === 'number' && Number.isFinite(retryAt)) ? retryAt : fallback;
+  const min = now;
+  const max = now + PERSISTED_FAVICON_FAILURE_TTL_MAX_MS;
+  if (raw < min) return fallback;
+  if (raw > max) return max;
+  return raw;
+}
+
+function isTrustedPersistedFaviconSrc(src) {
+  const safe = typeof src === 'string' ? src.trim() : '';
+  return safe.startsWith('https://') || safe.startsWith('http://');
+}
+
+function buildLegacyPersistedFaviconMigration(entry, domain) {
+  if (!entry || typeof entry !== 'object') return null;
+  const src = typeof entry.src === 'string' ? entry.src.trim() : '';
+  if (!src) return null;
+  const hasExplicitState = typeof entry.state === 'string' && !!entry.state;
+  if (hasExplicitState) return null;
+
+  const updatedAt = typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt)
+    ? entry.updatedAt
+    : Date.now();
+
+  if (isTrustedPersistedFaviconSrc(src)) {
+    return {
+      state: 'success',
+      src,
+      updatedAt
+    };
+  }
+
+  return {
+    state: 'failure',
+    retryAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+function getPersistedFaviconEntryState(entry, domain) {
+  if (!entry || typeof entry !== 'object') return { kind: 'missing' };
+  const src = typeof entry.src === 'string' ? entry.src.trim() : '';
+  const legacyMigration = buildLegacyPersistedFaviconMigration(entry, domain);
+  if (src) {
+    if (legacyMigration && legacyMigration.state === 'failure') {
+      return {
+        kind: 'staleFailure',
+        migration: legacyMigration
+      };
+    }
+    return {
+      kind: 'success',
+      entry: {
+        state: 'success',
+        src,
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
+      },
+      migration: legacyMigration
+    };
+  }
+
+  const state = typeof entry.state === 'string' ? entry.state : '';
+  const retryAt = typeof entry.retryAt === 'number' ? entry.retryAt : 0;
+  if (state === 'failure' && retryAt > Date.now()) {
+    return {
+      kind: 'failure',
+      entry: {
+        state: 'failure',
+        retryAt,
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
+      }
+    };
+  }
+
+  return { kind: 'staleFailure' };
+}
+
+function isPersistedFaviconFailureActive(entry) {
+  return getPersistedFaviconEntryState(entry).kind === 'failure';
 }
 
 async function fetchBrowserFaviconDataUrl(pageUrl, options = {}) {
@@ -136,8 +244,9 @@ async function fetchBrowserFaviconDataUrl(pageUrl, options = {}) {
     const buf = await res.arrayBuffer();
     const base64 = arrayBufferToBase64(buf);
     const mime = contentType ? String(contentType).split(';')[0].trim() : 'image/png';
+    const src = 'data:' + (mime || 'image/png') + ';base64,' + base64;
     if (debug) console.log('[Background][Favicon] fetch ok', { pageUrl, host, bytes: buf && buf.byteLength, ms: Date.now() - startedAt });
-    return 'data:' + (mime || 'image/png') + ';base64,' + base64;
+    return src;
   } catch (error) {
     if (debug) {
       console.log('[Background][Favicon] fetch error', {
@@ -153,6 +262,45 @@ async function fetchBrowserFaviconDataUrl(pageUrl, options = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function isBrowserFaviconPlaceholder(src, pageUrl) {
+  const safeSrc = typeof src === 'string' ? src.trim() : '';
+  if (!safeSrc) return false;
+  const lower = safeSrc.toLowerCase();
+  if (lower.indexOf('data:image/svg+xml') !== 0) return false;
+
+  const decodedSvg = decodeSvgDataUrlContent(safeSrc).toLowerCase();
+  const placeholderByColor = lower.indexOf('%23999') !== -1 || lower.indexOf("fill='%23999'") !== -1 || lower.indexOf('fill="%23999"') !== -1;
+  const hasTextTag = decodedSvg.indexOf('<text') !== -1;
+  const hasMonogramText = decodedSvg.indexOf('text-anchor') !== -1 || decodedSvg.indexOf('font-size') !== -1 || decodedSvg.indexOf('dominant-baseline') !== -1;
+  const hasShapeAndText = (decodedSvg.indexOf('<circle') !== -1 || decodedSvg.indexOf('<rect') !== -1) && hasTextTag;
+  const host = getBrowserFaviconCacheKey(pageUrl);
+  const privateHost = isLikelyPrivateHost(host);
+
+  if (placeholderByColor) return true;
+  if (privateHost && hasTextTag && (hasMonogramText || hasShapeAndText)) return true;
+  return false;
+}
+
+function buildBrowserFaviconResult(pageUrl, src, debug) {
+  const safeSrc = typeof src === 'string' ? src : '';
+  const host = getBrowserFaviconCacheKey(pageUrl);
+  const isPlaceholder = isBrowserFaviconPlaceholder(safeSrc, pageUrl);
+  if (debug) {
+    console.log('[Background][Favicon] browser result', {
+      host,
+      hasSrc: !!safeSrc,
+      isPlaceholder
+    });
+  }
+  return {
+    src: safeSrc,
+    isPlaceholder,
+    source: 'browser-cache',
+    host,
+    debug: !!debug
+  };
 }
 
 function arrayBufferToBase64(buffer) {
@@ -187,14 +335,11 @@ async function loadFaviconsForResults(results) {
   try {
     const result = await idbGetMany(keys);
     const favicons = {};
-    const now = Date.now();
     for (const domain of domains) {
       const entry = result ? result[IDB_KEY_PREFIX_FAVICON + domain] : undefined;
-      if (!entry || typeof entry !== 'object') continue;
-      if (typeof entry.src !== 'string' || !entry.src) continue;
-      const updatedAt = typeof entry.updatedAt === 'number' ? entry.updatedAt : 0;
-      if (updatedAt > 0 && (now - updatedAt) > PERSISTED_FAVICON_TTL_MS) continue;
-      favicons[domain] = entry;
+      const state = getPersistedFaviconEntryState(entry, domain);
+      if (state.kind !== 'success') continue;
+      favicons[domain] = state.entry;
     }
     return favicons;
   } catch (e) {
@@ -212,6 +357,42 @@ function sendErrorResponse(sendResponse, code, message) {
 
 function normalizeUnknownError(error) {
   return (error && error.message) ? error.message : String(error);
+}
+
+async function broadcastFaviconCacheCleared() {
+  if (!chrome.tabs || typeof chrome.tabs.query !== 'function' || typeof chrome.tabs.sendMessage !== 'function') {
+    return 0;
+  }
+
+  const tabs = await chrome.tabs.query({});
+  let delivered = 0;
+
+  await Promise.all((tabs || []).map(async (tab) => {
+    const tabId = tab && typeof tab.id === 'number' ? tab.id : -1;
+    if (tabId < 0) return;
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE });
+      delivered++;
+    } catch (error) {
+      // Ignore tabs without this content script.
+    }
+  }));
+
+  return delivered;
+}
+
+async function clearFaviconCache() {
+  browserFaviconCache.clear();
+  browserFaviconInFlight.clear();
+
+  const deletedCount = await idbDeleteByPrefix(IDB_KEY_PREFIX_FAVICON);
+  const notifiedTabs = await broadcastFaviconCacheCleared().catch(() => 0);
+
+  return {
+    success: true,
+    deletedCount,
+    notifiedTabs
+  };
 }
 
 function isValidAction(action) {
@@ -345,7 +526,7 @@ export function handleMessage(request, sender, sendResponse) {
       const pageUrl = String((request && request.pageUrl) || '').trim();
       const debug = !!(request && request.debug);
       if (!pageUrl) {
-        sendResponse({ success: true, src: '' });
+        sendResponse({ success: true, src: '', isPlaceholder: false });
         return false;
       }
 
@@ -353,8 +534,8 @@ export function handleMessage(request, sender, sendResponse) {
       if (key) {
         const cached = getCachedBrowserFaviconSrc(key);
         if (cached !== undefined) {
-          if (debug) console.log('[Background][Favicon] cache hit', { key, src: cached ? 'data' : '' });
-          sendResponse({ success: true, src: cached });
+          if (debug) console.log('[Background][Favicon] cache hit', { key, hasSrc: !!cached.src, isPlaceholder: !!cached.isPlaceholder });
+          sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, cached.src, debug), isPlaceholder: !!cached.isPlaceholder });
           return false;
         }
 
@@ -362,19 +543,19 @@ export function handleMessage(request, sender, sendResponse) {
         if (inFlight) {
           if (debug) console.log('[Background][Favicon] inFlight reuse', { key });
           inFlight
-            .then((src) => sendResponse({ success: true, src: (typeof src === 'string' ? src : '') }))
-            .catch(() => sendResponse({ success: true, src: '' }));
+            .then((result) => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
+            .catch(() => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, '', debug) }));
           return true;
         }
 
         const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
           .then((src) => {
-            const safeSrc = typeof src === 'string' ? src : '';
-            const ttl = safeSrc
+            const result = buildBrowserFaviconResult(pageUrl, src, debug);
+            const ttl = result.src && !result.isPlaceholder
               ? BROWSER_FAVICON_POSITIVE_TTL_MS
               : (isLikelyPrivateHost(key) ? BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS);
-            setCachedBrowserFaviconSrc(key, safeSrc, ttl);
-            return safeSrc;
+            setCachedBrowserFaviconSrc(key, result.src, ttl, result.isPlaceholder);
+            return result;
           })
           .finally(() => {
             browserFaviconInFlight.delete(key);
@@ -383,12 +564,12 @@ export function handleMessage(request, sender, sendResponse) {
         browserFaviconInFlight.set(key, promise);
 
         promise
-          .then((src) => sendResponse({ success: true, src: (typeof src === 'string' ? src : '') }))
-          .catch(() => sendResponse({ success: true, src: '' }));
+          .then((result) => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
+          .catch(() => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, '', debug) }));
         return true;
       }
 
-      sendResponse({ success: true, src: '' });
+      sendResponse({ success: true, src: '', isPlaceholder: false });
       return false;
     }
 
@@ -407,38 +588,47 @@ export function handleMessage(request, sender, sendResponse) {
       const promises = items.map((it) => {
         const domain = it.domain.trim();
         const pageUrl = it.pageUrl.trim();
-        if (!pageUrl) return Promise.resolve({ domain, src: '' });
+        if (!pageUrl) return Promise.resolve({ domain, src: '', isPlaceholder: false });
 
         const key = getBrowserFaviconCacheKey(pageUrl);
-        if (!key) return Promise.resolve({ domain, src: '' });
+        if (!key) return Promise.resolve({ domain, src: '', isPlaceholder: false });
 
         const cached = getCachedBrowserFaviconSrc(key);
-        if (cached !== undefined) return Promise.resolve({ domain, src: cached });
+        if (cached !== undefined) return Promise.resolve({ domain, src: cached.src, isPlaceholder: !!cached.isPlaceholder });
 
         const inFlight = browserFaviconInFlight.get(key);
-        if (inFlight) return inFlight.then((src) => ({ domain, src: typeof src === 'string' ? src : '' })).catch(() => ({ domain, src: '' }));
+        if (inFlight) {
+          return inFlight
+            .then((result) => ({ domain, src: (result && typeof result.src === 'string') ? result.src : '', isPlaceholder: !!(result && result.isPlaceholder) }))
+            .catch(() => ({ domain, src: '', isPlaceholder: false }));
+        }
 
         const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
           .then((src) => {
-            const safeSrc = typeof src === 'string' ? src : '';
-            const ttl = safeSrc
+            const result = buildBrowserFaviconResult(pageUrl, src, debug);
+            const ttl = result.src && !result.isPlaceholder
               ? BROWSER_FAVICON_POSITIVE_TTL_MS
               : (isLikelyPrivateHost(key) ? BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS);
-            setCachedBrowserFaviconSrc(key, safeSrc, ttl);
-            return safeSrc;
+            setCachedBrowserFaviconSrc(key, result.src, ttl, result.isPlaceholder);
+            return result;
           })
           .finally(() => { browserFaviconInFlight.delete(key); });
 
         browserFaviconInFlight.set(key, promise);
 
-        return promise.then((src) => ({ domain, src: typeof src === 'string' ? src : '' })).catch(() => ({ domain, src: '' }));
+        return promise
+          .then((result) => ({ domain, src: (result && typeof result.src === 'string') ? result.src : '', isPlaceholder: !!(result && result.isPlaceholder) }))
+          .catch(() => ({ domain, src: '', isPlaceholder: false }));
       });
 
       Promise.all(promises)
         .then((results) => {
           const favicons = {};
           for (const r of results) {
-            if (r.src) favicons[r.domain] = r.src;
+            favicons[r.domain] = {
+              src: r.src,
+              isPlaceholder: !!r.isPlaceholder
+            };
           }
           sendResponse({ success: true, favicons });
         })
@@ -463,18 +653,28 @@ export function handleMessage(request, sender, sendResponse) {
       idbGetMany(keys)
         .then((result) => {
           const favicons = {};
-          const now = Date.now();
+          const migrations = [];
           for (const domain of domains) {
             const key = IDB_KEY_PREFIX_FAVICON + domain;
             const entry = result ? result[key] : undefined;
-            if (!entry || typeof entry !== 'object') continue;
-            if (typeof entry.src !== 'string' || !entry.src) continue;
-            // TTL check: skip entries older than 30 days
-            const updatedAt = typeof entry.updatedAt === 'number' ? entry.updatedAt : 0;
-            if (updatedAt > 0 && (now - updatedAt) > PERSISTED_FAVICON_TTL_MS) continue;
-            favicons[domain] = entry;
+            const state = getPersistedFaviconEntryState(entry, domain);
+            if (state.migration) {
+              migrations.push({ key, value: state.migration });
+            }
+            if (state.kind === 'success' || state.kind === 'failure') {
+              favicons[domain] = state.entry;
+            }
           }
-          sendResponse({ success: true, favicons });
+
+          const finish = () => sendResponse({ success: true, favicons });
+          if (migrations.length === 0) {
+            finish();
+            return;
+          }
+
+          idbSetMany(migrations)
+            .then(finish)
+            .catch(() => finish());
         })
         .catch((error) => {
           sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
@@ -493,11 +693,22 @@ export function handleMessage(request, sender, sendResponse) {
       for (const entry of entries) {
         if (!entry || typeof entry !== 'object') continue;
         const domain = typeof entry.domain === 'string' ? entry.domain.trim().slice(0, 253) : '';
-        const src = typeof entry.src === 'string' ? entry.src.trim() : '';
-        if (!domain || !src || src.length > FAVICON_SRC_MAX_LEN) continue;
-        if (!src.startsWith('https://') && !src.startsWith('http://')) continue;
+        if (!domain) continue;
+
         const updatedAt = typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt) ? entry.updatedAt : now;
-        deduped.set(domain, { src, updatedAt });
+        const src = typeof entry.src === 'string' ? entry.src.trim() : '';
+        if (src) {
+          if (src.length > FAVICON_SRC_MAX_LEN) continue;
+          if (!src.startsWith('https://') && !src.startsWith('http://')) continue;
+          deduped.set(domain, { state: 'success', src, updatedAt });
+          continue;
+        }
+
+        const state = typeof entry.state === 'string' ? entry.state : '';
+        if (state !== 'failure') continue;
+        const retryAt = clampRetryAt(entry.retryAt, domain);
+        if (deduped.get(domain) && deduped.get(domain).state === 'success') continue;
+        deduped.set(domain, { state: 'failure', retryAt, updatedAt });
       }
 
       if (deduped.size === 0) {
@@ -505,14 +716,34 @@ export function handleMessage(request, sender, sendResponse) {
         return false;
       }
 
-      const items = [];
-      for (const [domain, value] of deduped) {
-        items.push({ key: IDB_KEY_PREFIX_FAVICON + domain, value });
+      const keysToRead = [];
+      for (const domain of deduped.keys()) {
+        keysToRead.push(IDB_KEY_PREFIX_FAVICON + domain);
       }
 
-      idbSetMany(items)
-        .then(() => {
-          sendResponse({ success: true, count: items.length });
+      idbGetMany(keysToRead)
+        .then((existing) => {
+          const items = [];
+          for (const [domain, value] of deduped) {
+            const key = IDB_KEY_PREFIX_FAVICON + domain;
+            const current = existing ? existing[key] : undefined;
+            const currentState = getPersistedFaviconEntryState(current, domain);
+            if (value.state === 'failure' && currentState.kind === 'success') continue;
+            items.push({ key, value });
+          }
+
+          if (items.length === 0) {
+            sendResponse({ success: true, count: 0 });
+            return;
+          }
+
+          idbSetMany(items)
+            .then(() => {
+              sendResponse({ success: true, count: items.length });
+            })
+            .catch((error) => {
+              sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+            });
         })
         .catch((error) => {
           sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
@@ -520,6 +751,15 @@ export function handleMessage(request, sender, sendResponse) {
 
       return true;
     }
+
+    case MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE:
+      return initThen(() =>
+        clearFaviconCache()
+          .then(sendResponse)
+          .catch((error) => {
+            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+          })
+      );
 
     case MESSAGE_ACTIONS.CLEAR_HISTORY:
       return initThen(() =>

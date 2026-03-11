@@ -20,7 +20,7 @@
 - `content.js:20`, `content.js:231`, `content.js:1294`: Pointer-move gating for hover selection to avoid keyboard navigation being overridden when the list scrolls under a stationary cursor.
 - `content.js:760-902` (`hydrateFaviconsForDomains`): 4-worker concurrent favicon loading with fallback chain.
 - `content.js:984-1040` (`startFaviconWarmup`): Background prefetch of up to 600 bookmark favicons.
-- `content.css:1-302`: Overlay styles with responsive design and reduced-motion accessibility.
+- `content.css`: Overlay styles with responsive design and reduced-motion accessibility. It keeps a single-file strategy and now defines theme variants through `.bookmark-search-overlay[data-bs-theme="original|minimal|glass|dark"]`, covering container, input, result items, empty state, shortcut bar, kbd, and scrollbar without introducing a second theme transport layer.
 
 ## 3. Execution Flow (LLM Retrieval Map)
 
@@ -44,12 +44,12 @@
 - **Layer 2 - Keydown Trap:** `handleGlobalKeydown()` at `content.js:317-372` intercepts all keystrokes.
 - **Layer 3 - Enforcer:** `startFocusEnforcer()` at `content.js:387-399` runs 120ms interval check.
 
-### Favicon Caching (4-Step Fallback Strategy)
+### Favicon Caching (State-Aware Fallback Strategy)
 
 - **Tier 1 - In-Memory:** `faviconCache` at `content.js:37` for instant lookup.
-- **Tier 2 - Persisted (IDB):** `fetchPersistedFavicons()` at `content.js:662-701` via background message.
-- **Tier 3 - Browser Cache:** Batch via `GET_BROWSER_FAVICONS_BATCH` (plus `GET_BROWSER_FAVICON` fallback) through background (uses short timeout and SW in-memory LRU). For private hosts, requests carry an optional debug flag and background applies a longer fetch timeout with shorter negative caching.
-- **Fallback - External:** `loadFavicon()` at `content.js:1197-1283` tries DDG, Google, Faviconkit.
+- **Tier 2 - Persisted (IDB):** `fetchPersistedFavicons()` at `content.js:662-701` via background message. Returned records can now be either long-lived success entries (`{ src, updatedAt }` / `{ state: 'success', src, updatedAt }`) or active failure cooldown entries (`{ state: 'failure', retryAt, updatedAt }`). Hydration only applies success records to the UI; failure records suppress repeated retries until cooldown expires.
+- **Tier 3 - Browser Cache:** Batch via `GET_BROWSER_FAVICONS_BATCH` (plus `GET_BROWSER_FAVICON` fallback) through background (uses short timeout and SW in-memory LRU). Responses now carry `{ src, isPlaceholder }`, allowing the content script to reject browser-provided placeholder/globe icons instead of treating every loadable data URL as a real success. For private hosts, requests carry an optional debug flag and background applies a longer fetch timeout with shorter negative caching. Browser-returned SVG monogram placeholders are treated as placeholder failures for private hosts, so hydration continues into local/external fallback instead of persisting fake success.
+- **Fallback - External / Local:** `loadFavicon()` at `content.js:1197-1283` keeps the existing source order (browser → local/origin → DuckDuckGo → Google S2 → Faviconkit), but now returns structured success/failure results. Only trusted `http/https` favicon URLs are persisted as long-lived success; failures and fake-success outcomes are queued as retryable failure entries.
 
 ### Favicon Warmup Flow
 
@@ -63,6 +63,7 @@
 - **IIFE Wrapper:** Prevents duplicate injection when script is re-injected on SPA navigation.
 - **3-Layer Focus:** Handles aggressive focus-stealing by host pages (e.g., Google Docs, Notion).
 - **Token-Based Cancellation:** `backgroundSearchToken` and `faviconRenderToken` prevent stale async updates.
+- **Cache Clear Broadcast:** `CLEAR_FAVICON_CACHE` lets the background worker invalidate content-script memory state immediately by resetting `faviconCache`, pending persistence queue state, warmup timers, and render/search tokens.
 - **Batched Persistence:** Reduces background script calls by batching favicon writes.
 - **Warmup Prioritization:** Recently opened root domains are reported from `openBookmark()` and prioritized by background when building warmup domain lists.
 - **Private Host Detection:** `isLikelyPrivateHost()` skips external favicon services for localhost/IPs/internal-style suffixes, and local-origin fallback can be enabled for those hosts during result hydration.

@@ -5,9 +5,10 @@
   --glass-border: rgba(255, 255, 255, 0.5);
   --text-primary: #2c3e50;
   --text-secondary: #596e85;
-  --accent-color: #007AFF;
+  --accent-color: #2563eb;
   --status-active: #34C759;
   --status-inactive: #FF3B30;
+  --focus-ring: rgba(37, 99, 235, 0.16);
 }
 
 body {
@@ -93,13 +94,14 @@ body {
 .status-indicator.inactive { background: var(--status-inactive); }
 
 .kbd {
-  background: #fff;
-  border: 1px solid #e1e1e1;
-  border-radius: 5px;
-  box-shadow: 0 2px 0 #e1e1e1;
-  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(44, 62, 80, 0.08);
+  padding: 3px 7px;
   font-size: 11px;
   font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .count {
@@ -156,6 +158,11 @@ body {
 
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .footer {

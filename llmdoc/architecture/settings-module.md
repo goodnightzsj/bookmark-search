@@ -12,7 +12,7 @@
 - `settings-shortcuts.js` (`loadShortcutInfo`, `bindShortcutEvents`, `checkShortcutConflicts`): Displays current shortcut via `chrome.commands` API, detects conflicts against 11 common browser shortcuts.
 - `settings-sync.js` (`loadSyncSettings`, `loadBookmarkStats`, `bindSyncEvents`): Manages sync interval dropdown (5min-24h or disabled), displays sync times, triggers manual sync via message passing.
 - `settings-history.js` (`loadUpdateHistory`, `bindHistoryEvents`, `exportSelectedBookmarks`): Displays bookmark change history, supports export mode with checkbox selection, generates Netscape HTML format.
-- `settings.html`: Single-page card-based layout with 5 sections (theme, shortcuts, sync, history, about).
+- `settings.html`: Single-page card-based layout with 5 sections (theme, shortcuts, sync, history, about). The current UI structure is organized around `settings-section`, `stats-grid`, `settings-stack`, `action-grid`, `card-actions`, `shortcut-panel`, and `about-*` semantic blocks, and the 4 `themes/settings-*.css` files now provide full coverage for these shared structures with theme-specific visual treatments.
 
 ## 3. Execution Flow (LLM Retrieval Map)
 

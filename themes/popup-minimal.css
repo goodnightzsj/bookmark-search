@@ -11,6 +11,7 @@
   --accent-color: #18181b;
   --status-active: #10b981;
   --status-inactive: #ef4444;
+  --focus-ring: rgba(15, 23, 42, 0.1);
 }
 
 body {
@@ -108,9 +109,10 @@ body {
   padding: 4px 8px;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: ui-monospace, monospace;
   font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .count { display: inline; }
@@ -157,6 +159,11 @@ body {
 
 .btn-secondary:hover {
   background: var(--bg-hover);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .footer {

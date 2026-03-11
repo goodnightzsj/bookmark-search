@@ -161,6 +161,24 @@ export function bindSyncEvents() {
     }
   });
 
+  const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
+  const VALID_FAVICON_CACHE_SIZES = [500, 1000, 2000, 5000, 10000];
+  if (faviconCacheSizeSelect) {
+    faviconCacheSizeSelect.addEventListener('change', async (e) => {
+      const cacheSize = parseInt(e.target.value);
+      if (!VALID_FAVICON_CACHE_SIZES.includes(cacheSize)) return;
+      console.log('[Settings] 修改 favicon 缓存大小为:', cacheSize);
+
+      try {
+        await setValue(STORAGE_KEYS.FAVICON_CACHE_SIZE, cacheSize);
+        console.log('[Settings] favicon 缓存大小已更新');
+      } catch (error) {
+        console.error('[Settings] 更新 favicon 缓存大小失败:', error);
+        alert('设置失败：' + error.message);
+      }
+    });
+  }
+
   // 主缓存过期时间变化
   const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
   const VALID_CACHE_TTL = [30, 60, 360, 720, 1440];
@@ -180,21 +198,39 @@ export function bindSyncEvents() {
     });
   }
 
-  // Favicon 缓存大小变化
-  const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
-  const VALID_FAVICON_SIZES = [500, 1000, 2000, 5000, 10000];
-  if (faviconCacheSizeSelect) {
-    faviconCacheSizeSelect.addEventListener('change', async (e) => {
-      const cacheSize = parseInt(e.target.value);
-      if (!VALID_FAVICON_SIZES.includes(cacheSize)) return;
-      console.log("[Settings] 修改 Favicon 缓存大小为:", cacheSize);
+  // 清除 favicon 缓存
+  const clearFaviconCacheBtn = document.getElementById('clearFaviconCache');
+  if (clearFaviconCacheBtn) {
+    clearFaviconCacheBtn.addEventListener('click', async () => {
+      const btn = clearFaviconCacheBtn;
+      const label = btn.querySelector('.btn-text');
+      const originalText = label ? label.textContent : '';
+
+      if (label) label.textContent = '清理中...';
+      btn.disabled = true;
 
       try {
-        await setValue(STORAGE_KEYS.FAVICON_CACHE_SIZE, cacheSize);
-        console.log("[Settings] Favicon 缓存大小已更新");
+        const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE });
+        if (!result || result.success === false) {
+          const err = result && result.error;
+          const message = (err && typeof err === 'object' && typeof err.message === 'string')
+            ? err.message
+            : (typeof err === 'string' ? err : '清理失败');
+          throw new Error(message);
+        }
+
+        if (label) label.textContent = '清理成功';
+        setTimeout(() => {
+          if (label) label.textContent = originalText;
+          btn.disabled = false;
+        }, 1500);
       } catch (error) {
-        console.error("[Settings] 更新 Favicon 缓存大小失败:", error);
-        alert('设置失败：' + error.message);
+        console.error('[Settings] 清除 favicon 缓存失败:', error);
+        if (label) label.textContent = '清理失败';
+        setTimeout(() => {
+          if (label) label.textContent = originalText;
+          btn.disabled = false;
+        }, 1500);
       }
     });
   }

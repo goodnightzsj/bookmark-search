@@ -5,7 +5,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.6) 100%);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.62) 100%);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 999999;
@@ -14,6 +14,32 @@
   justify-content: center;
   padding-top: 12vh;
   animation: fadeIn 0.2s ease-out;
+  --overlay-panel-bg: linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%);
+  --overlay-panel-border: rgba(255, 255, 255, 0.08);
+  --overlay-search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-border-focus: #5e72e4;
+  --overlay-focus-bg: rgba(94, 114, 228, 0.02);
+  --overlay-input-color: #1a1a1a;
+  --overlay-placeholder: #a0a0a0;
+  --overlay-scroll-track: #f1f1f1;
+  --overlay-scroll-thumb: #c1c1c1;
+  --overlay-scroll-thumb-hover: #a8a8a8;
+  --overlay-divider: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
+  --overlay-item-hover: linear-gradient(90deg, rgba(94, 114, 228, 0.08) 0%, rgba(94, 114, 228, 0.04) 100%);
+  --overlay-item-selected: linear-gradient(90deg, rgba(94, 114, 228, 0.12) 0%, rgba(94, 114, 228, 0.06) 100%);
+  --overlay-item-selected-border: #5e72e4;
+  --overlay-favicon-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --overlay-title: #1a1a1a;
+  --overlay-url: #6b7280;
+  --overlay-empty: #9ca3af;
+  --overlay-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-shortcuts-bg: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.04));
+  --overlay-shortcuts-border: rgba(0, 0, 0, 0.06);
+  --overlay-shortcuts-color: #6b7280;
+  --overlay-kbd-bg: white;
+  --overlay-kbd-border: #d1d5db;
+  --overlay-kbd-color: #4b5563;
+  --overlay-kbd-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 @keyframes fadeIn {
@@ -29,11 +55,11 @@
 .bookmark-search-container {
   width: min(640px, 90vw);
   max-width: 95vw;
-  background: linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%);
+  background: var(--overlay-panel-bg);
   border-radius: 16px;
-  box-shadow: 
+  box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    0 0 0 1px var(--overlay-panel-border) inset;
   overflow: hidden;
   animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
@@ -73,7 +99,7 @@
   top: clamp(16px, 3.5vh, 20px);
   width: clamp(18px, 3vw, 20px);
   height: clamp(18px, 3vw, 20px);
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
+  background: var(--overlay-search-icon) no-repeat center / contain;
   opacity: 0.5;
   pointer-events: none;
   z-index: 1;
@@ -91,17 +117,17 @@
   box-sizing: border-box;
   background: transparent;
   transition: all 0.3s ease;
-  color: #1a1a1a;
+  color: var(--overlay-input-color);
   position: relative;
 }
 
 .bookmark-search-input:focus {
-  border-bottom: 2px solid #5e72e4;
-  background: rgba(94, 114, 228, 0.02);
+  border-bottom: 2px solid var(--overlay-border-focus);
+  background: var(--overlay-focus-bg);
 }
 
 .bookmark-search-input::placeholder {
-  color: #a0a0a0;
+  color: var(--overlay-placeholder);
   font-weight: 400;
 }
 
@@ -129,16 +155,16 @@
 }
 
 .bookmark-results::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--overlay-scroll-track);
 }
 
 .bookmark-results::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--overlay-scroll-thumb);
   border-radius: 4px;
 }
 
 .bookmark-results::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: var(--overlay-scroll-thumb-hover);
 }
 
 /* 书签项 */
@@ -160,7 +186,7 @@
   right: 0;
   bottom: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
+  background: var(--overlay-divider);
 }
 
 .bookmark-item:last-child::after {
@@ -168,13 +194,13 @@
 }
 
 .bookmark-item:hover {
-  background: linear-gradient(90deg, rgba(94, 114, 228, 0.08) 0%, rgba(94, 114, 228, 0.04) 100%);
+  background: var(--overlay-item-hover);
   transform: translateX(4px);
 }
 
 .bookmark-item.selected {
-  background: linear-gradient(90deg, rgba(94, 114, 228, 0.12) 0%, rgba(94, 114, 228, 0.06) 100%);
-  border-left: 3px solid #5e72e4;
+  background: var(--overlay-item-selected);
+  border-left: 3px solid var(--overlay-item-selected-border);
   transform: translateX(4px);
 }
 
@@ -184,7 +210,7 @@
   height: clamp(20px, 4vw, 24px);
   flex-shrink: 0;
   border-radius: 6px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--overlay-favicon-shadow);
   transition: transform 0.2s ease;
 }
 
@@ -203,7 +229,7 @@
 .bookmark-title {
   font-size: clamp(14px, 2.5vw, 15px);
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--overlay-title);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,7 +241,7 @@
 /* 书签URL */
 .bookmark-url {
   font-size: clamp(12px, 2vw, 13px);
-  color: #6b7280;
+  color: var(--overlay-url);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -227,7 +253,7 @@
 .bookmark-empty {
   padding: 48px 24px;
   text-align: center;
-  color: #9ca3af;
+  color: var(--overlay-empty);
   font-size: 15px;
   font-weight: 500;
   opacity: 0.8;
@@ -239,19 +265,19 @@
   width: 48px;
   height: 48px;
   margin: 0 auto 16px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
+  background: var(--overlay-empty-icon) no-repeat center / contain;
   opacity: 0.3;
 }
 
 /* 快捷键提示 */
 .bookmark-shortcuts {
   padding: clamp(10px, 2vh, 12px) clamp(16px, 4vw, 24px);
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.04));
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--overlay-shortcuts-bg);
+  border-top: 1px solid var(--overlay-shortcuts-border);
   display: flex;
   gap: clamp(12px, 3vw, 20px);
   font-size: clamp(11px, 2vw, 12px);
-  color: #6b7280;
+  color: var(--overlay-shortcuts-color);
   flex-wrap: wrap;
 }
 
@@ -270,101 +296,175 @@
 
 .bookmark-shortcut kbd {
   padding: 3px 7px;
-  background: white;
-  border: 1px solid #d1d5db;
+  background: var(--overlay-kbd-bg);
+  border: 1px solid var(--overlay-kbd-border);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: #4b5563;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color: var(--overlay-kbd-color);
+  box-shadow: var(--overlay-kbd-shadow);
   font-family: monospace;
+}
+
+/* === Original theme === */
+.bookmark-search-overlay[data-bs-theme="original"] {
+  --overlay-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 249, 255, 0.98) 100%);
+  --overlay-panel-border: rgba(255, 255, 255, 0.16);
+  --overlay-search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667eea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-border-focus: #667eea;
+  --overlay-focus-bg: rgba(102, 126, 234, 0.05);
+  --overlay-input-color: #1f2937;
+  --overlay-placeholder: #94a3b8;
+  --overlay-scroll-track: rgba(241, 245, 249, 0.7);
+  --overlay-scroll-thumb: rgba(102, 126, 234, 0.34);
+  --overlay-scroll-thumb-hover: rgba(102, 126, 234, 0.5);
+  --overlay-divider: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.1), transparent);
+  --overlay-item-hover: linear-gradient(90deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.04) 100%);
+  --overlay-item-selected: linear-gradient(90deg, rgba(102, 126, 234, 0.14) 0%, rgba(118, 75, 162, 0.08) 100%);
+  --overlay-item-selected-border: #667eea;
+  --overlay-favicon-shadow: 0 6px 14px rgba(102, 126, 234, 0.14);
+  --overlay-title: #111827;
+  --overlay-url: #64748b;
+  --overlay-empty: #94a3b8;
+  --overlay-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-shortcuts-bg: linear-gradient(180deg, rgba(102, 126, 234, 0.04), rgba(118, 75, 162, 0.06));
+  --overlay-shortcuts-border: rgba(102, 126, 234, 0.08);
+  --overlay-shortcuts-color: #64748b;
+  --overlay-kbd-bg: rgba(255, 255, 255, 0.95);
+  --overlay-kbd-border: rgba(148, 163, 184, 0.2);
+  --overlay-kbd-color: #475569;
+  --overlay-kbd-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
+}
+
+.bookmark-search-overlay[data-bs-theme="original"] .bookmark-search-container {
+  box-shadow:
+    0 28px 80px rgba(15, 23, 42, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.34) inset;
+}
+
+/* === Minimal theme === */
+.bookmark-search-overlay[data-bs-theme="minimal"] {
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  --overlay-panel-bg: #ffffff;
+  --overlay-panel-border: rgba(15, 23, 42, 0.05);
+  --overlay-search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-border-focus: #0f172a;
+  --overlay-focus-bg: rgba(15, 23, 42, 0.03);
+  --overlay-input-color: #0f172a;
+  --overlay-placeholder: #94a3b8;
+  --overlay-scroll-track: transparent;
+  --overlay-scroll-thumb: #cbd5e1;
+  --overlay-scroll-thumb-hover: #94a3b8;
+  --overlay-divider: linear-gradient(90deg, transparent, rgba(15, 23, 42, 0.06), transparent);
+  --overlay-item-hover: #f8fafc;
+  --overlay-item-selected: #f1f5f9;
+  --overlay-item-selected-border: #0f172a;
+  --overlay-favicon-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  --overlay-title: #0f172a;
+  --overlay-url: #64748b;
+  --overlay-empty: #94a3b8;
+  --overlay-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-shortcuts-bg: #f8fafc;
+  --overlay-shortcuts-border: #e2e8f0;
+  --overlay-shortcuts-color: #64748b;
+  --overlay-kbd-bg: #ffffff;
+  --overlay-kbd-border: #e2e8f0;
+  --overlay-kbd-color: #475569;
+  --overlay-kbd-shadow: none;
+}
+
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-search-container {
+  border-radius: 20px;
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(226, 232, 240, 0.9) inset;
+}
+
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-search-input {
+  font-weight: 500;
+}
+
+/* === Glass theme === */
+.bookmark-search-overlay[data-bs-theme="glass"] {
+  background: linear-gradient(135deg, rgba(84, 104, 255, 0.22) 0%, rgba(17, 24, 39, 0.32) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  --overlay-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.58) 100%);
+  --overlay-panel-border: rgba(255, 255, 255, 0.28);
+  --overlay-search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235f7388' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-border-focus: #2563eb;
+  --overlay-focus-bg: rgba(255, 255, 255, 0.22);
+  --overlay-input-color: #203247;
+  --overlay-placeholder: rgba(32, 50, 71, 0.5);
+  --overlay-scroll-track: transparent;
+  --overlay-scroll-thumb: rgba(255, 255, 255, 0.38);
+  --overlay-scroll-thumb-hover: rgba(255, 255, 255, 0.56);
+  --overlay-divider: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  --overlay-item-hover: linear-gradient(90deg, rgba(255, 255, 255, 0.24) 0%, rgba(37, 99, 235, 0.08) 100%);
+  --overlay-item-selected: linear-gradient(90deg, rgba(37, 99, 235, 0.18) 0%, rgba(255, 255, 255, 0.24) 100%);
+  --overlay-item-selected-border: #2563eb;
+  --overlay-favicon-shadow: 0 8px 18px rgba(44, 62, 80, 0.14);
+  --overlay-title: #203247;
+  --overlay-url: #5f7388;
+  --overlay-empty: #5f7388;
+  --overlay-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235f7388' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-shortcuts-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.28));
+  --overlay-shortcuts-border: rgba(255, 255, 255, 0.24);
+  --overlay-shortcuts-color: #4f647a;
+  --overlay-kbd-bg: rgba(255, 255, 255, 0.72);
+  --overlay-kbd-border: rgba(255, 255, 255, 0.28);
+  --overlay-kbd-color: #40556b;
+  --overlay-kbd-shadow: 0 4px 12px rgba(44, 62, 80, 0.08);
+}
+
+.bookmark-search-overlay[data-bs-theme="glass"] .bookmark-search-container {
+  border-radius: 22px;
+  box-shadow:
+    0 30px 80px rgba(44, 62, 80, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset;
+}
+
+.bookmark-search-overlay[data-bs-theme="glass"] .bookmark-search-input {
+  border-bottom-color: rgba(255, 255, 255, 0.14);
 }
 
 /* === Dark theme === */
 .bookmark-search-overlay[data-bs-theme="dark"] {
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.8) 100%);
+  background: linear-gradient(135deg, rgba(2, 6, 23, 0.72) 0%, rgba(2, 6, 23, 0.88) 100%);
+  --overlay-panel-bg: linear-gradient(180deg, #111827 0%, #0b1220 100%);
+  --overlay-panel-border: rgba(255, 255, 255, 0.06);
+  --overlay-search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-border-focus: #60a5fa;
+  --overlay-focus-bg: rgba(96, 165, 250, 0.06);
+  --overlay-input-color: #e2e8f0;
+  --overlay-placeholder: #64748b;
+  --overlay-scroll-track: #111827;
+  --overlay-scroll-thumb: #334155;
+  --overlay-scroll-thumb-hover: #475569;
+  --overlay-divider: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+  --overlay-item-hover: linear-gradient(90deg, rgba(96, 165, 250, 0.1) 0%, rgba(96, 165, 250, 0.04) 100%);
+  --overlay-item-selected: linear-gradient(90deg, rgba(96, 165, 250, 0.16) 0%, rgba(96, 165, 250, 0.08) 100%);
+  --overlay-item-selected-border: #60a5fa;
+  --overlay-favicon-shadow: 0 4px 10px rgba(2, 6, 23, 0.45);
+  --overlay-title: #f8fafc;
+  --overlay-url: #94a3b8;
+  --overlay-empty: #64748b;
+  --overlay-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");
+  --overlay-shortcuts-bg: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.04));
+  --overlay-shortcuts-border: rgba(255, 255, 255, 0.06);
+  --overlay-shortcuts-color: #94a3b8;
+  --overlay-kbd-bg: #1e293b;
+  --overlay-kbd-border: #334155;
+  --overlay-kbd-color: #cbd5e1;
+  --overlay-kbd-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-container {
-  background: linear-gradient(to bottom, #1e1e2e 0%, #181825 100%);
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.6),
+    0 28px 80px rgba(0, 0, 0, 0.6),
     0 0 0 1px rgba(255, 255, 255, 0.06) inset;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-container::before {
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f849c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input {
-  color: #cdd6f4;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input:focus {
-  border-bottom-color: #89b4fa;
-  background: rgba(137, 180, 250, 0.04);
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-search-input::placeholder {
-  color: #6c7086;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-track {
-  background: #1e1e2e;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-thumb {
-  background: #45475a;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-results::-webkit-scrollbar-thumb:hover {
-  background: #585b70;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item::after {
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item:hover {
-  background: linear-gradient(90deg, rgba(137, 180, 250, 0.1) 0%, rgba(137, 180, 250, 0.04) 100%);
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-item.selected {
-  background: linear-gradient(90deg, rgba(137, 180, 250, 0.15) 0%, rgba(137, 180, 250, 0.06) 100%);
-  border-left-color: #89b4fa;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-favicon {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-title {
-  color: #cdd6f4;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-url {
-  color: #7f849c;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-empty {
-  color: #6c7086;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-empty::before {
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-shortcuts {
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.04));
-  border-top-color: rgba(255, 255, 255, 0.06);
-  color: #7f849c;
-}
-
-.bookmark-search-overlay[data-bs-theme="dark"] .bookmark-shortcut kbd {
-  background: #313244;
-  border-color: #45475a;
-  color: #bac2de;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 @media (prefers-reduced-motion: reduce) {
