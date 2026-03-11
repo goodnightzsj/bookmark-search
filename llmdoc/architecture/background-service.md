@@ -9,7 +9,7 @@
 
 - `background.js` (`init`, `ensureInit`, `enqueueBookmarkEvent`): Entry point and orchestration. Singleton initialization, bookmark event listeners with debounce, alarm handlers, command listener for keyboard shortcuts.
 - `background-data.js` (`refreshBookmarks`, `applyBookmarkEvents`, `searchBookmarks`, `loadInitialData`, `getWarmupDomainMap`, `recordBookmarkOpen`): Data management layer. In-memory cache, concurrency control, incremental/full sync logic, search algorithm, stale-cache TTL trigger, warmup domain prioritization.
-- `background-messages.js` (`handleMessage`): Message router. Switch-based dispatcher for message actions (including `TRACK_BOOKMARK_OPEN`), favicon operations via IndexedDB, read-time TTL filter for persisted favicons, plus SW in-memory LRU for browser-provided favicons.
+- `background-messages.js` (`handleMessage`): Message router. Switch-based dispatcher for message actions (including `TRACK_BOOKMARK_OPEN`), favicon operations via IndexedDB, read-time TTL filter for persisted favicons, plus SW in-memory LRU for browser-provided favicons. For private hosts (localhost/IP/internal suffixes), browser favicon fetch uses longer timeout, shorter negative TTL, and keeps raw host keys instead of collapsing them.
 - `background-sync.js` (`setupAutoSync`, `handleAlarm`, `initSyncSettings`): Scheduling layer. Periodic sync via chrome.alarms, interval configuration.
 
 ## 3. Execution Flow (LLM Retrieval Map)

@@ -48,7 +48,7 @@
 
 - **Tier 1 - In-Memory:** `faviconCache` at `content.js:37` for instant lookup.
 - **Tier 2 - Persisted (IDB):** `fetchPersistedFavicons()` at `content.js:662-701` via background message.
-- **Tier 3 - Browser Cache:** Batch via `GET_BROWSER_FAVICONS_BATCH` (plus `GET_BROWSER_FAVICON` fallback) through background (uses short timeout and SW in-memory LRU).
+- **Tier 3 - Browser Cache:** Batch via `GET_BROWSER_FAVICONS_BATCH` (plus `GET_BROWSER_FAVICON` fallback) through background (uses short timeout and SW in-memory LRU). For private hosts, requests carry an optional debug flag and background applies a longer fetch timeout with shorter negative caching.
 - **Fallback - External:** `loadFavicon()` at `content.js:1197-1283` tries DDG, Google, Faviconkit.
 
 ### Favicon Warmup Flow
@@ -65,7 +65,8 @@
 - **Token-Based Cancellation:** `backgroundSearchToken` and `faviconRenderToken` prevent stale async updates.
 - **Batched Persistence:** Reduces background script calls by batching favicon writes.
 - **Warmup Prioritization:** Recently opened root domains are reported from `openBookmark()` and prioritized by background when building warmup domain lists.
-- **Private Host Detection:** `isLikelyPrivateHost()` skips external favicon services for localhost/IPs.
+- **Private Host Detection:** `isLikelyPrivateHost()` skips external favicon services for localhost/IPs/internal-style suffixes, and local-origin fallback can be enabled for those hosts during result hydration.
+- **Favicon Debug Switch:** Content script can enable favicon tracing via `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__` or `chrome.storage.local.debugFavicon`; logs are budget-limited to avoid console spam.
 - **IME Handling:** Avoids accidental navigation on IME commit by respecting composition state and briefly suppressing stray Enter right after `compositionend`.
 - **Hover vs Keyboard:** Hover only changes highlight (no scroll), and requires recent pointer movement so keyboard navigation doesn’t get “stolen” by hover when the list scrolls.
 - **Obfuscator Compatibility:** Keep helper declarations before first usage in `content.js` (e.g., `getRootDomain` / `normalizeFaviconDomain` before `setFaviconCache`) to avoid runtime `ReferenceError` in obfuscated builds.

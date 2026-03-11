@@ -43,4 +43,5 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 Notes:
 - Favicon persisted cache now applies read-time TTL filtering in `background-messages.js:248-253` with `PERSISTED_FAVICON_TTL_MS`.
+- Browser-provided favicon cache in `background-messages.js` keeps private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) on raw host keys, uses a 1200ms fetch timeout for those hosts, and shortens negative cache TTL to 30s so local-network sites recover quickly.
 - Main bookmark cache staleness is controlled by `bookmarkCacheTtlMinutes` and checked in `background-data.js:627-636` during search (async stale refresh, non-blocking).

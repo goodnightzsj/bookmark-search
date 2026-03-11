@@ -2,6 +2,7 @@ import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, re
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
 import { idbGetMany, idbSetMany } from './idb-service.js';
+import { getRootDomain } from './utils.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
@@ -11,25 +12,49 @@ const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 const BROWSER_FAVICON_CACHE_MAX_SIZE = 800;
 const BROWSER_FAVICON_POSITIVE_TTL_MS = 60 * 60 * 1000; // 1h
 const BROWSER_FAVICON_NEGATIVE_TTL_MS = 5 * 60 * 1000; // 5m
+const BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS = 30 * 1000; // 30s
 const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 250;
+const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = 1200;
 const PERSISTED_FAVICON_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 const browserFaviconCache = new Map(); // key -> { src, expiresAt }
 const browserFaviconInFlight = new Map(); // key -> Promise<string>
+
+function isIpAddress(host) {
+  const safe = typeof host === 'string' ? host.trim() : '';
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return false;
+  const parts = safe.split('.');
+  for (let i = 0; i < parts.length; i++) {
+    const n = Number(parts[i]);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isLikelyPrivateHost(host) {
+  const safe = typeof host === 'string' ? host.trim().toLowerCase() : '';
+  if (!safe) return false;
+  if (safe === 'localhost') return true;
+  if (isIpAddress(safe)) return true;
+  if (safe.endsWith('.local')) return true;
+  if (safe.endsWith('.lan')) return true;
+  if (safe.endsWith('.internal')) return true;
+  if (safe.endsWith('.intranet')) return true;
+  if (safe.endsWith('.corp')) return true;
+  if (safe.endsWith('.home')) return true;
+  if (safe.endsWith('.localdomain')) return true;
+  if (safe.indexOf('.') === -1) return true;
+  return false;
+}
 
 function normalizeFaviconHost(host) {
   const safe = typeof host === 'string' ? host.trim().toLowerCase() : '';
   if (!safe) return '';
   // 去掉 www 前缀
   const withoutWww = safe.startsWith('www.') ? safe.slice(4) : safe;
-  // 对于类似 a.b.example.com，取根域名 example.com，提高跨子域命中率
-  try {
-    const parts = withoutWww.split('.');
-    if (parts.length <= 2) return withoutWww;
-    return parts.slice(-2).join('.');
-  } catch (e) {
-    return withoutWww;
-  }
+  // 对于类似 a.b.example.com，取根域名 example.com，提高跨子域命中率。
+  // 注意：IPv4 / localhost 需要保留原值（例如 192.168.0.1 不能被错误折叠为 0.1）。
+  return getRootDomain(withoutWww) || withoutWww;
 }
 
 function getBrowserFaviconCacheKey(pageUrl) {
@@ -75,7 +100,15 @@ function setCachedBrowserFaviconSrc(key, src, ttlMs) {
   }
 }
 
-async function fetchBrowserFaviconDataUrl(pageUrl) {
+async function fetchBrowserFaviconDataUrl(pageUrl, options = {}) {
+  const debug = !!(options && options.debug);
+  let host = '';
+  try {
+    host = new URL(pageUrl).hostname || '';
+  } catch (e) {
+    host = '';
+  }
+  const timeoutMs = isLikelyPrivateHost(host) ? BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS : BROWSER_FAVICON_FETCH_TIMEOUT_MS;
   let faviconUrl = '';
   try {
     if (chrome.favicon && typeof chrome.favicon.getFaviconUrl === 'function') {
@@ -85,19 +118,37 @@ async function fetchBrowserFaviconDataUrl(pageUrl) {
     faviconUrl = '';
   }
 
-  if (!faviconUrl) return '';
+  if (!faviconUrl) {
+    if (debug) console.log('[Background][Favicon] getFaviconUrl empty', { pageUrl, host });
+    return '';
+  }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), BROWSER_FAVICON_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
   try {
     const res = await fetch(faviconUrl, { signal: controller.signal });
-    if (!res || !res.ok) return '';
+    if (!res || !res.ok) {
+      if (debug) console.log('[Background][Favicon] fetch faviconUrl not ok', { pageUrl, host, faviconUrl, status: res && res.status });
+      return '';
+    }
     const contentType = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
     const buf = await res.arrayBuffer();
     const base64 = arrayBufferToBase64(buf);
     const mime = contentType ? String(contentType).split(';')[0].trim() : 'image/png';
+    if (debug) console.log('[Background][Favicon] fetch ok', { pageUrl, host, bytes: buf && buf.byteLength, ms: Date.now() - startedAt });
     return 'data:' + (mime || 'image/png') + ';base64,' + base64;
   } catch (error) {
+    if (debug) {
+      console.log('[Background][Favicon] fetch error', {
+        pageUrl,
+        host,
+        faviconUrl,
+        ms: Date.now() - startedAt,
+        aborted: controller.signal.aborted,
+        error: (error && error.name) ? error.name : String(error)
+      });
+    }
     return '';
   } finally {
     clearTimeout(timer);
@@ -292,6 +343,7 @@ export function handleMessage(request, sender, sendResponse) {
 
     case MESSAGE_ACTIONS.GET_BROWSER_FAVICON: {
       const pageUrl = String((request && request.pageUrl) || '').trim();
+      const debug = !!(request && request.debug);
       if (!pageUrl) {
         sendResponse({ success: true, src: '' });
         return false;
@@ -301,22 +353,26 @@ export function handleMessage(request, sender, sendResponse) {
       if (key) {
         const cached = getCachedBrowserFaviconSrc(key);
         if (cached !== undefined) {
+          if (debug) console.log('[Background][Favicon] cache hit', { key, src: cached ? 'data' : '' });
           sendResponse({ success: true, src: cached });
           return false;
         }
 
         const inFlight = browserFaviconInFlight.get(key);
         if (inFlight) {
+          if (debug) console.log('[Background][Favicon] inFlight reuse', { key });
           inFlight
             .then((src) => sendResponse({ success: true, src: (typeof src === 'string' ? src : '') }))
             .catch(() => sendResponse({ success: true, src: '' }));
           return true;
         }
 
-        const promise = fetchBrowserFaviconDataUrl(pageUrl)
+        const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
           .then((src) => {
             const safeSrc = typeof src === 'string' ? src : '';
-            const ttl = safeSrc ? BROWSER_FAVICON_POSITIVE_TTL_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS;
+            const ttl = safeSrc
+              ? BROWSER_FAVICON_POSITIVE_TTL_MS
+              : (isLikelyPrivateHost(key) ? BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS);
             setCachedBrowserFaviconSrc(key, safeSrc, ttl);
             return safeSrc;
           })
@@ -338,6 +394,7 @@ export function handleMessage(request, sender, sendResponse) {
 
     case MESSAGE_ACTIONS.GET_BROWSER_FAVICONS_BATCH: {
       const itemsRaw = request && request.items;
+      const debug = !!(request && request.debug);
       const items = Array.isArray(itemsRaw)
         ? itemsRaw.filter((it) => it && typeof it.domain === 'string' && typeof it.pageUrl === 'string').slice(0, 50)
         : [];
@@ -361,10 +418,12 @@ export function handleMessage(request, sender, sendResponse) {
         const inFlight = browserFaviconInFlight.get(key);
         if (inFlight) return inFlight.then((src) => ({ domain, src: typeof src === 'string' ? src : '' })).catch(() => ({ domain, src: '' }));
 
-        const promise = fetchBrowserFaviconDataUrl(pageUrl)
+        const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
           .then((src) => {
             const safeSrc = typeof src === 'string' ? src : '';
-            const ttl = safeSrc ? BROWSER_FAVICON_POSITIVE_TTL_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS;
+            const ttl = safeSrc
+              ? BROWSER_FAVICON_POSITIVE_TTL_MS
+              : (isLikelyPrivateHost(key) ? BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS : BROWSER_FAVICON_NEGATIVE_TTL_MS);
             setCachedBrowserFaviconSrc(key, safeSrc, ttl);
             return safeSrc;
           })

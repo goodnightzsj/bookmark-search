@@ -54,5 +54,6 @@
 ## Verification
 
 - Check `chrome://extensions` → Service Worker → Inspect → Console for `[Background]` logs.
+- For favicon diagnosis, enable `chrome.storage.local.set({ debugFavicon: true })` or set `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__ = true` in the page console before reopening the overlay, then inspect `[Content][Favicon]` and `[Background][Favicon]` logs.
 - Verify alarm status: `chrome.alarms.getAll()` in DevTools console.
 - Check storage: `chrome.storage.local.get(['lastSyncTime', 'bookmarkCount'])`.

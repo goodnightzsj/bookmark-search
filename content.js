@@ -25,6 +25,37 @@
 	  // Suppress stray/synthetic Enter events right after IME composition ends (esp. macOS built-in IME).
 	  // Keep the window small so the user's next real Enter (to open) still works.
 	  let imeSuppressEnterUntil = 0;
+	  // Favicon debug: enable via `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__ = true`
+	  // or `chrome.storage.local.set({ debugFavicon: true })` (from extension contexts).
+	  let debugFavicon = false;
+	  let faviconDebugLogBudget = 200;
+	  function isFaviconDebugEnabled() {
+	    try {
+	      if (debugFavicon) return true;
+	      return !!(window && window.__BOOKMARK_SEARCH_DEBUG_FAVICON__);
+	    } catch (e) {
+	      return debugFavicon;
+	    }
+	  }
+	  function faviconDebugLog() {
+	    if (!isFaviconDebugEnabled()) return;
+	    if (faviconDebugLogBudget <= 0) return;
+	    faviconDebugLogBudget--;
+	    try {
+	      const args = Array.prototype.slice.call(arguments);
+	      args.unshift('[Content][Favicon]');
+	      console.log.apply(console, args);
+	    } catch (e) {}
+	  }
+	  async function loadDebugSettings() {
+	    try {
+	      const result = await chrome.storage.local.get('debugFavicon');
+	      debugFavicon = !!(result && result.debugFavicon);
+	      if (debugFavicon) {
+	        console.log('[Content] debugFavicon enabled');
+	      }
+	    } catch (e) {}
+	  }
 	  // SYNC: values must match constants.js MESSAGE_ACTIONS (IIFE cannot import ES modules)
 	  const MESSAGE_ACTIONS = {
 	    SEARCH_BOOKMARKS: 'searchBookmarks',
@@ -87,6 +118,10 @@
 	          faviconCache.delete(oldest);
 	        }
 	      }
+	    }
+	    if (changes.debugFavicon) {
+	      debugFavicon = !!changes.debugFavicon.newValue;
+	      if (debugFavicon) console.log('[Content] debugFavicon enabled (storage.onChanged)');
 	    }
 	    if (changes.theme) {
 	      const newTheme = changes.theme.newValue;
@@ -189,6 +224,7 @@
 	  validateMessageActionsConfig();
 	  loadFaviconCacheSettings();
 	  loadThemeSetting();
+	  loadDebugSettings();
 
   try {
 
@@ -681,6 +717,13 @@ function updateSelection(options) {
 	  if (safe === 'localhost') return true;
 	  if (isIpAddress(safe)) return true;
 	  if (safe.endsWith('.local')) return true;
+	  // Common internal-only pseudo-TLDs / reserved suffixes.
+	  if (safe.endsWith('.lan')) return true;
+	  if (safe.endsWith('.internal')) return true;
+	  if (safe.endsWith('.intranet')) return true;
+	  if (safe.endsWith('.corp')) return true;
+	  if (safe.endsWith('.home')) return true;
+	  if (safe.endsWith('.localdomain')) return true;
 	  if (safe.indexOf('.') === -1) return true;
 	  return false;
 	}
@@ -841,7 +884,7 @@ function updateSelection(options) {
 	  const safePageUrl = pageUrl ? String(pageUrl).trim() : '';
 	  if (!safePageUrl) return Promise.resolve('');
 
-	  return sendMessagePromise({ action: MESSAGE_ACTIONS.GET_BROWSER_FAVICON, pageUrl: safePageUrl })
+	  return sendMessagePromise({ action: MESSAGE_ACTIONS.GET_BROWSER_FAVICON, pageUrl: safePageUrl, debug: isFaviconDebugEnabled() })
 	    .then((response) => {
 	      if (!response || response.success === false) return '';
 	      const src = response && typeof response.src === 'string' ? response.src : '';
@@ -968,7 +1011,8 @@ function updateSelection(options) {
 	    }));
 	    const response = await sendMessagePromise({
 	      action: MESSAGE_ACTIONS.GET_BROWSER_FAVICONS_BATCH,
-	      items
+	      items,
+	      debug: isFaviconDebugEnabled()
 	    });
 	    if (token !== faviconRenderToken) return;
 	    const favicons = (response && response.favicons && typeof response.favicons === 'object') ? response.favicons : {};
@@ -1010,7 +1054,7 @@ function updateSelection(options) {
 	            queuePersistFavicon(domain, safeUrl);
 	          }
 	          resolve();
-	        }, { allowBrowserCache: false, allowExternal: true });
+	        }, { allowBrowserCache: false, allowExternal: true, allowLocal: true });
 	      });
 	    }
 	  }
@@ -1349,12 +1393,18 @@ function loadFavicon(domain, pageUrl, callback, options) {
 
   var allowExternal = !options || options.allowExternal !== false;
   var allowBrowserCache = !options || options.allowBrowserCache !== false;
+  var allowLocal = !!(options && options.allowLocal);
   var safePageUrl = pageUrl ? String(pageUrl) : '';
   var done = false;
 
   function finish(url) {
     if (done) return;
     done = true;
+    if (url === defaultIcon) {
+      faviconDebugLog('finish defaultIcon', { domain: domain, pageUrl: safePageUrl, allowBrowserCache: allowBrowserCache, allowExternal: allowExternal, allowLocal: allowLocal });
+    } else {
+      faviconDebugLog('finish', { domain: domain, url: url });
+    }
     if (callback) callback(url);
   }
 
@@ -1364,6 +1414,31 @@ function loadFavicon(domain, pageUrl, callback, options) {
 
   // 对局域网/私有主机：不走第三方 favicon 服务（一般会 404，且有隐私泄露）
   var isPrivateHost = isLikelyPrivateHost(domain);
+
+  faviconDebugLog('start', { domain: domain, pageUrl: safePageUrl, isPrivateHost: isPrivateHost, allowBrowserCache: allowBrowserCache, allowExternal: allowExternal, allowLocal: allowLocal });
+
+  // 对私有主机：在浏览器 favicon 缓存缺失时，允许从站点自身 origin 兜底（不走第三方）。
+  // 注意：该兜底可能在某些页面因 Mixed Content / CSP 被拦截；仅用于私有主机且需显式开启 allowLocal。
+  if (allowLocal && isPrivateHost && safePageUrl) {
+    try {
+      const u = new URL(safePageUrl);
+      const origin = u && u.origin ? String(u.origin) : '';
+      if (origin && origin !== 'null') {
+        sources.push(origin + "/favicon.ico");
+        sources.push(origin + "/favicon.png");
+        sources.push(origin + "/apple-touch-icon.png");
+        sources.push(origin + "/apple-touch-icon-precomposed.png");
+        // Also try path-relative candidates (some apps host favicons under a base path).
+        try { sources.push(new URL("favicon.ico", u).href); } catch (e) {}
+        try { sources.push(new URL("favicon.png", u).href); } catch (e) {}
+        try { sources.push(new URL("apple-touch-icon.png", u).href); } catch (e) {}
+      }
+    } catch (e) {
+      // Best-effort: fall back to a simple guess when pageUrl is not a valid URL string.
+      sources.push("https://" + domain + "/favicon.ico");
+      sources.push("http://" + domain + "/favicon.ico");
+    }
+  }
 
   if (allowExternal && !isPrivateHost) {
     // DDG
@@ -1385,26 +1460,33 @@ function loadFavicon(domain, pageUrl, callback, options) {
     }
   }
 
+  faviconDebugLog('sources', { domain: domain, isPrivateHost: isPrivateHost, count: sources.length, sources: sources.slice(0, 10) });
+
   function tryLoad(idx) {
     if (done) return;
     if (idx >= sources.length) {
       finish(defaultIcon);
       return;
     }
-    if (!allowExternal || !canUseExternalFavicons()) {
-      finish(defaultIcon);
-      return;
-    }
     var url = sources[idx];
     var isDDG = url.indexOf("duckduckgo.com") !== -1;
+    var isThirdParty = isDDG || url.indexOf("google.com/s2/favicons") !== -1 || url.indexOf("api.faviconkit.com") !== -1;
+    if (isThirdParty && (!allowExternal || !canUseExternalFavicons())) {
+      faviconDebugLog('skip third-party (circuit/open/disabled)', { domain: domain, url: url, allowExternal: allowExternal });
+      tryLoad(idx + 1);
+      return;
+    }
     var settled = false;
+    var timeoutMs = (isPrivateHost && allowLocal && !isThirdParty) ? 1200 : 3000;
+    faviconDebugLog('try', { domain: domain, idx: idx, url: url, isThirdParty: isThirdParty, timeoutMs: timeoutMs });
     var timer = setTimeout(function() {
       if (settled) return;
       settled = true;
       img.onload = null;
       img.onerror = null;
+      faviconDebugLog('timeout', { domain: domain, url: url, idx: idx, timeoutMs: timeoutMs });
       tryLoad(idx + 1);
-    }, 3000);
+    }, timeoutMs);
 
     var img = new Image();
     img.onload = function() {
@@ -1413,16 +1495,19 @@ function loadFavicon(domain, pageUrl, callback, options) {
       clearTimeout(timer);
       if (isDDG && img.naturalWidth === 48 && img.naturalHeight === 48) {
         recordExternalFaviconFailure();
+        faviconDebugLog('loaded but DDG placeholder, skip', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight });
         tryLoad(idx + 1);
         return;
       }
+      faviconDebugLog('loaded', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight });
       finish(url);
     };
     img.onerror = function() {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      recordExternalFaviconFailure();
+      if (isThirdParty) recordExternalFaviconFailure();
+      faviconDebugLog('error', { domain: domain, url: url, idx: idx, isThirdParty: isThirdParty });
       tryLoad(idx + 1);
     };
     img.src = url;
