@@ -8,18 +8,15 @@ const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
 // Browser favicon cache (derived from chrome.favicon.getFaviconUrl).
 // We keep a small in-memory LRU so repeated searches across tabs/pages don't re-fetch + re-base64 the same icon.
-// A short fetch timeout approximates "browser already has it cached" vs "needs to fetch/compute".
+// Entries stay in memory until evicted by LRU or the service worker restarts.
 const BROWSER_FAVICON_CACHE_MAX_SIZE = 800;
-const BROWSER_FAVICON_POSITIVE_TTL_MS = 60 * 60 * 1000; // 1h
-const BROWSER_FAVICON_NEGATIVE_TTL_MS = 5 * 60 * 1000; // 5m
-const BROWSER_FAVICON_NEGATIVE_TTL_PRIVATE_MS = 30 * 1000; // 30s
 const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 250;
 const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = 1200;
 const PERSISTED_FAVICON_FAILURE_TTL_MS = 30 * 60 * 1000; // 30m
 const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = 60 * 1000; // 1m
 const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = 24 * 60 * 60 * 1000; // 24h
 
-const browserFaviconCache = new Map(); // key -> { src, isPlaceholder, expiresAt }
+const browserFaviconCache = new Map(); // key -> { src, isPlaceholder }
 const browserFaviconInFlight = new Map(); // key -> Promise<{ src, isPlaceholder }>
 
 function decodeSvgDataUrlContent(src) {
@@ -89,12 +86,6 @@ function getCachedBrowserFaviconSrc(key) {
   if (!key) return undefined;
   const entry = browserFaviconCache.get(key);
   if (!entry || typeof entry !== 'object') return undefined;
-  const now = Date.now();
-  const expiresAt = entry.expiresAt;
-  if (typeof expiresAt !== 'number' || expiresAt <= now) {
-    browserFaviconCache.delete(key);
-    return undefined;
-  }
 
   // LRU bump
   browserFaviconCache.delete(key);
@@ -106,13 +97,12 @@ function getCachedBrowserFaviconSrc(key) {
   };
 }
 
-function setCachedBrowserFaviconSrc(key, src, ttlMs, isPlaceholder = false) {
+function setCachedBrowserFaviconSrc(key, src, _ttlMs, isPlaceholder = false) {
   if (!key) return;
   const safeSrc = typeof src === 'string' ? src : '';
-  const ttl = (typeof ttlMs === 'number' && Number.isFinite(ttlMs) && ttlMs > 0) ? ttlMs : BROWSER_FAVICON_NEGATIVE_TTL_MS;
 
   browserFaviconCache.delete(key);
-  browserFaviconCache.set(key, { src: safeSrc, isPlaceholder: !!isPlaceholder, expiresAt: Date.now() + ttl });
+  browserFaviconCache.set(key, { src: safeSrc, isPlaceholder: !!isPlaceholder });
 
   while (browserFaviconCache.size > BROWSER_FAVICON_CACHE_MAX_SIZE) {
     const oldestKey = browserFaviconCache.keys().next().value;

@@ -35,7 +35,7 @@ Bookmark Search provides a spotlight-style search overlay that can be invoked on
 - **Real-time Bookmark Sync:** Hybrid sync with event-driven incremental updates + periodic full refresh
 - **Change History Tracking:** Records add/delete/edit/move operations (100-item cap)
 - **Theme System:** 4 themes (original, minimal, glass, dark) with instant switching
-- **Favicon Caching:** Multi-tier cache (memory, persisted IndexedDB, browser cache) with background warmup
+- **Favicon Caching:** Multi-tier cache (content memory, Service Worker LRU memory, persisted IndexedDB) with background warmup
 - **IME Support:** Proper handling for Chinese/Japanese input composition
 
 ## 6. Target Users
