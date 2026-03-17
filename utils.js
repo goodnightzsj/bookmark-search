@@ -104,13 +104,75 @@ const MULTI_PART_PUBLIC_SUFFIXES = new Set([
   'com.br', 'com.mx', 'com.tr'
 ]);
 
+export function isIpAddress(host) {
+  const safe = typeof host === 'string' ? host.trim() : '';
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return false;
+  const parts = safe.split('.');
+  for (let i = 0; i < parts.length; i++) {
+    const n = Number(parts[i]);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+export function getHostForPrivateCheck(value) {
+  const safe = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!safe) return '';
+  try {
+    if (safe.indexOf('://') !== -1) return new URL(safe).hostname.toLowerCase();
+  } catch (e) {}
+  if (safe[0] === '[') {
+    const end = safe.indexOf(']');
+    return end >= 0 ? safe.slice(1, end) : safe;
+  }
+  const colon = safe.lastIndexOf(':');
+  if (colon > 0 && /^\d+$/.test(safe.slice(colon + 1)) && safe.indexOf(':') === colon) {
+    return safe.slice(0, colon);
+  }
+  return safe;
+}
+
+export function isLikelyPrivateHost(host) {
+  const safe = getHostForPrivateCheck(host);
+  if (!safe) return false;
+  if (safe === 'localhost') return true;
+  if (isIpAddress(safe)) return true;
+  if (safe.endsWith('.local')) return true;
+  if (safe.endsWith('.lan')) return true;
+  if (safe.endsWith('.internal')) return true;
+  if (safe.endsWith('.intranet')) return true;
+  if (safe.endsWith('.corp')) return true;
+  if (safe.endsWith('.home')) return true;
+  if (safe.endsWith('.localdomain')) return true;
+  if (safe.indexOf('.') === -1) return true;
+  return false;
+}
+
+export function normalizeFaviconHost(host) {
+  const safe = typeof host === 'string' ? host.trim().toLowerCase() : '';
+  if (!safe) return '';
+  const withoutWww = safe.startsWith('www.') ? safe.slice(4) : safe;
+  return getRootDomain(withoutWww) || withoutWww;
+}
+
+export function buildFaviconServiceKey(pageUrl) {
+  const safe = typeof pageUrl === 'string' ? pageUrl.trim() : '';
+  if (!safe) return '';
+  try {
+    const url = new URL(safe);
+    const host = (url.host || '').trim().toLowerCase();
+    const hostname = (url.hostname || '').trim().toLowerCase();
+    if (host && isLikelyPrivateHost(hostname || host)) return host;
+    return normalizeFaviconHost(hostname);
+  } catch (e) {
+    return '';
+  }
+}
+
 export function getRootDomain(domain) {
   const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
   if (!safe) return '';
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) {
-    const octets = safe.split('.');
-    if (octets.every(o => { const n = Number(o); return n >= 0 && n <= 255; })) return safe;
-  }
+  if (isIpAddress(safe)) return safe;
   if (safe === 'localhost') return safe;
   if (safe.indexOf('.') === -1) return safe;
 

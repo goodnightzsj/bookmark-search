@@ -51,7 +51,7 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 Notes:
 - Migration keeps user assets (settings/history/meta), but intentionally clears transient favicon and warmup caches. These are rebuilt lazily after upgrade instead of being compat-migrated.
-- Bookmark persistence is now documents-first: the `documents` store is the durable bookmark source, while runtime bookmark arrays are derived in memory for compatibility with existing search/update logic.
+- Bookmark persistence is now documents-first: the `documents` store is the durable bookmark source, while background runtime state keeps `documents` as the primary in-memory cache and derives bookmark arrays plus a bookmark-id index only for compatibility with incremental update and compare logic.
 - Schema V3 removes legacy `kv/cachedBookmarks` and `kv/cachedBookmarksTime` keys after the documents store takeover.
 - Startup migration writes schema state to both `chrome.storage.local` and IDB `meta/schemaVersion`; migration-critical storage writes now use strict failure semantics and debug clients can query raw state through `GET_MIGRATION_STATUS`.
 - Persisted favicon success entries are reused without read-time TTL; retry suppression is represented by failure entries with `retryAt` cooldown. Search-time failure cooldown is now only written for explicit fast-fail states (`5xx`, `429`, `421`), with a 10-minute TTL.
@@ -60,4 +60,7 @@ Notes:
 - Main bookmark cache staleness is controlled by `bookmarkCacheTtlMinutes` and checked during search with async stale refresh (non-blocking).
 - Sync interval updates now go through background message `SET_SYNC_INTERVAL`, which persists `syncInterval` and updates the browser alarm in one background-owned flow.
 - Warmup recent-open aggregation now preserves `host:port` granularity for private/local services, while public sites still aggregate by root domain.
+- Background-side favicon host/service-key normalization now also uses the shared `utils.js` helpers, reducing drift between persistence, browser-favicon cache, warmup, and content-side lookup rules.
+- Documents consistency repair uses an order-insensitive fingerprint summary before backfilling IndexedDB, so reordering without content change is less likely to trigger unnecessary repairs. Search reads the runtime `documents` cache first, then lazily rehydrates it from IndexedDB when needed before falling back to `chrome.bookmarks.search`.
+- Background message success replies are now normalized through a local helper while preserving the existing `{ success: true, ...payload }` wire contract.
 - Content-side root-domain normalization now matches the background-side multi-part public-suffix handling, reducing favicon alias drift across `*.co.uk` / `*.com.cn` style domains.

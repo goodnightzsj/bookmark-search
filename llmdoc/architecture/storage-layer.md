@@ -10,7 +10,7 @@
 - `storage-service.js` (STORAGE_KEYS, DEFAULTS, getStorage, setStorage, setStorageOrThrow, getValue, setValue): Wraps chrome.storage.local with type-safe defaults and unified error handling, including schema/migration metadata keys.
 - `idb-service.js` (idbGet, idbGetMany, idbSet, idbSetMany, idbGetAllDocuments, idbReplaceDocuments, idbGetMeta, idbSetMeta): IndexedDB access layer. The active bookmark persistence is now the `documents` store, while `kv` remains for non-bookmark keyed records such as favicon and warmup snapshots.
 - `migration-service.js` (`ensureSchemaReady`, `getMigrationStatus`): Version migration runner. Normalizes persisted assets, migrates legacy bookmark cache into `documents`, clears transient caches, and in V3 removes the old bookmark-array keys from `kv`.
-- `background-data.js` (loadCacheFromStorage, saveToStorage): Orchestrates documents-first bookmark cache read/write, keeps a derived bookmark-shaped runtime view for search logic, and syncs metadata into chrome.storage.local.
+- `background-data.js` (loadCacheFromStorage, saveToStorage): Orchestrates documents-first bookmark cache read/write through a single runtime state container, keeps a derived bookmark-shaped compatibility view plus bookmark-id index for incremental update paths, and syncs metadata into chrome.storage.local.
 - `background-messages.js` (GET_FAVICONS, SET_FAVICONS, GET_MIGRATION_STATUS handlers): Manages favicon cache in IndexedDB and exposes migration diagnostics.
 
 ## 3. Execution Flow (LLM Retrieval Map)
@@ -28,16 +28,16 @@
 ### Read Path (Bookmark Load)
 
 - **1. Entry:** `loadCacheFromStorage` reads bookmark history/meta from chrome.storage.local and bookmark records from IndexedDB `documents`.
-- **2. Runtime Shape:** `background-data.js` restores `cachedDocuments` as the primary runtime state, then derives `cachedBookmarks` as a compatibility view for compare/search/warmup code paths.
+- **2. Runtime Shape:** `background-data.js` restores `documents` into a runtime state container, then derives a bookmark-shaped compatibility view and bookmark-id index for compare and incremental event code paths while keeping `documents` as the primary in-memory source.
 - **3. Fallback:** If `documents` is empty, runtime cache stays empty and normal startup/search fallback logic triggers a fresh bookmark rebuild.
-- **4. Result:** Persisted bookmark truth is documents-only; chrome.storage.local only mirrors metadata.
+- **4. Result:** Persisted bookmark truth is documents-only; chrome.storage.local only mirrors metadata, and runtime search can rehydrate the in-memory documents cache from IndexedDB before using the native Chrome API fallback.
 
 ### Write Path (Bookmark Save)
 
 - **1. Entry:** `saveToStorage` remains the main write path after full/incremental sync.
 - **2. Primary Persistence:** Runtime bookmark changes are normalized into `SearchDocument` records and replace the full `documents` store contents.
 - **3. Metadata Write:** chrome.storage.local stores only count/history/lastSync/meta for UI and bootstrapping. The legacy `bookmarks` key still exists as a compatibility/default slot, but the active save path no longer writes full bookmark arrays there. Metadata writes now happen only after `documents` persistence succeeds, avoiding “meta new / documents old” split-brain.
-- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys. Drift detection now checks both count and a lightweight document fingerprint, not just array length.
+- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys. Drift detection now checks both count and an order-insensitive document fingerprint summary, not just array length, so harmless document ordering differences are less likely to trigger false repairs.
 
 ### Favicon Cache Path
 

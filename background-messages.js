@@ -3,7 +3,7 @@ import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
-import { getRootDomain } from './utils.js';
+import { buildFaviconServiceKey, isIpAddress, isLikelyPrivateHost, normalizeFaviconHost, getHostForPrivateCheck } from './utils.js';
 import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
@@ -35,74 +35,6 @@ function decodeSvgDataUrlContent(src) {
     return decodeURIComponent(payload);
   } catch (error) {
     return payload;
-  }
-}
-
-function isIpAddress(host) {
-  const safe = typeof host === 'string' ? host.trim() : '';
-  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return false;
-  const parts = safe.split('.');
-  for (let i = 0; i < parts.length; i++) {
-    const n = Number(parts[i]);
-    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
-  }
-  return true;
-}
-
-function isLikelyPrivateHost(host) {
-  const safe = getHostForPrivateCheck(host);
-  if (!safe) return false;
-  if (safe === 'localhost') return true;
-  if (isIpAddress(safe)) return true;
-  if (safe.endsWith('.local')) return true;
-  if (safe.endsWith('.lan')) return true;
-  if (safe.endsWith('.internal')) return true;
-  if (safe.endsWith('.intranet')) return true;
-  if (safe.endsWith('.corp')) return true;
-  if (safe.endsWith('.home')) return true;
-  if (safe.endsWith('.localdomain')) return true;
-  if (safe.indexOf('.') === -1) return true;
-  return false;
-}
-
-function normalizeFaviconHost(host) {
-  const safe = typeof host === 'string' ? host.trim().toLowerCase() : '';
-  if (!safe) return '';
-  // 去掉 www 前缀
-  const withoutWww = safe.startsWith('www.') ? safe.slice(4) : safe;
-  // 对于类似 a.b.example.com，取根域名 example.com，提高跨子域命中率。
-  // 注意：IPv4 / localhost 需要保留原值（例如 192.168.0.1 不能被错误折叠为 0.1）。
-  return getRootDomain(withoutWww) || withoutWww;
-}
-
-function getHostForPrivateCheck(value) {
-  const safe = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (!safe) return '';
-  try {
-    if (safe.indexOf('://') !== -1) return new URL(safe).hostname.toLowerCase();
-  } catch (e) {}
-  if (safe[0] === '[') {
-    const end = safe.indexOf(']');
-    return end >= 0 ? safe.slice(1, end) : safe;
-  }
-  const colon = safe.lastIndexOf(':');
-  if (colon > 0 && /^\d+$/.test(safe.slice(colon + 1)) && safe.indexOf(':') === colon) {
-    return safe.slice(0, colon);
-  }
-  return safe;
-}
-
-function buildFaviconServiceKey(pageUrl) {
-  const safe = typeof pageUrl === 'string' ? pageUrl.trim() : '';
-  if (!safe) return '';
-  try {
-    const url = new URL(safe);
-    const host = (url.host || '').trim().toLowerCase();
-    const hostname = (url.hostname || '').trim().toLowerCase();
-    if (host && isLikelyPrivateHost(hostname || host)) return host;
-    return normalizeFaviconHost(hostname);
-  } catch (e) {
-    return '';
   }
 }
 
@@ -395,8 +327,16 @@ async function loadFaviconsForResults(results) {
   }
 }
 
+function buildOkResponse(payload = {}) {
+  return { success: true, ...(payload && typeof payload === 'object' ? payload : {}) };
+}
+
 function buildErrorResponse(code, message) {
   return { success: false, error: { code, message } };
+}
+
+function sendOkResponse(sendResponse, payload) {
+  sendResponse(buildOkResponse(payload));
 }
 
 function sendErrorResponse(sendResponse, code, message) {
@@ -505,7 +445,7 @@ export function handleMessage(request, sender, sendResponse) {
       return initThen(() =>
         setupAutoSync(interval)
           .then(() => {
-            sendResponse({ success: true });
+            sendOkResponse(sendResponse);
           })
           .catch((error) => {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
@@ -523,17 +463,17 @@ export function handleMessage(request, sender, sendResponse) {
       return initThen(async () => {
         await setStorageOrThrow({ [STORAGE_KEYS.SYNC_INTERVAL]: interval });
         await setupAutoSync(interval);
-        sendResponse({ success: true, interval });
+        sendOkResponse(sendResponse, { interval });
       });
     }
       
     case MESSAGE_ACTIONS.GET_STATS:
-      sendResponse({ success: true });
+      sendOkResponse(sendResponse);
       return false;
 
     case MESSAGE_ACTIONS.GET_MIGRATION_STATUS:
       getMigrationStatus()
-        .then((status) => sendResponse({ success: true, ...status }))
+        .then((status) => sendOkResponse(sendResponse, status))
         .catch((error) => {
           sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
         });
@@ -550,14 +490,14 @@ export function handleMessage(request, sender, sendResponse) {
             // best-effort only
           }
         }
-        sendResponse({ success: true });
+        sendOkResponse(sendResponse);
       });
     }
 
     case MESSAGE_ACTIONS.SEARCH_BOOKMARKS: {
       const query = String(request.query || '').trim().slice(0, 200);
       if (!query) {
-        sendResponse({ success: true, results: [], favicons: {} });
+        sendOkResponse(sendResponse, { results: [], favicons: {} });
         return false;
       }
 
@@ -567,7 +507,7 @@ export function handleMessage(request, sender, sendResponse) {
           .then((resultsRaw) => {
             const results = Array.isArray(resultsRaw) ? resultsRaw : [];
             return loadFaviconsForResults(results).then((favicons) => {
-              sendResponse({ success: true, results, favicons });
+              sendOkResponse(sendResponse, { results, favicons });
             });
           })
           .catch((error) => {
@@ -583,7 +523,7 @@ export function handleMessage(request, sender, sendResponse) {
       return initThen(() =>
         getWarmupDomainMap({ limit })
           .then((domainToPageUrl) => {
-            sendResponse({ success: true, domainToPageUrl: (domainToPageUrl && typeof domainToPageUrl === 'object') ? domainToPageUrl : {} });
+            sendOkResponse(sendResponse, { domainToPageUrl: (domainToPageUrl && typeof domainToPageUrl === 'object') ? domainToPageUrl : {} });
           })
           .catch((error) => {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
@@ -595,7 +535,7 @@ export function handleMessage(request, sender, sendResponse) {
       const pageUrl = String((request && request.pageUrl) || '').trim();
       const debug = !!(request && request.debug);
       if (!pageUrl) {
-        sendResponse({ success: true, src: '', isPlaceholder: false });
+        sendOkResponse(sendResponse, { src: '', isPlaceholder: false });
         return false;
       }
 
@@ -604,7 +544,7 @@ export function handleMessage(request, sender, sendResponse) {
         const cached = getCachedBrowserFaviconSrc(key);
         if (cached !== undefined) {
           if (debug) console.log('[Background][Favicon] cache hit', { key, hasSrc: !!cached.src, isPlaceholder: !!cached.isPlaceholder });
-          sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, cached.src, debug), isPlaceholder: !!cached.isPlaceholder });
+          sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, cached.src, debug), isPlaceholder: !!cached.isPlaceholder });
           return false;
         }
 
@@ -612,8 +552,8 @@ export function handleMessage(request, sender, sendResponse) {
         if (inFlight) {
           if (debug) console.log('[Background][Favicon] inFlight reuse', { key });
           inFlight
-            .then((result) => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
-            .catch(() => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, '', debug) }));
+            .then((result) => sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
+            .catch(() => sendOkResponse(sendResponse, buildBrowserFaviconResult(pageUrl, '', debug)));
           return true;
         }
 
@@ -630,12 +570,12 @@ export function handleMessage(request, sender, sendResponse) {
         browserFaviconInFlight.set(key, promise);
 
         promise
-          .then((result) => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
-          .catch(() => sendResponse({ success: true, ...buildBrowserFaviconResult(pageUrl, '', debug) }));
+          .then((result) => sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
+          .catch(() => sendOkResponse(sendResponse, buildBrowserFaviconResult(pageUrl, '', debug)));
         return true;
       }
 
-      sendResponse({ success: true, src: '', isPlaceholder: false });
+      sendOkResponse(sendResponse, { src: '', isPlaceholder: false });
       return false;
     }
 
@@ -647,7 +587,7 @@ export function handleMessage(request, sender, sendResponse) {
         : [];
 
       if (items.length === 0) {
-        sendResponse({ success: true, favicons: {} });
+        sendOkResponse(sendResponse, { favicons: {} });
         return false;
       }
 
@@ -693,9 +633,9 @@ export function handleMessage(request, sender, sendResponse) {
               isPlaceholder: !!r.isPlaceholder
             };
           }
-          sendResponse({ success: true, favicons });
+          sendOkResponse(sendResponse, { favicons });
         })
-        .catch(() => sendResponse({ success: true, favicons: {} }));
+        .catch(() => sendOkResponse(sendResponse, { favicons: {} }));
 
       return true;
     }
@@ -707,7 +647,7 @@ export function handleMessage(request, sender, sendResponse) {
         : [];
 
       if (domains.length === 0) {
-        sendResponse({ success: true, favicons: {} });
+        sendOkResponse(sendResponse, { favicons: {} });
         return false;
       }
 
@@ -729,7 +669,7 @@ export function handleMessage(request, sender, sendResponse) {
             }
           }
 
-          const finish = () => sendResponse({ success: true, favicons });
+          const finish = () => sendOkResponse(sendResponse, { favicons });
           if (migrations.length === 0) {
             finish();
             return;
@@ -749,7 +689,7 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.PROBE_FAVICON_URL_STATUS: {
       const url = typeof (request && request.url) === 'string' ? request.url.trim() : '';
       if (!url) {
-        sendResponse({ success: true, status: 0, isFastFailStatus: false });
+        sendOkResponse(sendResponse, { status: 0, isFastFailStatus: false });
         return false;
       }
 
@@ -798,7 +738,7 @@ export function handleMessage(request, sender, sendResponse) {
       }
 
       if (deduped.size === 0) {
-        sendResponse({ success: true, count: 0 });
+        sendOkResponse(sendResponse, { count: 0 });
         return false;
       }
 
@@ -821,13 +761,13 @@ export function handleMessage(request, sender, sendResponse) {
           }
 
           if (items.length === 0) {
-            sendResponse({ success: true, count: 0 });
+            sendOkResponse(sendResponse, { count: 0 });
             return;
           }
 
           idbSetMany(items)
             .then(() => {
-              sendResponse({ success: true, count: items.length });
+              sendOkResponse(sendResponse, { count: items.length });
             })
             .catch((error) => {
               sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
