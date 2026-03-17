@@ -20,7 +20,7 @@
 - **2. Initialization:** `settings.js:9-30` (`init`) sequentially initializes all modules: theme → shortcuts → stats → sync → history.
 - **3. Event Binding:** `settings.js:33-37` (`bindAllEvents`) binds events for shortcuts, sync, and history modules.
 - **4. Storage Listener:** `settings.js:40-68` (`setupStorageListener`) monitors `chrome.storage.onChanged` for keys: `bookmarkCount`, `bookmarks`, `lastSyncTime`, `syncInterval`, `bookmarkHistory`.
-- **5. Sync Flow:** User changes interval → `settings-sync.js:113-135` saves to storage → sends `MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL` to background → background updates `chrome.alarms`.
+- **5. Sync Flow:** User changes interval → `settings-sync.js:130-143` saves to storage → sends `MESSAGE_ACTIONS.SET_SYNC_INTERVAL` to background → background updates `chrome.alarms`.
 - **6. Manual Sync:** `settings-sync.js:80-110` sends `MESSAGE_ACTIONS.REFRESH_BOOKMARKS` → disables button → shows feedback for 1.5s.
 - **7. History Export:** `settings-history.js:320-352` filters selected items → deduplicates by URL (keeps newest) → calls `bookmark-export.js` (`generateNetscapeBookmarkFile`) → triggers download.
 

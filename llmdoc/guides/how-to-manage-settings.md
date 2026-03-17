@@ -16,7 +16,7 @@ Theme changes now update a fully themed settings page: theme chooser, shortcut p
 
 1. Open settings page via popup or `chrome-extension://[id]/settings.html`.
 2. Locate "书签同步设置" card, find the dropdown `#syncInterval`.
-3. Select desired interval. `settings-sync.js:121-143` saves to storage and sends `MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL` to background.
+3. Select desired interval. `settings-sync.js:130-143` saves to storage and sends `MESSAGE_ACTIONS.SET_SYNC_INTERVAL` to background.
 4. Background service worker updates `chrome.alarms` schedule.
 5. Verify: "下次同步时间" display updates immediately.
 
