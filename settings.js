@@ -45,9 +45,9 @@ function setupStorageListener() {
 
     console.log("[Settings] 存储发生变化:", Object.keys(changes));
 
-    // 书签数据变化时，更新统计
-    if (changes.bookmarkCount || changes.bookmarks) {
-      console.log("[Settings] 检测到书签数据变化，重新加载统计");
+    // 书签统计或元数据变化时，更新统计
+    if (changes.bookmarkCount || changes.bookmarksMeta) {
+      console.log("[Settings] 检测到书签统计变化，重新加载统计");
       loadBookmarkStats();
     }
 

@@ -4,6 +4,7 @@ import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
 import { getRootDomain } from './utils.js';
+import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
@@ -511,19 +512,32 @@ export function handleMessage(request, sender, sendResponse) {
           })
       );
     }
+
+    case MESSAGE_ACTIONS.SET_SYNC_INTERVAL: {
+      const interval = request.interval;
+      if (!isValidSyncInterval(interval)) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'interval must be a non-negative number');
+        return false;
+      }
+
+      return initThen(async () => {
+        await setStorageOrThrow({ [STORAGE_KEYS.SYNC_INTERVAL]: interval });
+        await setupAutoSync(interval);
+        sendResponse({ success: true, interval });
+      });
+    }
       
     case MESSAGE_ACTIONS.GET_STATS:
       sendResponse({ success: true });
       return false;
 
     case MESSAGE_ACTIONS.GET_MIGRATION_STATUS:
-      return initThen(() =>
-        getMigrationStatus()
-          .then((status) => sendResponse({ success: true, ...status }))
-          .catch((error) => {
-            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
-          })
-      );
+      getMigrationStatus()
+        .then((status) => sendResponse({ success: true, ...status }))
+        .catch((error) => {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        });
+      return true;
 
     case MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN: {
       const url = String(request && request.url ? request.url : '').trim();

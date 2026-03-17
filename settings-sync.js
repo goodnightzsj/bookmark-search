@@ -110,7 +110,7 @@ export function bindSyncEvents() {
       // 并行重新加载书签统计和同步设置
       await Promise.all([loadBookmarkStats(), loadSyncSettings()]);
 
-      if (label) label.textContent = '同步成功';
+      if (label) label.textContent = result && result.skipped ? '已排队' : '同步成功';
       setTimeout(() => {
         if (label) label.textContent = originalText;
         btn.disabled = false;
@@ -133,12 +133,8 @@ export function bindSyncEvents() {
     console.log("[Settings] 修改同步间隔为:", interval, "分钟");
 
     try {
-      // 保存到storage
-      await setValue(STORAGE_KEYS.SYNC_INTERVAL, interval);
-
-      // 通知background更新定时器
       await chrome.runtime.sendMessage({
-        action: MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL,
+        action: MESSAGE_ACTIONS.SET_SYNC_INTERVAL,
         interval: interval
       });
 

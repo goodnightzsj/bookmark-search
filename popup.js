@@ -228,11 +228,11 @@ function bindEvents() {
           : (typeof err === 'string' ? err : '刷新失败');
         throw new Error(message);
       }
-      
+
       // 并行重新加载书签数量和同步时间
       await Promise.all([loadBookmarkCount(), loadSyncTimes()]);
-      
-      if (label) label.textContent = '刷新成功';
+
+      if (label) label.textContent = result && result.skipped ? '已排队' : '刷新成功';
       setTimeout(() => {
         if (label) label.textContent = originalText;
         btn.disabled = false;
@@ -252,7 +252,7 @@ function bindEvents() {
 function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-    if (changes.bookmarkCount || changes.bookmarks) loadBookmarkCount();
+    if (changes.bookmarkCount || changes.bookmarksMeta) loadBookmarkCount();
     if (changes.lastSyncTime || changes.syncInterval) loadSyncTimes();
   });
 }

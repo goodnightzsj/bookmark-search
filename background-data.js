@@ -231,6 +231,17 @@ function getRuntimeDocuments() {
   return Array.isArray(cachedDocuments) ? cachedDocuments : [];
 }
 
+function getDocumentsFingerprint(documents) {
+  const list = Array.isArray(documents) ? documents : [];
+  let hash = `${list.length}|`;
+  const sampleSize = Math.min(list.length, 20);
+  for (let i = 0; i < sampleSize; i++) {
+    const doc = list[i] || {};
+    hash += `${doc.id || ''}:${doc.updatedAt || 0}:${doc.url || ''}|`;
+  }
+  return hash;
+}
+
 function getRuntimeBookmarks() {
   return Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
 }
@@ -299,20 +310,36 @@ export function updateRuntimeCacheTtlMinutes(nextValue) {
   runtimeCacheTtlLoaded = false;
 }
 
+function getWarmupDomainKeyFromUrl(url) {
+  const safeUrl = typeof url === 'string' ? url.trim() : '';
+  if (!safeUrl) return '';
+  try {
+    const parsed = new URL(safeUrl);
+    const host = parsed && parsed.host ? String(parsed.host).toLowerCase() : '';
+    const hostname = parsed && parsed.hostname ? String(parsed.hostname).toLowerCase() : '';
+    if (!host) return '';
+    if (hostname === 'localhost') return host;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return host;
+    if (hostname.endsWith('.local') || hostname.endsWith('.lan') || hostname.endsWith('.internal') || hostname.endsWith('.intranet') || hostname.endsWith('.corp') || hostname.endsWith('.home') || hostname.endsWith('.localdomain') || hostname.indexOf('.') === -1) {
+      return host;
+    }
+    return getRootDomain(hostname) || host;
+  } catch (error) {
+    return '';
+  }
+}
+
 export async function recordBookmarkOpen(url) {
   const safeUrl = typeof url === 'string' ? url.trim() : '';
   if (!safeUrl) return;
-  let host = '';
   let href = '';
   try {
     const u = new URL(safeUrl);
-    host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
     href = u && u.href ? u.href : safeUrl;
   } catch (e) {
     return;
   }
-  if (!host) return;
-  const root = getRootDomain(host);
+  const root = getWarmupDomainKeyFromUrl(safeUrl);
   if (!root) return;
 
   const nowTs = Date.now();
@@ -449,7 +476,15 @@ async function refreshBookmarksOnce() {
       rebuildBookmarkIndex();
 
       // 保存到本地存储
-      await saveToStorage(syncTime);
+      const saveResult = await saveToStorage(syncTime);
+      if (!saveResult || !saveResult.success) {
+        return {
+          success: false,
+          error: '持久化书签缓存失败',
+          degraded: true,
+          source: saveResult && saveResult.source ? saveResult.source : 'unknown'
+        };
+      }
     } else {
       console.log("[Background] 书签无变化");
       await ensureCacheConsistency(syncTime);
@@ -770,7 +805,15 @@ async function applyBookmarkEventsOnce(events) {
   }
 
   await updateHistory(changes);
-  await saveToStorage(Date.now());
+  const saveResult = await saveToStorage(Date.now());
+  if (!saveResult || !saveResult.success) {
+    return {
+      success: false,
+      error: '持久化书签缓存失败',
+      degraded: true,
+      source: saveResult && saveResult.source ? saveResult.source : 'unknown'
+    };
+  }
 
   return { success: true, count: cachedBookmarks.length, changes: changes.length, incremental: true };
 }
@@ -840,7 +883,8 @@ async function ensureCacheConsistency(syncTime) {
   let needBackfillDocuments = false;
   try {
     const persistedDocuments = await readPersistedDocuments();
-    needBackfillDocuments = persistedDocuments.length !== documents.length;
+    needBackfillDocuments = persistedDocuments.length !== documents.length
+      || getDocumentsFingerprint(persistedDocuments) !== getDocumentsFingerprint(documents);
   } catch (error) {
     needBackfillDocuments = true;
   }
@@ -914,43 +958,49 @@ async function updateHistory(changes) {
  * chrome.storage.local: metadata only (count/history/syncTime/meta).
  * Legacy `cachedBookmarks` kv is no longer written in Phase 2.
  */
+async function writeDocumentsWithRetry() {
+  try {
+    await persistSearchDocuments();
+    return true;
+  } catch (error) {
+    console.warn("[Background] 写入 IndexedDB documents 失败，2s 后重试:", error);
+  }
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      persistSearchDocuments()
+        .then(() => { resolve(true); })
+        .catch((retryErr) => {
+          console.warn("[Background] IndexedDB documents 重试仍失败:", retryErr);
+          resolve(false);
+        });
+    }, 2000);
+  });
+}
+
 async function saveToStorage(syncTime) {
   const runtimeBookmarks = getRuntimeBookmarks();
   const meta = buildCacheMeta(runtimeBookmarks, syncTime);
 
-  const writeIdb = persistSearchDocuments()
-    .then(() => true)
-    .catch((error) => {
-      console.warn("[Background] 写入 IndexedDB documents 失败，2s 后重试:", error);
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          persistSearchDocuments()
-            .then(() => { resolve(true); })
-            .catch((retryErr) => {
-              console.warn("[Background] IndexedDB documents 重试仍失败:", retryErr);
-              resolve(false);
-            });
-        }, 2000);
-      });
-    });
+  const idbOk = await writeDocumentsWithRetry();
+  if (!idbOk) {
+    console.warn('[Background][Observe] cache_write_degraded', { source: 'documents_failed', updatedAt: meta.updatedAt, count: meta.count });
+    return { success: false, degraded: true, source: 'documents_failed' };
+  }
 
-  const writeStorage = setStorage({
+  const storageOk = await setStorage({
     [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
     [STORAGE_KEYS.BOOKMARK_HISTORY]: bookmarkHistory,
     [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
     [STORAGE_KEYS.BOOKMARKS_META]: meta
   });
 
-  const results = await Promise.all([writeIdb, writeStorage]);
-  const idbOk = results[0];
-  const storageOk = results[1];
-
-  if (!idbOk) {
-    console.warn('[Background][Observe] cache_write_degraded', { source: 'documents_failed', updatedAt: meta.updatedAt, count: meta.count });
-  }
   if (!storageOk) {
     console.warn('[Background][Observe] cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
+    return { success: false, degraded: true, source: 'storage_meta_failed' };
   }
+
+  return { success: true };
 }
 
 /**

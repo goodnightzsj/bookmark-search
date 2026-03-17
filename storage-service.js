@@ -122,6 +122,18 @@ export async function setStorage(data) {
 }
 
 /**
+ * 设置存储数据（强失败语义）
+ * @param {Object} data - 要存储的键值对
+ * @returns {Promise<void>}
+ */
+export async function setStorageOrThrow(data) {
+  const ok = await setStorage(data);
+  if (!ok) {
+    throw new Error('chrome.storage.local.set failed');
+  }
+}
+
+/**
  * 获取单个值（快捷方法）
  * @param {string} key - 键名
  * @returns {Promise<*>} 对应的值

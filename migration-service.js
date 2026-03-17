@@ -1,5 +1,5 @@
 import { idbDeleteByPrefix, idbGet, idbGetAllDocuments, idbReplaceDocuments, idbSetMeta } from './idb-service.js';
-import { getStorageWithStatus, setStorage, STORAGE_KEYS } from './storage-service.js';
+import { getStorageWithStatus, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 const CURRENT_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 1;
@@ -206,7 +206,7 @@ async function migrateV1ToV2() {
   };
 
   const cleared = await clearLegacyCaches();
-  await setStorage(storagePatch);
+  await setStorageOrThrow(storagePatch);
   await idbSetMeta(IDB_META_KEY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION).catch(() => {});
 
   return {
@@ -298,7 +298,7 @@ export async function ensureSchemaReady() {
     };
   }
 
-  await setStorage({
+  await setStorageOrThrow({
     [STORAGE_KEYS.MIGRATION_STATE]: MIGRATION_STATES.RUNNING,
     [STORAGE_KEYS.LAST_MIGRATION_ERROR]: null
   });
@@ -308,7 +308,7 @@ export async function ensureSchemaReady() {
     const migrationResult = await runMigrations(effectiveFromVersion);
     const finishedAt = Date.now();
 
-    await setStorage({
+    await setStorageOrThrow({
       [STORAGE_KEYS.SCHEMA_VERSION]: migrationResult.version,
       [STORAGE_KEYS.MIGRATION_STATE]: MIGRATION_STATES.IDLE,
       [STORAGE_KEYS.LAST_MIGRATION_AT]: finishedAt,
@@ -330,7 +330,7 @@ export async function ensureSchemaReady() {
     };
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    await setStorage({
+    await setStorageOrThrow({
       [STORAGE_KEYS.MIGRATION_STATE]: MIGRATION_STATES.FAILED,
       [STORAGE_KEYS.LAST_MIGRATION_ERROR]: message
     });

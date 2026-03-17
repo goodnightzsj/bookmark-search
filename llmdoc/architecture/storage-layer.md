@@ -7,7 +7,7 @@
 
 ## 2. Core Components
 
-- `storage-service.js` (STORAGE_KEYS, DEFAULTS, getStorage, setStorage, getValue, setValue): Wraps chrome.storage.local with type-safe defaults and unified error handling, including schema/migration metadata keys.
+- `storage-service.js` (STORAGE_KEYS, DEFAULTS, getStorage, setStorage, setStorageOrThrow, getValue, setValue): Wraps chrome.storage.local with type-safe defaults and unified error handling, including schema/migration metadata keys.
 - `idb-service.js` (idbGet, idbGetMany, idbSet, idbSetMany, idbGetAllDocuments, idbReplaceDocuments, idbGetMeta, idbSetMeta): IndexedDB access layer. The active bookmark persistence is now the `documents` store, while `kv` remains for non-bookmark keyed records such as favicon and warmup snapshots.
 - `migration-service.js` (`ensureSchemaReady`, `getMigrationStatus`): Version migration runner. Normalizes persisted assets, migrates legacy bookmark cache into `documents`, clears transient caches, and in V3 removes the old bookmark-array keys from `kv`.
 - `background-data.js` (loadCacheFromStorage, saveToStorage): Orchestrates documents-first bookmark cache read/write, keeps a derived bookmark-shaped runtime view for search logic, and syncs metadata into chrome.storage.local.
@@ -36,8 +36,8 @@
 
 - **1. Entry:** `saveToStorage` remains the main write path after full/incremental sync.
 - **2. Primary Persistence:** Runtime bookmark changes are normalized into `SearchDocument` records and replace the full `documents` store contents.
-- **3. Metadata Write:** chrome.storage.local stores only count/history/lastSync/meta for UI and bootstrapping. The legacy `bookmarks` key still exists as a compatibility/default slot, but the active save path no longer writes full bookmark arrays there.
-- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys.
+- **3. Metadata Write:** chrome.storage.local stores only count/history/lastSync/meta for UI and bootstrapping. The legacy `bookmarks` key still exists as a compatibility/default slot, but the active save path no longer writes full bookmark arrays there. Metadata writes now happen only after `documents` persistence succeeds, avoiding “meta new / documents old” split-brain.
+- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys. Drift detection now checks both count and a lightweight document fingerprint, not just array length.
 
 ### Favicon Cache Path
 
