@@ -66,6 +66,7 @@
 	    GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
 	    GET_FAVICONS: 'getFavicons',
 	    SET_FAVICONS: 'setFavicons',
+	    PROBE_FAVICON_URL_STATUS: 'probeFaviconUrlStatus',
 	    TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
 	    TOGGLE_SEARCH: 'toggleSearch',
 	    CLEAR_FAVICON_CACHE: 'clearFaviconCache'
@@ -77,6 +78,7 @@
 	    GET_BROWSER_FAVICONS_BATCH: true,
 	    GET_FAVICONS: true,
 	    SET_FAVICONS: true,
+	    PROBE_FAVICON_URL_STATUS: true,
 	    TRACK_BOOKMARK_OPEN: true,
 	    TOGGLE_SEARCH: true,
 	    CLEAR_FAVICON_CACHE: true
@@ -152,8 +154,8 @@
 	  function normalizeFaviconDomain(domain) {
 	    const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
 	    if (!safe) return '';
-	    if (safe.indexOf('www.') === 0) return safe.slice(4);
-	    return safe;
+	    const withoutWww = safe.indexOf('www.') === 0 ? safe.slice(4) : safe;
+	    return getRootDomain(withoutWww) || withoutWww;
 	  }
 
 	  function getHostForPrivateCheck(value) {
@@ -268,6 +270,7 @@
 	  let focusTrapEnabled = false;
 	  let globalKeydownTrapEnabled = false;
 	  let focusEnforcerTimer = null;
+	  let lastFocusTrapAt = 0;
 
 	  let currentTheme = 'original';
 
@@ -428,28 +431,23 @@ function showSearch() {
   enableFocusTrap();
   enableGlobalKeydownTrap();
   if (focusRetryTimer) clearTimeout(focusRetryTimer);
-  focusSearchInput();
-  try {
-    const active = document.activeElement;
-    if (active && active !== searchInput && active !== searchOverlay && typeof active.blur === 'function') {
-      active.blur();
-      focusSearchInput();
-    }
-  } catch (e) {}
-  // 精简焦点重试：1 次 rAF + 1 次 setTimeout（原 5 次过度重试）
+  // 不在 display 变更同帧同步 focus（layout 前 focus 可能静默失败），
+  // 改为 rAF 后验证式聚焦，确保元素已完成 layout。
   requestAnimationFrame(() => {
     if (!searchOverlay || searchOverlay.style.display === "none") return;
     focusSearchInput();
+    // 二次验证：覆盖宿主页面在首帧异步抢焦点的情况
     requestAnimationFrame(() => {
       if (!searchOverlay || searchOverlay.style.display === "none") return;
-      focusSearchInput();
+      if (document.activeElement !== searchInput) focusSearchInput();
     });
   });
+  // 兜底 setTimeout（覆盖 rAF 被宿主节流的极端场景）
   focusRetryTimer = setTimeout(() => {
     focusRetryTimer = null;
     if (!searchOverlay || searchOverlay.style.display === "none") return;
-    focusSearchInput();
-  }, 50);
+    if (document.activeElement !== searchInput) focusSearchInput();
+  }, 30);
   startFocusEnforcer();
   console.log("[Content] 搜索框已显示并聚焦");
 }
@@ -496,6 +494,13 @@ function focusSearchInput() {
   } catch (e) {
     try { searchInput.focus(); } catch (e2) {}
   }
+  // 验证 focus 是否成功，失败则在微任务中重试一次
+  if (document.activeElement !== searchInput) {
+    Promise.resolve().then(() => {
+      if (!searchInput || document.activeElement === searchInput) return;
+      try { searchInput.focus({ preventScroll: true }); } catch (e) {}
+    });
+  }
   try {
     const len = searchInput.value ? searchInput.value.length : 0;
     searchInput.setSelectionRange(len, len);
@@ -507,7 +512,12 @@ function handleFocusTrap(event) {
   if (!searchOverlay || searchOverlay.style.display === "none") return;
   if (!searchInput) return;
   const target = event && event.target;
-  if (target === searchInput) return;
+  // 豁免 overlay 内部所有元素的焦点事件
+  if (target && searchOverlay.contains(target)) return;
+  // 防抖：避免高频焦点乒乓
+  const now = Date.now();
+  if (now - lastFocusTrapAt < 16) return;
+  lastFocusTrapAt = now;
   focusSearchInput();
 }
 
@@ -595,6 +605,8 @@ function disableGlobalKeydownTrap() {
 
 function startFocusEnforcer() {
   stopFocusEnforcer();
+  const startedAt = Date.now();
+  let switched = false;
   focusEnforcerTimer = setInterval(() => {
     if (!searchOverlay || searchOverlay.style.display === "none") {
       stopFocusEnforcer();
@@ -603,7 +615,20 @@ function startFocusEnforcer() {
     if (!searchInput) return;
     if (document.activeElement === searchInput) return;
     focusSearchInput();
-  }, 350);
+    // 初始高频期（2s）过后切换到低频，降低持续开销
+    if (!switched && Date.now() - startedAt > 2000) {
+      switched = true;
+      clearInterval(focusEnforcerTimer);
+      focusEnforcerTimer = setInterval(() => {
+        if (!searchOverlay || searchOverlay.style.display === "none") {
+          stopFocusEnforcer();
+          return;
+        }
+        if (!searchInput || document.activeElement === searchInput) return;
+        focusSearchInput();
+      }, 500);
+    }
+  }, 100);
 }
 
 function stopFocusEnforcer() {
