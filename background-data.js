@@ -35,16 +35,6 @@ function buildCacheMetaFromCount(count, updatedAt) {
   return { updatedAt: safeUpdatedAt, count: safeCount };
 }
 
-function buildCacheMeta(bookmarks, updatedAt) {
-  const list = Array.isArray(bookmarks) ? bookmarks : [];
-  return buildCacheMetaFromCount(list.length, updatedAt);
-}
-
-function getMetaFreshness(meta) {
-  const safeMeta = normalizeCacheMeta(meta);
-  return safeMeta.updatedAt;
-}
-
 const runtimeState = {
   // 运行时主数据：SearchDocument 数组
   documents: [],
@@ -233,6 +223,7 @@ function searchDocuments(documents, query, limit) {
 
     const titleLower = String(doc.title || '').toLowerCase();
     const urlLower = String(doc.url || '').toLowerCase();
+    const pathLower = String(doc.subtitle || '').toLowerCase();
 
     let score = 0;
     let matched = true;
@@ -240,8 +231,9 @@ function searchDocuments(documents, query, limit) {
     for (let t = 0; t < tokens.length; t++) {
       const token = tokens[t];
       const ti = titleLower.indexOf(token);
+      const pi = pathLower.indexOf(token);
       const ui = urlLower.indexOf(token);
-      if (ti < 0 && ui < 0) {
+      if (ti < 0 && pi < 0 && ui < 0) {
         matched = false;
         break;
       }
@@ -253,6 +245,11 @@ function searchDocuments(documents, query, limit) {
         if (beforeChar === 32 || beforeChar === 45 || beforeChar === 95 || beforeChar === 124) {
           tokenScore -= 20;
         }
+        score += tokenScore;
+      } else if (pi >= 0) {
+        // path 命中：优先级介于 title 和 url 之间
+        let tokenScore = 500 + pi;
+        if (pi === 0) tokenScore -= 30;
         score += tokenScore;
       } else {
         score += 1000 + ui;
@@ -321,12 +318,18 @@ function getDocumentsFingerprint(documents) {
   }
   summary.sort();
 
-  let hash = `${summary.length}|`;
-  const sampleSize = Math.min(summary.length, 40);
-  for (let i = 0; i < sampleSize; i++) {
-    hash += `${summary[i]}|`;
+  // 用简单数值哈希遍历全部条目，避免采样截断漏检
+  let h = 0x811c9dc5; // FNV-1a offset basis (32-bit)
+  for (let i = 0; i < summary.length; i++) {
+    const s = summary[i];
+    for (let j = 0; j < s.length; j++) {
+      h ^= s.charCodeAt(j);
+      h = Math.imul(h, 0x01000193); // FNV prime
+    }
+    h ^= 0x1f; // separator
+    h = Math.imul(h, 0x01000193);
   }
-  return hash;
+  return `${summary.length}|${(h >>> 0).toString(36)}`;
 }
 
 function getRuntimeBookmarks() {
@@ -722,7 +725,7 @@ async function applyBookmarkEventsOnce(events) {
 
   const changes = [];
   let mutated = false;
-  let removedAny = false;
+  const removedDocIds = new Set();
   const now = Date.now;
 
   for (let i = 0; i < list.length; i++) {
@@ -867,12 +870,10 @@ async function applyBookmarkEventsOnce(events) {
         const item = bookmarks[idx];
         if (!item) continue;
 
+        // 标记为 null，不在循环中 splice documents（避免索引漂移）
         bookmarks[idx] = null;
         indexById.delete(removedId);
-        const docId = `${DOCUMENT_SOURCE_TYPE}:${removedId}`;
-        const docIdx = documents.findIndex((doc) => doc && doc.id === docId);
-        if (docIdx >= 0) documents.splice(docIdx, 1);
-        removedAny = true;
+        removedDocIds.add(`${DOCUMENT_SOURCE_TYPE}:${removedId}`);
         mutated = true;
 
         changes.push({
@@ -890,15 +891,15 @@ async function applyBookmarkEventsOnce(events) {
     return { success: true, applied: 0 };
   }
 
-  if (removedAny) {
-    state.bookmarks = bookmarks.filter(Boolean);
-    rebuildBookmarkIndex();
+  // 统一从 documents 重建运行时状态，确保 documents/bookmarks/index 三者一致
+  let finalDocuments = documents;
+  if (removedDocIds.size > 0) {
+    finalDocuments = documents.filter((doc) => doc && !removedDocIds.has(doc.id));
   }
+  setRuntimeDocuments(finalDocuments);
+  rebuildBookmarkIndex();
 
-  if (mutated && !removedAny) {
-    setRuntimeBookmarks(bookmarks);
-    rebuildBookmarkIndex();
-  }
+  const finalCount = getRuntimeDocuments().length;
 
   await updateHistory(changes);
   const saveResult = await saveToStorage(Date.now());
@@ -911,7 +912,7 @@ async function applyBookmarkEventsOnce(events) {
     };
   }
 
-  return { success: true, count: bookmarks.length, changes: changes.length, incremental: true };
+  return { success: true, count: finalCount, changes: changes.length, incremental: true };
 }
 
 async function loadCacheFromStorage() {
@@ -984,12 +985,15 @@ async function ensureCacheConsistency(syncTime) {
     needBackfillDocuments = true;
   }
 
-  // Check storage meta consistency
+  // Check storage meta consistency — also backfill when storage read itself failed
   let needUpdateStorageMeta = false;
   const storageRead = await getStorageWithStatus([STORAGE_KEYS.BOOKMARKS_META]);
   if (storageRead.success && storageRead.data) {
     const storageMeta = normalizeCacheMeta(storageRead.data[STORAGE_KEYS.BOOKMARKS_META]);
     needUpdateStorageMeta = storageMeta.updatedAt < meta.updatedAt || storageMeta.count !== meta.count;
+  } else {
+    // Storage read failed or returned no data — attempt to repair metadata
+    needUpdateStorageMeta = true;
   }
 
   if (!needBackfillDocuments && !needUpdateStorageMeta) {
