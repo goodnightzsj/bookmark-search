@@ -13,9 +13,7 @@ export const HISTORY_ACTIONS = {
 
 export const MESSAGE_ACTIONS = {
   REFRESH_BOOKMARKS: 'refreshBookmarks',
-  UPDATE_SYNC_INTERVAL: 'updateSyncInterval',
   SET_SYNC_INTERVAL: 'setSyncInterval',
-  GET_STATS: 'getStats',
   TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
   SEARCH_BOOKMARKS: 'searchBookmarks',
   GET_WARMUP_DOMAINS: 'getWarmupDomains',

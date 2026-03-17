@@ -435,24 +435,6 @@ export function handleMessage(request, sender, sendResponse) {
           })
       );
 
-    case MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL: {
-      const interval = request.interval;
-      if (!isValidSyncInterval(interval)) {
-        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'interval must be a non-negative number');
-        return false;
-      }
-
-      return initThen(() =>
-        setupAutoSync(interval)
-          .then(() => {
-            sendOkResponse(sendResponse);
-          })
-          .catch((error) => {
-            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
-          })
-      );
-    }
-
     case MESSAGE_ACTIONS.SET_SYNC_INTERVAL: {
       const interval = request.interval;
       if (!isValidSyncInterval(interval)) {
@@ -466,10 +448,6 @@ export function handleMessage(request, sender, sendResponse) {
         sendOkResponse(sendResponse, { interval });
       });
     }
-      
-    case MESSAGE_ACTIONS.GET_STATS:
-      sendOkResponse(sendResponse);
-      return false;
 
     case MESSAGE_ACTIONS.GET_MIGRATION_STATUS:
       getMigrationStatus()

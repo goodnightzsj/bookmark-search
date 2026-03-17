@@ -48,11 +48,6 @@ function ensureInit() {
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log("[Background] 扩展已安装/更新:", details.reason);
-  try {
-    await ensureSchemaReady();
-  } catch (error) {
-    console.error('[Background] 安装/更新迁移失败:', error);
-  }
   await ensureInit();
 });
 

@@ -723,6 +723,13 @@ async function applyBookmarkEventsOnce(events) {
   // 预加载所有文件夹路径，避免后续 N+1 查询
   await preloadFolderPaths(folderPathCache);
 
+  // 构建 docId → documents 数组索引的映射，避免 findIndex O(n) 扫描
+  const docIndexById = new Map();
+  for (let di = 0; di < documents.length; di++) {
+    const doc = documents[di];
+    if (doc && doc.id) docIndexById.set(doc.id, di);
+  }
+
   const changes = [];
   let mutated = false;
   const removedDocIds = new Set();
@@ -753,9 +760,12 @@ async function applyBookmarkEventsOnce(events) {
         path,
         dateAdded: node.dateAdded
       };
+      const newDoc = mapBookmarkToSearchDocument(item);
+      documents.push(newDoc);
+      if (newDoc && newDoc.id) docIndexById.set(newDoc.id, documents.length - 1);
+      // 同步更新 bookmarks + indexById，供同批次后续 changed/moved 事件查找
       bookmarks.push(item);
       indexById.set(id, bookmarks.length - 1);
-      documents.push(mapBookmarkToSearchDocument(item));
       mutated = true;
       changes.push({
         action: HISTORY_ACTIONS.ADD,
@@ -786,8 +796,8 @@ async function applyBookmarkEventsOnce(events) {
       item.title = nextTitle;
       item.url = nextUrl;
       const docId = `${DOCUMENT_SOURCE_TYPE}:${id}`;
-      const docIdx = documents.findIndex((doc) => doc && doc.id === docId);
-      if (docIdx >= 0) {
+      const docIdx = docIndexById.get(docId);
+      if (docIdx !== undefined && documents[docIdx]) {
         const path = Array.isArray(documents[docIdx].path) ? documents[docIdx].path : [];
         documents[docIdx] = {
           ...documents[docIdx],
@@ -826,8 +836,8 @@ async function applyBookmarkEventsOnce(events) {
 
       item.path = nextPath;
       const docId = `${DOCUMENT_SOURCE_TYPE}:${id}`;
-      const docIdx = documents.findIndex((doc) => doc && doc.id === docId);
-      if (docIdx >= 0) {
+      const docIdx = docIndexById.get(docId);
+      if (docIdx !== undefined && documents[docIdx]) {
         const nextPathParts = typeof nextPath === 'string' && nextPath
           ? nextPath.split(PATH_SEPARATOR).map((part) => part.trim()).filter(Boolean)
           : [];
