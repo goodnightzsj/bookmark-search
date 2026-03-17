@@ -25,9 +25,8 @@
 	  // Suppress stray/synthetic Enter events right after IME composition ends (esp. macOS built-in IME).
 	  // Keep the window small so the user's next real Enter (to open) still works.
 	  let imeSuppressEnterUntil = 0;
-	  // Favicon debug defaults to enabled during verification.
-	  // Set `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__ = false` or `chrome.storage.local.set({ debugFavicon: false })` to turn it off.
-	  let debugFavicon = true;
+	  // Favicon debug defaults to off. Enable via `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__ = true` or `chrome.storage.local.set({ debugFavicon: true })`.
+	  let debugFavicon = false;
 	  let faviconDebugLogBudget = 200;
 	  function isFaviconDebugEnabled() {
 	    try {
@@ -51,10 +50,7 @@
 	    try {
 	      const result = await chrome.storage.local.get('debugFavicon');
 	      if (result && Object.prototype.hasOwnProperty.call(result, 'debugFavicon')) {
-	        debugFavicon = result.debugFavicon !== false;
-	      }
-	      if (debugFavicon) {
-	        console.log('[Content] debugFavicon enabled');
+	        debugFavicon = result.debugFavicon === true;
 	      }
 	    } catch (e) {}
 	  }
@@ -110,8 +106,7 @@
 	  chrome.storage.onChanged.addListener((changes, area) => {
 	    if (area !== 'local') return;
 	    if (changes.debugFavicon) {
-	      debugFavicon = changes.debugFavicon.newValue !== false;
-	      if (debugFavicon) console.log('[Content] debugFavicon enabled (storage.onChanged)');
+	      debugFavicon = changes.debugFavicon.newValue === true;
 	    }
 	    if (changes.theme) {
 	      const newTheme = changes.theme.newValue;
