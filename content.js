@@ -123,16 +123,30 @@
 	  // NOTE: keep helper declarations before first usage.
 	  // javascript-obfuscator may treat identifiers referenced before declaration as globals and skip renaming,
 	  // which can cause runtime ReferenceError in the obfuscated dist build.
+	  const MULTI_PART_PUBLIC_SUFFIXES = new Set([
+	    'co.uk', 'org.uk', 'gov.uk', 'ac.uk',
+	    'com.cn', 'net.cn', 'org.cn', 'gov.cn',
+	    'com.au', 'net.au', 'org.au',
+	    'co.jp', 'ne.jp',
+	    'co.kr',
+	    'com.br', 'com.mx', 'com.tr'
+	  ]);
+
 	  function getRootDomain(domain) {
-	    const safe = typeof domain === 'string' ? domain.trim() : '';
+	    const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
 	    if (!safe) return '';
 	    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return safe;
 	    if (safe === 'localhost') return safe;
 	    if (safe.indexOf('.') === -1) return safe;
 
-	    const parts = safe.split('.');
+	    const parts = safe.split('.').filter(Boolean);
 	    if (parts.length <= 2) return safe;
-	    return parts.slice(-2).join('.');
+
+	    const lastTwo = parts.slice(-2).join('.');
+	    if (MULTI_PART_PUBLIC_SUFFIXES.has(lastTwo) && parts.length >= 3) {
+	      return parts.slice(-3).join('.');
+	    }
+	    return lastTwo;
 	  }
 
 	  function normalizeFaviconDomain(domain) {

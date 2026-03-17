@@ -60,3 +60,4 @@ Notes:
 - Main bookmark cache staleness is controlled by `bookmarkCacheTtlMinutes` and checked during search with async stale refresh (non-blocking).
 - Sync interval updates now go through background message `SET_SYNC_INTERVAL`, which persists `syncInterval` and updates the browser alarm in one background-owned flow.
 - Warmup recent-open aggregation now preserves `host:port` granularity for private/local services, while public sites still aggregate by root domain.
+- Content-side root-domain normalization now matches the background-side multi-part public-suffix handling, reducing favicon alias drift across `*.co.uk` / `*.com.cn` style domains.
