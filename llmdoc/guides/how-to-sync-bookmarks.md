@@ -14,7 +14,7 @@
 
 1. **Message API:** Send `MESSAGE_ACTIONS.REFRESH_BOOKMARKS` via `chrome.runtime.sendMessage()`. Handled by `background-messages.js:50-57`.
 
-2. **Direct Call:** From background context, call `refreshBookmarks()` from `background-data.js:76-85`.
+2. **Direct Call:** From background context, call `refreshBookmarks()` from `background-data.js`. The update loop will serialize it with any pending incremental batches.
 
 ## Incremental vs Full Refresh Logic
 
@@ -31,15 +31,7 @@
 
 1. **Define Action:** Add constant to `constants.js` in `MESSAGE_ACTIONS` object.
 
-2. **Implement Handler:** Add case to switch in `background-messages.js:49-230`. Pattern:
-   ```javascript
-   case MESSAGE_ACTIONS.YOUR_ACTION: {
-     yourAsyncFunction()
-       .then((result) => sendResponse({ success: true, ...result }))
-       .catch((error) => sendResponse({ success: false, error: error.message }));
-     return true; // Keep channel open for async response
-   }
-   ```
+2. **Implement Handler:** Add case to switch in `background-messages.js`. Follow the existing success/error wrapper pattern so async branches keep the stable `{ success: true, ...payload }` / `{ success: false, error }` contract when replying.
 
 3. **Call from Client:** Use `chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.YOUR_ACTION, ...params })`.
 
@@ -47,7 +39,7 @@
 
 1. **Change Default:** Edit `DEFAULTS.syncInterval` in `storage-service.js` (value in minutes, 0 disables).
 
-2. **Runtime Update:** Send `MESSAGE_ACTIONS.UPDATE_SYNC_INTERVAL` with `{ interval: minutes }`. Handled by `background-messages.js:59-70`.
+2. **Runtime Update:** Send `MESSAGE_ACTIONS.SET_SYNC_INTERVAL` with `{ interval: minutes }`. Background persists the new value and updates the alarm in the same flow.
 
 3. **Debounce Delay:** Modify `DEBOUNCE_DELAY_MS` constant in `background.js:46` (value in milliseconds).
 
