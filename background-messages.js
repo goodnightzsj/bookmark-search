@@ -273,6 +273,7 @@ async function probeFaviconUrlStatus(url) {
   try {
     const res = await fetch(safeUrl, {
       method: 'HEAD',
+      mode: 'no-cors',
       redirect: 'follow',
       signal: controller.signal,
       cache: 'no-store'

@@ -1425,7 +1425,7 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  faviconWarmupTimer = setTimeout(() => {
 	    faviconWarmupTimer = null;
 	    startFaviconWarmup();
-	  }, 1500);
+	  }, 5000);
 	}
 
 	function fetchWarmupDomainMapFromBackground(limit) {
@@ -1447,7 +1447,7 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  const now = Date.now();
 	  const filtered = [];
 	  const WARMUP_MIN_INTERVAL_MS = 10 * 60 * 1000;
-	  const WARMUP_MAX_ATTEMPTS = 24;
+	  const WARMUP_MAX_ATTEMPTS = 12;
 	  for (let i = 0; i < list.length; i++) {
 	    const domain = list[i];
 	    const retryAt = faviconWarmupRetryAt[domain] || 0;
@@ -1459,8 +1459,8 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  }
 	  if (filtered.length === 0) return;
 
-	  const concurrency = Math.min(2, filtered.length);
 	  let nextIndex = 0;
+	  const WARMUP_INTER_DOMAIN_DELAY_MS = 800;
 
 	  function loadFaviconPromise(domain, pageUrl) {
 	    return new Promise((resolve) => {
@@ -1469,6 +1469,10 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	      // Keep local fallback enabled so private hosts behave the same as real search hydration.
 	      loadFavicon(domain, pageUrl, resolve, { allowBrowserCache: false, allowExternal: true, allowLocal: true });
 	    });
+	  }
+
+	  function warmupDelay() {
+	    return new Promise((resolve) => setTimeout(resolve, WARMUP_INTER_DOMAIN_DELAY_MS));
 	  }
 
 	  async function worker() {
@@ -1506,14 +1510,13 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	        }
 	        queuePersistFaviconFailure(domain, retryAt, reason);
 	      }
+	      // Yield CPU between domains so warmup stays invisible to the user.
+	      if (nextIndex < filtered.length) await warmupDelay();
 	    }
 	  }
 
-	  const workers = [];
-	  for (let i = 0; i < concurrency; i++) {
-	    workers.push(worker());
-	  }
-	  await Promise.all(workers);
+	  // Serial execution (concurrency=1) to minimise background CPU footprint.
+	  await worker();
 	}
 
 	async function startFaviconWarmup() {
