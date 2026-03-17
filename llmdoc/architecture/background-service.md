@@ -7,19 +7,22 @@
 
 ## 2. Core Components
 
-- `background.js` (`init`, `ensureInit`, `enqueueBookmarkEvent`): Entry point and orchestration. Singleton initialization, bookmark event listeners with debounce, alarm handlers, command listener for keyboard shortcuts.
-- `background-data.js` (`refreshBookmarks`, `applyBookmarkEvents`, `searchBookmarks`, `loadInitialData`, `getWarmupDomainMap`, `recordBookmarkOpen`): Data management layer. In-memory cache, concurrency control, incremental/full sync logic, search algorithm, stale-cache TTL trigger, warmup domain prioritization.
-- `background-messages.js` (`handleMessage`): Message router. Switch-based dispatcher for message actions (including `TRACK_BOOKMARK_OPEN`), favicon operations via IndexedDB, persisted favicon success/failure state reads, plus SW in-memory LRU for browser-provided favicons. Persisted success records are reused without read-time TTL, while failure records carry `retryAt` cooldown semantics so later searches can retry. Search-time cooldown is now intentionally narrow: only explicit fast-fail favicon states (`5xx`, `429`, `421`) are expected to persist, with a 10-minute TTL, while generic one-off misses are no longer stored as long-lived cooldown. Browser favicon responses also expose placeholder metadata to keep default browser globe results out of the long-lived success cache. The SW memory cache is now pure LRU without positive TTL; entries stay available until evicted by capacity or lost on Service Worker restart. For private hosts (localhost/IP/internal suffixes), browser favicon fetch still uses a longer timeout and keeps exact `host:port` service keys instead of collapsing them. Background also exposes a lightweight favicon-URL status probe used by content-script local/origin fallback; `5xx`, `429`, and `421` are surfaced as fast-fail signals so broken sites stop consuming the rest of the local candidate list. SVG/data-URL monogram placeholders from browser favicon are also rejected for private hosts, and `CLEAR_FAVICON_CACHE` now clears SW memory cache, deletes persisted `favicon:*` entries, and then best-effort broadcasts cache invalidation to content scripts without blocking the settings response.
+- `background.js` (`init`, `ensureInit`, `enqueueBookmarkEvent`): Entry point and orchestration. Singleton initialization, schema migration bootstrap, bookmark event listeners with debounce, alarm handlers, command listener for keyboard shortcuts.
+- `migration-service.js` (`ensureSchemaReady`, `getMigrationStatus`): Startup migration layer. Normalizes storage assets, clears transient legacy caches, migrates bookmark cache into the `documents` store, removes legacy bookmark-array keys in V3, and exposes migration diagnostics.
+- `background-data.js` (`refreshBookmarks`, `applyBookmarkEvents`, `searchBookmarks`, `loadInitialData`, `getWarmupDomainMap`, `recordBookmarkOpen`): Data management layer. Documents-first runtime cache, derived bookmark compatibility view, concurrency control, incremental/full sync logic, search algorithm, stale-cache TTL trigger, warmup domain prioritization.
+- `background-messages.js` (`handleMessage`): Message router. Switch-based dispatcher for message actions (including `TRACK_BOOKMARK_OPEN` and `GET_MIGRATION_STATUS`), favicon operations via IndexedDB, persisted favicon success/failure state reads, plus SW in-memory LRU for browser-provided favicons. Persisted success records are reused without read-time TTL, while failure records carry `retryAt` cooldown semantics so later searches can retry. Search-time cooldown is now intentionally narrow: only explicit fast-fail favicon states (`5xx`, `429`, `421`) are expected to persist, with a 10-minute TTL, while generic one-off misses are no longer stored as long-lived cooldown. Browser favicon responses also expose placeholder metadata to keep default browser globe results out of the long-lived success cache. The SW memory cache is now pure LRU without positive TTL; entries stay available until evicted by capacity or lost on Service Worker restart. For private hosts (localhost/IP/internal suffixes), browser favicon fetch still uses a longer timeout and keeps exact `host:port` service keys instead of collapsing them. Background also exposes a lightweight favicon-URL status probe used by content-script local/origin fallback; `5xx`, `429`, and `421` are surfaced as fast-fail signals so broken sites stop consuming the rest of the local candidate list. SVG/data-URL monogram placeholders from browser favicon are also rejected for private hosts, and `CLEAR_FAVICON_CACHE` now clears SW memory cache, deletes persisted `favicon:*` entries, and then best-effort broadcasts cache invalidation to content scripts without blocking the settings response.
 - `background-sync.js` (`setupAutoSync`, `handleAlarm`, `initSyncSettings`): Scheduling layer. Periodic sync via chrome.alarms, interval configuration.
 
 ## 3. Execution Flow (LLM Retrieval Map)
 
 ### Initialization Flow
 
-1. **Entry:** Service Worker starts, `background.js:204` calls `ensureInit()`.
-2. **Singleton Guard:** `background.js:24-31` caches init promise to prevent duplicate initialization.
-3. **Data Load:** `background-data.js:458-469` (`loadInitialData`) loads cache from IndexedDB/storage.
-4. **Sync Setup:** `background-sync.js:38-41` (`initSyncSettings`) creates periodic alarm.
+1. **Entry:** Service Worker starts and `background.js` calls `ensureInit()`.
+2. **Singleton Guard:** `ensureInit()` caches init promise to prevent duplicate initialization during rapid MV3 wakeups.
+3. **Schema Check / Migration:** `migration-service.js:ensureSchemaReady()` runs before cache loading. It reads migration metadata, upgrades old storage records, clears transient legacy favicon/warmup caches, migrates bookmark cache into `documents` when needed, and removes legacy bookmark-array keys in schema V3.
+4. **Data Load:** `background-data.js:loadInitialData()` loads runtime cache from IndexedDB/storage. It reads `documents` as the bookmark source, then reconstructs bookmark-shaped in-memory records only as a compatibility view for existing logic.
+5. **Sync Setup:** `background-sync.js:initSyncSettings()` creates periodic alarm.
+6. **Post-migration Rebuild:** If migration marked `needsRebuild`, background triggers one full bookmark refresh after initialization to regenerate the documents store and metadata mirrors.
 
 ### Event-Driven Sync Flow
 
@@ -31,9 +34,11 @@
 
 ### Message Routing Flow
 
-1. **Receive:** `background.js:137` registers `chrome.runtime.onMessage` listener.
-2. **Dispatch:** `background-messages.js:112-312` (`handleMessage`) switch on action type.
-3. **Response:** Async handlers return `true` to keep channel open, call `sendResponse()` on completion.
+1. **Receive:** `background.js` registers `chrome.runtime.onMessage` listener.
+2. **Dispatch:** `background-messages.js:handleMessage` switches on action type.
+3. **Init Gate:** Actions that depend on data/migration readiness run behind `ensureInit()`.
+4. **Diagnostics:** `GET_MIGRATION_STATUS` returns current schema version, migration state, rebuild flag, last migration timestamps/errors, and document count.
+5. **Response:** Async handlers return `true` to keep channel open, call `sendResponse()` on completion.
 
 ## 4. Data Flow Diagram
 
@@ -64,25 +69,27 @@
 ┌─────────────────────────┐  ┌─────────────────────────────────────┐
 │  Incremental Update     │  │  Full Refresh                       │
 │  - Process event types  │  │  - chrome.bookmarks.getTree()       │
-│  - Update cache in-place│  │  - flattenBookmarksTree()           │
-│  - O(1) lookup via Map  │  │  - compareBookmarks() → changes     │
+│  - Update runtime docs  │  │  - flattenBookmarksTree()           │
+│  - Derive bookmark view │  │  - compareBookmarks() → changes     │
 └─────────────┬───────────┘  └──────────────────┬──────────────────┘
               │                                  │
               └────────────┬─────────────────────┘
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  Dual Storage Write                                              │
-│  - IndexedDB (primary): cachedBookmarks array                    │
-│  - chrome.storage.local (fallback): count, history, lastSyncTime │
+│  Primary Persistence                                             │
+│  - IndexedDB documents: normalized SearchDocument records        │
+│  - chrome.storage.local: count, history, lastSyncTime, meta      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ## 5. Design Rationale
 
 - **Singleton Init:** MV3 Service Workers restart frequently; promise caching prevents race conditions during rapid startup events.
+- **Migration-first Boot:** Schema migration runs before normal cache loading so extension updates can reshape persisted data without breaking runtime assumptions.
 - **Debounce via Alarm:** In-memory timers don't survive Service Worker restarts; chrome.alarms persists across restarts.
 - **Incremental + Full Hybrid:** Single bookmark changes use O(1) incremental updates; bulk imports trigger full refresh for consistency.
 - **Stale TTL Self-heal:** Search reads `bookmarkCacheTtlMinutes`; when cache age exceeds TTL, it triggers async full refresh without blocking the current response.
 - **Delete Event Fallback:** For remove events with incomplete `removeInfo.node`, fallback removal by `evt.id` prevents stale bookmark entries from lingering in cache.
-- **Dual Storage:** IndexedDB handles large bookmark arrays (no quota issues); chrome.storage.local provides fast metadata access and fallback.
+- **Documents-first takeover:** Bookmark persistence has completed the transition from legacy `cachedBookmarks` to `documents`; old bookmark-array keys are now migration cleanup targets rather than active runtime dependencies.
+- **Asset-vs-cache Policy:** User settings/history/meta are normalized and kept; transient favicon/warmup caches are cleared during migration and rebuilt lazily.
 - **Concurrency Serialization:** `runUpdateLoop()` prevents race conditions when multiple sync triggers overlap.

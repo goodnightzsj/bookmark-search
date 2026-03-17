@@ -1,16 +1,15 @@
 import { getStorageWithStatus, setStorage, setValue, STORAGE_KEYS } from './storage-service.js';
 import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
 import { HISTORY_ACTIONS, PATH_SEPARATOR } from './constants.js';
-import { idbGet, idbSet, idbSetMany } from './idb-service.js';
+import { idbGet, idbGetAllDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
 import { getRootDomain } from './utils.js';
 
 // 书签数据管理模块
 
 // 常量定义
 const MAX_HISTORY_ITEMS = 100;  // 历史记录最大条数
-const IDB_CACHE_KEY_BOOKMARKS = 'cachedBookmarks';
-const IDB_CACHE_KEY_TIMESTAMP = 'cachedBookmarksTime';  // IDB 缓存时间戳，用于与 storage 比较新鲜度
 const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';  // 最近打开过的根域名快照（用于 warmup 优先级，防 SW 重启丢失）
+const DOCUMENT_SOURCE_TYPE = 'bookmark';
 const BOOKMARK_CACHE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 默认主缓存 TTL：30 分钟
 const STALE_REFRESH_MIN_GAP_MS = 30 * 1000; // 过期触发全量刷新的最小间隔
 
@@ -41,7 +40,9 @@ function getMetaFreshness(meta) {
   return safeMeta.updatedAt;
 }
 
-// 本地存储的书签数据
+// 运行时主数据：SearchDocument 数组
+let cachedDocuments = [];
+// 兼容视图：从 documents 派生的 bookmark 数组（供现有 compare/search/warmup 逻辑复用）
 let cachedBookmarks = [];
 // 书签变化历史
 let bookmarkHistory = [];
@@ -157,6 +158,100 @@ function rebuildBookmarkIndex() {
     next.set(String(b.id), i);
   }
   bookmarkIndexById = next;
+}
+
+function mapBookmarkToSearchDocument(bookmark) {
+  if (!bookmark || typeof bookmark !== 'object' || !bookmark.id || !bookmark.url) return null;
+  const title = typeof bookmark.title === 'string' ? bookmark.title : '';
+  const url = typeof bookmark.url === 'string' ? bookmark.url : '';
+  const path = typeof bookmark.path === 'string' && bookmark.path
+    ? String(bookmark.path).split(PATH_SEPARATOR).map((item) => item.trim()).filter(Boolean)
+    : [];
+
+  return {
+    id: `${DOCUMENT_SOURCE_TYPE}:${String(bookmark.id)}`,
+    sourceType: DOCUMENT_SOURCE_TYPE,
+    sourceId: String(bookmark.id),
+    title,
+    subtitle: path.join(PATH_SEPARATOR),
+    url,
+    path,
+    keywords: path.slice(),
+    tags: [],
+    iconKey: url,
+    updatedAt: (typeof bookmark.dateAdded === 'number' && Number.isFinite(bookmark.dateAdded)) ? bookmark.dateAdded : 0,
+    metadata: {
+      dateAdded: (typeof bookmark.dateAdded === 'number' && Number.isFinite(bookmark.dateAdded)) ? bookmark.dateAdded : 0
+    }
+  };
+}
+
+function mapSearchDocumentToBookmark(doc) {
+  if (!doc || typeof doc !== 'object' || doc.sourceType !== DOCUMENT_SOURCE_TYPE || !doc.sourceId || !doc.url) return null;
+  return {
+    id: doc.sourceId,
+    title: typeof doc.title === 'string' ? doc.title : '',
+    url: typeof doc.url === 'string' ? doc.url : '',
+    path: Array.isArray(doc.path) ? doc.path.join(PATH_SEPARATOR) : '',
+    dateAdded: doc.metadata && typeof doc.metadata.dateAdded === 'number' ? doc.metadata.dateAdded : 0
+  };
+}
+
+function mapSearchDocumentsToBookmarks(documents) {
+  const list = Array.isArray(documents) ? documents : [];
+  const bookmarks = [];
+  for (let i = 0; i < list.length; i++) {
+    const bookmark = mapSearchDocumentToBookmark(list[i]);
+    if (bookmark) bookmarks.push(bookmark);
+  }
+  return bookmarks;
+}
+
+function setRuntimeDocuments(documents) {
+  cachedDocuments = Array.isArray(documents) ? documents.filter((doc) => doc && doc.sourceType === DOCUMENT_SOURCE_TYPE && doc.sourceId && doc.url) : [];
+  cachedBookmarks = mapSearchDocumentsToBookmarks(cachedDocuments);
+}
+
+function setRuntimeBookmarks(bookmarks) {
+  const list = Array.isArray(bookmarks) ? bookmarks : [];
+  const documents = [];
+  for (let i = 0; i < list.length; i++) {
+    const doc = mapBookmarkToSearchDocument(list[i]);
+    if (doc) documents.push(doc);
+  }
+  setRuntimeDocuments(documents);
+}
+
+async function readPersistedDocuments() {
+  const documents = await idbGetAllDocuments();
+  return Array.isArray(documents) ? documents.filter((doc) => doc && doc.sourceType === DOCUMENT_SOURCE_TYPE && doc.sourceId && doc.url) : [];
+}
+
+function getRuntimeDocuments() {
+  return Array.isArray(cachedDocuments) ? cachedDocuments : [];
+}
+
+function getRuntimeBookmarks() {
+  return Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+}
+
+async function getPersistedOrRuntimeBookmarks() {
+  const runtime = getRuntimeBookmarks();
+  if (runtime.length > 0) return runtime;
+  try {
+    const documents = await readPersistedDocuments();
+    if (documents.length > 0) {
+      setRuntimeDocuments(documents);
+      return getRuntimeBookmarks();
+    }
+  } catch (error) {
+    console.warn('[Background][Observe] documents_runtime_read_failed', { message: error && error.message ? error.message : String(error) });
+  }
+  return runtime;
+}
+
+async function persistSearchDocuments() {
+  await idbReplaceDocuments(getRuntimeDocuments());
 }
 
 function maybeScheduleStaleRefresh() {
@@ -342,15 +437,15 @@ async function refreshBookmarksOnce() {
     const flatBookmarks = flattenBookmarksTree(tree);
     
     // 与旧数据对比，生成差异记录
-    const changes = compareBookmarks(cachedBookmarks, flatBookmarks);
+    const changes = compareBookmarks(getRuntimeBookmarks(), flatBookmarks);
     
     if (changes.length > 0) {
       console.log("[Background] 检测到 %d 个书签变化", changes.length);
       // 更新历史记录
       await updateHistory(changes);
 
-      // 更新缓存
-      cachedBookmarks = flatBookmarks;
+      // 更新运行时主数据（documents）与兼容 bookmark 视图
+      setRuntimeBookmarks(flatBookmarks);
       rebuildBookmarkIndex();
 
       // 保存到本地存储
@@ -526,6 +621,7 @@ async function applyBookmarkEventsOnce(events) {
       };
       cachedBookmarks.push(item);
       bookmarkIndexById.set(id, cachedBookmarks.length - 1);
+      cachedDocuments.push(mapBookmarkToSearchDocument(item));
       mutated = true;
       changes.push({
         action: HISTORY_ACTIONS.ADD,
@@ -555,6 +651,18 @@ async function applyBookmarkEventsOnce(events) {
       const oldUrl = item.url || '';
       item.title = nextTitle;
       item.url = nextUrl;
+      const docId = `${DOCUMENT_SOURCE_TYPE}:${id}`;
+      const docIdx = cachedDocuments.findIndex((doc) => doc && doc.id === docId);
+      if (docIdx >= 0) {
+        const path = Array.isArray(cachedDocuments[docIdx].path) ? cachedDocuments[docIdx].path : [];
+        cachedDocuments[docIdx] = {
+          ...cachedDocuments[docIdx],
+          title: nextTitle,
+          subtitle: path.join(PATH_SEPARATOR),
+          url: nextUrl,
+          iconKey: nextUrl
+        };
+      }
       mutated = true;
       changes.push({
         action: HISTORY_ACTIONS.EDIT,
@@ -583,6 +691,19 @@ async function applyBookmarkEventsOnce(events) {
       if (nextPath === oldPath) continue;
 
       item.path = nextPath;
+      const docId = `${DOCUMENT_SOURCE_TYPE}:${id}`;
+      const docIdx = cachedDocuments.findIndex((doc) => doc && doc.id === docId);
+      if (docIdx >= 0) {
+        const nextPathParts = typeof nextPath === 'string' && nextPath
+          ? nextPath.split(PATH_SEPARATOR).map((part) => part.trim()).filter(Boolean)
+          : [];
+        cachedDocuments[docIdx] = {
+          ...cachedDocuments[docIdx],
+          path: nextPathParts,
+          subtitle: nextPathParts.join(PATH_SEPARATOR),
+          keywords: nextPathParts.slice()
+        };
+      }
       mutated = true;
       changes.push({
         action: HISTORY_ACTIONS.MOVE,
@@ -617,6 +738,9 @@ async function applyBookmarkEventsOnce(events) {
 
         cachedBookmarks[idx] = null;
         bookmarkIndexById.delete(removedId);
+        const docId = `${DOCUMENT_SOURCE_TYPE}:${removedId}`;
+        const docIdx = cachedDocuments.findIndex((doc) => doc && doc.id === docId);
+        if (docIdx >= 0) cachedDocuments.splice(docIdx, 1);
         removedAny = true;
         mutated = true;
 
@@ -640,6 +764,11 @@ async function applyBookmarkEventsOnce(events) {
     rebuildBookmarkIndex();
   }
 
+  if (mutated && !removedAny) {
+    setRuntimeBookmarks(cachedBookmarks);
+    rebuildBookmarkIndex();
+  }
+
   await updateHistory(changes);
   await saveToStorage(Date.now());
 
@@ -654,21 +783,11 @@ async function loadCacheFromStorage() {
 }
 
 async function loadCacheFromStorageOnce() {
-  // IDB is the primary store for the full bookmark list
-  let idbBookmarks;
-  let idbCacheTime = 0;
   let idbRecentOpenedRoots;
   try {
-    const [bookmarksResult, timeResult, recentOpenedRootsResult] = await Promise.all([
-      idbGet(IDB_CACHE_KEY_BOOKMARKS),
-      idbGet(IDB_CACHE_KEY_TIMESTAMP),
-      idbGet(IDB_KEY_RECENT_OPENED_ROOTS)
-    ]);
-    idbBookmarks = bookmarksResult;
-    idbCacheTime = typeof timeResult === 'number' ? timeResult : 0;
-    idbRecentOpenedRoots = recentOpenedRootsResult;
+    idbRecentOpenedRoots = await idbGet(IDB_KEY_RECENT_OPENED_ROOTS);
   } catch (error) {
-    console.warn("[Background] 从 IndexedDB 读取书签缓存失败:", error);
+    console.warn("[Background] 从 IndexedDB 读取最近打开域名快照失败:", error);
   }
 
   // chrome.storage.local: only metadata + history (no full bookmark list)
@@ -682,14 +801,19 @@ async function loadCacheFromStorageOnce() {
   const storageHistoryRaw = storageData[STORAGE_KEYS.BOOKMARK_HISTORY];
   const storageHistory = Array.isArray(storageHistoryRaw) ? storageHistoryRaw : [];
 
-  const idbHasData = Array.isArray(idbBookmarks) && idbBookmarks.length > 0;
+  let documents = [];
+  try {
+    documents = await readPersistedDocuments();
+  } catch (error) {
+    console.warn('[Background][Observe] documents_load_failed', { message: error && error.message ? error.message : String(error) });
+  }
 
-  if (idbHasData) {
-    cachedBookmarks = idbBookmarks;
-    console.log('[Background][Observe] cache_source_selected', { source: 'idb', idbCacheTime, count: cachedBookmarks.length });
+  if (documents.length > 0) {
+    setRuntimeDocuments(documents);
+    console.log('[Background][Observe] cache_source_selected', { source: 'documents', count: cachedBookmarks.length });
   } else {
-    cachedBookmarks = [];
-    console.log('[Background][Observe] cache_source_selected', { source: 'empty', idbCacheTime, count: 0 });
+    setRuntimeDocuments([]);
+    console.log('[Background][Observe] cache_source_selected', { source: 'empty', count: 0 });
   }
 
   if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
@@ -708,21 +832,17 @@ async function loadCacheFromStorageOnce() {
 }
 
 async function ensureCacheConsistency(syncTime) {
-  const list = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+  const list = getRuntimeBookmarks();
+  const documents = getRuntimeDocuments();
   const meta = buildCacheMeta(list, syncTime);
 
-  // Only check IDB for bookmark list consistency (storage no longer holds full list)
-  let needBackfillIdb = false;
+  // Phase 2: documents are the primary persistent source; legacy bookmark kv is no longer backfilled.
+  let needBackfillDocuments = false;
   try {
-    const [idbBookmarks, idbTimeRaw] = await Promise.all([
-      idbGet(IDB_CACHE_KEY_BOOKMARKS),
-      idbGet(IDB_CACHE_KEY_TIMESTAMP)
-    ]);
-    const idbTime = (typeof idbTimeRaw === 'number' && Number.isFinite(idbTimeRaw) && idbTimeRaw > 0) ? idbTimeRaw : 0;
-    const idbCount = Array.isArray(idbBookmarks) ? idbBookmarks.length : 0;
-    needBackfillIdb = idbTime < meta.updatedAt || idbCount !== meta.count;
+    const persistedDocuments = await readPersistedDocuments();
+    needBackfillDocuments = persistedDocuments.length !== documents.length;
   } catch (error) {
-    needBackfillIdb = true;
+    needBackfillDocuments = true;
   }
 
   // Check storage meta consistency
@@ -733,20 +853,17 @@ async function ensureCacheConsistency(syncTime) {
     needUpdateStorageMeta = storageMeta.updatedAt < meta.updatedAt || storageMeta.count !== meta.count;
   }
 
-  if (!needBackfillIdb && !needUpdateStorageMeta) {
+  if (!needBackfillDocuments && !needUpdateStorageMeta) {
     return;
   }
 
-  console.log('[Background][Observe] consistency_check_backfill', { needBackfillIdb, needUpdateStorageMeta, updatedAt: meta.updatedAt, count: meta.count });
+  console.log('[Background][Observe] consistency_check_backfill', { needBackfillDocuments, needUpdateStorageMeta, updatedAt: meta.updatedAt, count: meta.count });
 
   const tasks = [];
-  if (needBackfillIdb) {
+  if (needBackfillDocuments) {
     tasks.push(
-      Promise.all([
-        idbSet(IDB_CACHE_KEY_BOOKMARKS, list),
-        idbSet(IDB_CACHE_KEY_TIMESTAMP, meta.updatedAt)
-      ]).catch((error) => {
-        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'idb', message: error && error.message ? error.message : String(error) });
+      idbReplaceDocuments(documents).catch((error) => {
+        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'documents', message: error && error.message ? error.message : String(error) });
       })
     );
   }
@@ -793,27 +910,24 @@ async function updateHistory(changes) {
 
 /**
  * 保存到存储
- * IDB: 完整书签列表 + 时间戳（主存储）
- * chrome.storage.local: 仅元数据（count/history/syncTime/meta），不再写入完整列表
+ * IDB: `documents` is now the primary bookmark persistence.
+ * chrome.storage.local: metadata only (count/history/syncTime/meta).
+ * Legacy `cachedBookmarks` kv is no longer written in Phase 2.
  */
 async function saveToStorage(syncTime) {
-  const meta = buildCacheMeta(cachedBookmarks, syncTime);
+  const runtimeBookmarks = getRuntimeBookmarks();
+  const meta = buildCacheMeta(runtimeBookmarks, syncTime);
 
-  const idbEntries = [
-    { key: IDB_CACHE_KEY_BOOKMARKS, value: cachedBookmarks },
-    { key: IDB_CACHE_KEY_TIMESTAMP, value: meta.updatedAt }
-  ];
-
-  const writeIdb = idbSetMany(idbEntries)
+  const writeIdb = persistSearchDocuments()
     .then(() => true)
     .catch((error) => {
-      console.warn("[Background] 写入 IndexedDB 书签缓存失败，2s 后重试:", error);
+      console.warn("[Background] 写入 IndexedDB documents 失败，2s 后重试:", error);
       return new Promise((resolve) => {
         setTimeout(() => {
-          idbSetMany(idbEntries)
+          persistSearchDocuments()
             .then(() => { resolve(true); })
             .catch((retryErr) => {
-              console.warn("[Background] IndexedDB 重试仍失败:", retryErr);
+              console.warn("[Background] IndexedDB documents 重试仍失败:", retryErr);
               resolve(false);
             });
         }, 2000);
@@ -832,7 +946,7 @@ async function saveToStorage(syncTime) {
   const storageOk = results[1];
 
   if (!idbOk) {
-    console.warn('[Background][Observe] cache_write_degraded', { source: 'idb_failed', updatedAt: meta.updatedAt, count: meta.count });
+    console.warn('[Background][Observe] cache_write_degraded', { source: 'documents_failed', updatedAt: meta.updatedAt, count: meta.count });
   }
   if (!storageOk) {
     console.warn('[Background][Observe] cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
@@ -845,8 +959,9 @@ async function saveToStorage(syncTime) {
 export async function loadInitialData() {
   await loadCacheFromStorage();
 
-  if (cachedBookmarks.length > 0) {
-    console.log("[Background] 已加载缓存书签: %d 条", cachedBookmarks.length);
+  const runtimeBookmarks = getRuntimeBookmarks();
+  if (runtimeBookmarks.length > 0) {
+    console.log("[Background] 已加载缓存书签: %d 条", runtimeBookmarks.length);
   } else {
     // 如果没有缓存，立即刷新一次
     await refreshBookmarks();
@@ -947,7 +1062,7 @@ export async function searchBookmarks(query, { limit = 10 } = {}) {
     maybeScheduleStaleRefresh();
   }
 
-  const list = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+  const list = await getPersistedOrRuntimeBookmarks();
   if (list.length > 0) {
     return searchInList(list, query, limit);
   }
@@ -982,7 +1097,7 @@ export async function searchBookmarks(query, { limit = 10 } = {}) {
 export async function getWarmupDomainMap({ limit = 400 } = {}) {
   await loadCacheFromStorage();
 
-  const list = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+  const list = await getPersistedOrRuntimeBookmarks();
   const max = (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) ? Math.floor(limit) : 400;
   const output = Object.create(null);
   let count = 0;

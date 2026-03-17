@@ -1,6 +1,7 @@
 import { applyBookmarkEvents, loadInitialData, refreshBookmarks, updateRuntimeCacheTtlMinutes } from './background-data.js';
 import { handleSyncAlarm, initSyncSettings } from './background-sync.js';
 import { handleMessage, setEnsureInit } from './background-messages.js';
+import { ensureSchemaReady } from './migration-service.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 
@@ -12,11 +13,24 @@ let initPromise = null;
 async function init() {
   console.log("[Background] 初始化开始");
 
+  const schemaResult = await ensureSchemaReady();
+  if (schemaResult && schemaResult.migrated) {
+    console.log('[Background] 数据迁移完成', {
+      schemaVersion: schemaResult.schemaVersion,
+      needsRebuild: !!schemaResult.needsRebuild
+    });
+  }
+
   // 并行加载数据和初始化同步设置（互不依赖）
   await Promise.all([
     loadInitialData(),
     initSyncSettings()
   ]);
+
+  if (schemaResult && schemaResult.needsRebuild) {
+    console.log('[Background] 迁移后触发全量重建');
+    await refreshBookmarks();
+  }
 
   console.log("[Background] 初始化完成");
 }
@@ -33,6 +47,11 @@ function ensureInit() {
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log("[Background] 扩展已安装/更新:", details.reason);
+  try {
+    await ensureSchemaReady();
+  } catch (error) {
+    console.error('[Background] 安装/更新迁移失败:', error);
+  }
   await ensureInit();
 });
 

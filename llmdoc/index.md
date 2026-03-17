@@ -29,10 +29,10 @@ System design documents with execution flows for LLM retrieval.
 
 | Document | Description |
 |----------|-------------|
-| [background-service.md](architecture/background-service.md) | MV3 Service Worker: bookmark sync, message routing, event debouncing, alarm scheduling. |
+| [background-service.md](architecture/background-service.md) | MV3 Service Worker: migration-first init, documents-first bookmark sync, message routing, event debouncing, alarm scheduling. |
 | [content-script.md](architecture/content-script.md) | Search overlay UI: DOM rendering, 3-layer focus management, favicon caching, IME handling. |
 | [settings-module.md](architecture/settings-module.md) | Settings page: theme/sync/shortcuts/history modules, real-time storage listener. |
-| [storage-layer.md](architecture/storage-layer.md) | Dual-tier storage: chrome.storage.local + IndexedDB, read/write paths, graceful degradation. |
+| [storage-layer.md](architecture/storage-layer.md) | Dual-tier storage: chrome.storage.local + IndexedDB, documents-first persistence, migration cleanup, graceful degradation. |
 
 ---
 
@@ -87,13 +87,14 @@ llmdoc/
 | Component | File | Key Symbols |
 |-----------|------|-------------|
 | Service Worker | `background.js` | `init`, `ensureInit`, `enqueueBookmarkEvent` |
-| Data Layer | `background-data.js` | `refreshBookmarks`, `searchBookmarks`, `loadInitialData` |
+| Migration | `migration-service.js` | `ensureSchemaReady`, `getMigrationStatus` |
+| Data Layer | `background-data.js` | `refreshBookmarks`, `applyBookmarkEvents`, `searchBookmarks`, `loadInitialData`, `getWarmupDomainMap` |
 | Message Router | `background-messages.js` | `handleMessage` |
 | Search UI | `content.js` | `createSearchUI`, `showSearch`, `hideSearch`, `displayResults` |
 | Storage | `storage-service.js` | `STORAGE_KEYS`, `DEFAULTS`, `getStorage`, `setStorage` |
-| IndexedDB | `idb-service.js` | `idbGet`, `idbSet`, `idbGetMany`, `idbSetMany` |
+| IndexedDB | `idb-service.js` | `idbGet`, `idbSet`, `idbGetMany`, `idbSetMany`, `idbGetAllDocuments`, `idbReplaceDocuments` |
 | Constants | `constants.js` | `MESSAGE_ACTIONS`, `HISTORY_ACTIONS`, `ALARM_NAMES` |
 
 ---
 
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-17*

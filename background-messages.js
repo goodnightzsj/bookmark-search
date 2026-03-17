@@ -1,4 +1,5 @@
 import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen } from './background-data.js';
+import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
@@ -514,6 +515,15 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.GET_STATS:
       sendResponse({ success: true });
       return false;
+
+    case MESSAGE_ACTIONS.GET_MIGRATION_STATUS:
+      return initThen(() =>
+        getMigrationStatus()
+          .then((status) => sendResponse({ success: true, ...status }))
+          .catch((error) => {
+            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+          })
+      );
 
     case MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN: {
       const url = String(request && request.url ? request.url : '').trim();

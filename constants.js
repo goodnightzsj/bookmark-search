@@ -23,6 +23,7 @@ export const MESSAGE_ACTIONS = {
   GET_FAVICONS: 'getFavicons',
   SET_FAVICONS: 'setFavicons',
   PROBE_FAVICON_URL_STATUS: 'probeFaviconUrlStatus',
+  GET_MIGRATION_STATUS: 'getMigrationStatus',
   TOGGLE_SEARCH: 'toggleSearch',
   CLEAR_FAVICON_CACHE: 'clearFaviconCache',
   CLEAR_HISTORY: 'clearHistory'

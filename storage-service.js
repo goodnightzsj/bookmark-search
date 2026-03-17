@@ -12,7 +12,12 @@ export const STORAGE_KEYS = {
   SYNC_INTERVAL: 'syncInterval',
   THEME: 'theme',
   BOOKMARK_CACHE_TTL_MINUTES: 'bookmarkCacheTtlMinutes',
-  BOOKMARKS_META: 'bookmarksMeta'
+  BOOKMARKS_META: 'bookmarksMeta',
+  SCHEMA_VERSION: 'schemaVersion',
+  MIGRATION_STATE: 'migrationState',
+  LAST_MIGRATION_AT: 'lastMigrationAt',
+  LAST_MIGRATION_ERROR: 'lastMigrationError',
+  NEEDS_REBUILD: 'needsRebuild'
 };
 
 // 默认值
@@ -24,7 +29,12 @@ const DEFAULTS = {
   [STORAGE_KEYS.SYNC_INTERVAL]: 30,
   [STORAGE_KEYS.THEME]: 'original',
   [STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES]: 30,
-  [STORAGE_KEYS.BOOKMARKS_META]: { updatedAt: 0, count: 0 }
+  [STORAGE_KEYS.BOOKMARKS_META]: { updatedAt: 0, count: 0 },
+  [STORAGE_KEYS.SCHEMA_VERSION]: 0,
+  [STORAGE_KEYS.MIGRATION_STATE]: 'idle',
+  [STORAGE_KEYS.LAST_MIGRATION_AT]: null,
+  [STORAGE_KEYS.LAST_MIGRATION_ERROR]: null,
+  [STORAGE_KEYS.NEEDS_REBUILD]: false
 };
 
 /**
