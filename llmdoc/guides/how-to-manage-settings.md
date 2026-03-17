@@ -9,7 +9,6 @@
 Theme changes now update a fully themed settings page: theme chooser, shortcut panel, sync stats, strategy rows, maintenance card, history toolbar/list, and about section all follow the active theme.
 | Sync Interval | Sync card dropdown | 5/10/15/30/60/120/360/720/1440 min, 0 (disabled) | 30 | `STORAGE_KEYS.SYNC_INTERVAL` |
 | Bookmark Cache TTL | Sync card dropdown | 30/60/360/720/1440 min | 30 | `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` |
-| Favicon Cache Size | Sync card dropdown | 500/1000/2000/5000/10000 entries | 2000 | `STORAGE_KEYS.FAVICON_CACHE_SIZE` |
 | Favicon Cache Clear | Sync card button | Manual clear | - | Message action `CLEAR_FAVICON_CACHE` |
 | Keyboard Shortcut | Shortcuts card | Read-only (modify via Chrome) | - | `chrome.commands` |
 
@@ -29,19 +28,12 @@ Theme changes now update a fully themed settings page: theme chooser, shortcut p
 4. Search path (`background-data.js:627-636`) reads this value and compares against `lastSyncTime`.
 5. If stale, it triggers `refreshBookmarks()` asynchronously (non-blocking), so current search result returns immediately and data self-heals in background.
 
-## Configure Favicon Cache Size
-
-1. In "书签同步设置", locate dropdown `#faviconCacheSize`.
-2. Choose one of 500 / 1000 / 2000 / 5000 / 10000 entries.
-3. `settings-sync.js` writes `STORAGE_KEYS.FAVICON_CACHE_SIZE` to `chrome.storage.local`.
-4. `content.js` listens to `chrome.storage.onChanged` and updates the in-memory LRU limit immediately; if the new limit is smaller than the current cache size, old entries are evicted in insertion order.
-
 ## Clear Favicon Cache
 
 1. In "书签同步设置", locate the `#clearFaviconCache` button near favicon-related controls.
 2. Click the button to send `MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE` from `settings-sync.js:184-217`.
-3. Background clears its in-memory browser favicon cache, deletes persisted `favicon:*` entries via `idb-service.js:214-265`, and broadcasts the same action to active content scripts.
-4. Content scripts reset in-memory favicon state immediately, so future searches re-enter the favicon fetch chain.
+3. Background clears its in-memory browser favicon cache, deletes persisted `favicon:*` entries via IndexedDB, then best-effort broadcasts the same action to active content scripts without blocking the settings response.
+4. Active content scripts reset in-memory favicon state immediately, so future searches re-enter the favicon fetch chain.
 5. Scope boundary: this only clears the extension's own icon/favicon cache; it does not clear Chrome's built-in favicon cache.
 
 ## View and Export History

@@ -22,6 +22,7 @@ export const MESSAGE_ACTIONS = {
   GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
   GET_FAVICONS: 'getFavicons',
   SET_FAVICONS: 'setFavicons',
+  PROBE_FAVICON_URL_STATUS: 'probeFaviconUrlStatus',
   TOGGLE_SEARCH: 'toggleSearch',
   CLEAR_FAVICON_CACHE: 'clearFaviconCache',
   CLEAR_HISTORY: 'clearHistory'

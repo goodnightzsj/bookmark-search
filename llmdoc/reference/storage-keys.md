@@ -21,7 +21,6 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 | `lastSyncTime` | `number \| null` | `null` | Timestamp of last successful sync |
 | `syncInterval` | `number` | `30` | Sync frequency in minutes |
 | `bookmarkCacheTtlMinutes` | `number` | `30` | Main bookmark cache TTL (minutes), used to trigger background stale refresh on search |
-| `faviconCacheSize` | `number` | `2000` | In-memory favicon cache size (content script LRU) |
 | `bookmarksMeta` | `{ updatedAt: number, count: number }` | `{ updatedAt: 0, count: 0 }` | Bookmark cache metadata mirror (used for UI and consistency checks) |
 | `theme` | `string` | `'original'` | Active theme name |
 
@@ -39,9 +38,10 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 **HistoryEntry:** `{ action, title, url, path, timestamp, oldTitle?, oldUrl?, oldPath?, newPath?, folder? }`
 
-**FaviconEntry:** `{ src, updatedAt }`
+**FaviconEntry:** success entries use `{ src, updatedAt }` / `{ state: 'success', src, updatedAt }`; retryable failures use `{ state: 'failure', retryAt, updatedAt }`.
 
 Notes:
-- Favicon persisted cache now applies read-time TTL filtering in `background-messages.js:248-253` with `PERSISTED_FAVICON_TTL_MS`.
-- Browser-provided favicon cache in `background-messages.js` keeps private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) on raw host keys, uses a 1200ms fetch timeout for those hosts, and shortens negative cache TTL to 30s so local-network sites recover quickly.
+- Persisted favicon success entries are reused without read-time TTL; retry suppression is represented by failure entries with `retryAt` cooldown. Search-time failure cooldown is now only written for explicit fast-fail states (`5xx`, `429`, `421`), with a 10-minute TTL.
+- Browser-provided favicon cache in `background-messages.js` is an in-memory SW LRU keyed by normalized host for public sites, but by exact `host:port` service key for private/local hosts. It no longer uses positive TTL; entries live until evicted by capacity or Service Worker restart. Private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) still use a 1200ms fetch timeout and placeholder rejection.
+- Content-side in-memory and persisted favicon lookups follow the same rule: public domains may reuse root-domain aliases, while private/local hosts keep exact per-service (`host:port`) keys and skip root alias expansion.
 - Main bookmark cache staleness is controlled by `bookmarkCacheTtlMinutes` and checked in `background-data.js:627-636` during search (async stale refresh, non-blocking).

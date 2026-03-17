@@ -11,7 +11,6 @@ export const STORAGE_KEYS = {
   LAST_SYNC_TIME: 'lastSyncTime',
   SYNC_INTERVAL: 'syncInterval',
   THEME: 'theme',
-  FAVICON_CACHE_SIZE: 'faviconCacheSize',
   BOOKMARK_CACHE_TTL_MINUTES: 'bookmarkCacheTtlMinutes',
   BOOKMARKS_META: 'bookmarksMeta'
 };
@@ -24,7 +23,6 @@ const DEFAULTS = {
   [STORAGE_KEYS.LAST_SYNC_TIME]: null,
   [STORAGE_KEYS.SYNC_INTERVAL]: 30,
   [STORAGE_KEYS.THEME]: 'original',
-  [STORAGE_KEYS.FAVICON_CACHE_SIZE]: 2000,
   [STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES]: 30,
   [STORAGE_KEYS.BOOKMARKS_META]: { updatedAt: 0, count: 0 }
 };

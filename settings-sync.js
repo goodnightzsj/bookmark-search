@@ -10,11 +10,9 @@ export async function loadSyncSettings() {
     const result = await getStorage([
       STORAGE_KEYS.SYNC_INTERVAL,
       STORAGE_KEYS.LAST_SYNC_TIME,
-      STORAGE_KEYS.FAVICON_CACHE_SIZE,
       STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES
     ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
-    const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
     const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
     const lastSyncDisplay = document.getElementById('lastSyncDisplay');
     const nextSyncDisplay = document.getElementById('nextSyncDisplay');
@@ -28,13 +26,6 @@ export async function loadSyncSettings() {
     const interval = result[STORAGE_KEYS.SYNC_INTERVAL];
     syncIntervalSelect.value = interval;
     console.log("[Settings] 同步间隔:", interval, "分钟");
-
-    // 设置 Favicon 缓存大小
-    if (faviconCacheSizeSelect) {
-      const cacheSize = result[STORAGE_KEYS.FAVICON_CACHE_SIZE] || 2000;
-      faviconCacheSizeSelect.value = cacheSize;
-      console.log("[Settings] Favicon 缓存大小:", cacheSize);
-    }
 
     // 设置主缓存过期时间
     if (bookmarkCacheTtlSelect) {
@@ -160,24 +151,6 @@ export function bindSyncEvents() {
       alert('设置失败：' + error.message);
     }
   });
-
-  const faviconCacheSizeSelect = document.getElementById('faviconCacheSize');
-  const VALID_FAVICON_CACHE_SIZES = [500, 1000, 2000, 5000, 10000];
-  if (faviconCacheSizeSelect) {
-    faviconCacheSizeSelect.addEventListener('change', async (e) => {
-      const cacheSize = parseInt(e.target.value);
-      if (!VALID_FAVICON_CACHE_SIZES.includes(cacheSize)) return;
-      console.log('[Settings] 修改 favicon 缓存大小为:', cacheSize);
-
-      try {
-        await setValue(STORAGE_KEYS.FAVICON_CACHE_SIZE, cacheSize);
-        console.log('[Settings] favicon 缓存大小已更新');
-      } catch (error) {
-        console.error('[Settings] 更新 favicon 缓存大小失败:', error);
-        alert('设置失败：' + error.message);
-      }
-    });
-  }
 
   // 主缓存过期时间变化
   const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
