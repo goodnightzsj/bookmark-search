@@ -429,7 +429,7 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.REFRESH_BOOKMARKS:
       return initThen(() =>
         refreshBookmarks()
-          .then(sendResponse)
+          .then((result) => sendOkResponse(sendResponse, result))
           .catch((error) => {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
           })
@@ -695,8 +695,7 @@ export function handleMessage(request, sender, sendResponse) {
 
       probeFaviconUrlStatus(url)
         .then((result) => {
-          sendResponse({
-            success: !!result.success,
+          sendOkResponse(sendResponse, {
             status: result.status || 0,
             isFastFailStatus: !!result.isFastFailStatus,
             error: result.error || ''
@@ -783,7 +782,7 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE:
       return initThen(() =>
         clearFaviconCache()
-          .then(sendResponse)
+          .then((result) => sendOkResponse(sendResponse, result))
           .catch((error) => {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
           })
@@ -792,7 +791,7 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.CLEAR_HISTORY:
       return initThen(() =>
         clearHistory()
-          .then(sendResponse)
+          .then((result) => sendOkResponse(sendResponse, result))
           .catch((error) => {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
           })

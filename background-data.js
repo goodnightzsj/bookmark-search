@@ -1062,7 +1062,7 @@ async function writeDocumentsWithRetry() {
     await persistSearchDocuments();
     return true;
   } catch (error) {
-    console.warn("[Background] 写入 IndexedDB documents 失败，2s 后重试:", error);
+    console.warn("[Background] 写入 IndexedDB documents 失败，500ms 后重试:", error);
   }
 
   return new Promise((resolve) => {
@@ -1073,7 +1073,7 @@ async function writeDocumentsWithRetry() {
           console.warn("[Background] IndexedDB documents 重试仍失败:", retryErr);
           resolve(false);
         });
-    }, 2000);
+    }, 500);
   });
 }
 

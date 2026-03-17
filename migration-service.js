@@ -61,7 +61,7 @@ function normalizeBookmarks(value) {
 }
 
 function mapBookmarkToSearchDocument(bookmark) {
-  if (!bookmark || typeof bookmark !== 'object' || bookmark.id === undefined || typeof bookmark.url !== 'string') return null;
+  if (!bookmark || typeof bookmark !== 'object' || !bookmark.id || !bookmark.url) return null;
   const path = typeof bookmark.path === 'string' && bookmark.path
     ? String(bookmark.path).split(' > ').map((item) => item.trim()).filter(Boolean)
     : [];

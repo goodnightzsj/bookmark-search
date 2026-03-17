@@ -40,6 +40,7 @@ function ensureInit() {
   initPromise = init().catch((error) => {
     console.error("[Background] 初始化失败:", error);
     initPromise = null;
+    throw error;
   });
   return initPromise;
 }
@@ -83,7 +84,7 @@ async function flushBookmarkDebounce() {
   if (importInProgress) return;
 
   if (!Array.isArray(events) || events.length === 0) {
-    await refreshBookmarks();
+    console.log("[Background] 防抖触发但事件队列为空，跳过");
     return;
   }
 
