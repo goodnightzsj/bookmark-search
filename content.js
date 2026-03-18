@@ -1423,6 +1423,65 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  }, 5000);
 	}
 
+	/**
+	 * Lightweight IDB-only prefetch: populates the in-memory favicon cache from
+	 * persisted IDB entries at content-script startup so the first search-overlay
+	 * open can skip the IDB round-trip entirely.
+	 * No network requests are made — this is a pure read from IDB → memory.
+	 *
+	 * Resource-friendly: fetches in small batches (PREFETCH_BATCH_SIZE) with idle
+	 * callbacks between batches so we never block the main thread noticeably.
+	 */
+	let faviconMemoryPrefetchDone = false;
+	const PREFETCH_BATCH_SIZE = 80;
+
+	function waitForIdle() {
+	  return new Promise((resolve) => {
+	    if (typeof requestIdleCallback === 'function') {
+	      requestIdleCallback(resolve, { timeout: 2000 });
+	    } else {
+	      setTimeout(resolve, 50);
+	    }
+	  });
+	}
+
+	async function prefetchFaviconCacheFromIdb() {
+	  if (faviconMemoryPrefetchDone) return;
+	  faviconMemoryPrefetchDone = true;
+	  try {
+	    const domainToPageUrl = await fetchWarmupDomainMapFromBackground(400);
+	    if (!domainToPageUrl) return;
+	    const allDomains = Object.keys(domainToPageUrl);
+	    if (allDomains.length === 0) return;
+
+	    for (let offset = 0; offset < allDomains.length; offset += PREFETCH_BATCH_SIZE) {
+	      const batch = allDomains.slice(offset, offset + PREFETCH_BATCH_SIZE);
+
+	      await waitForIdle();
+
+	      const persisted = await fetchPersistedFavicons(batch);
+	      if (!persisted || typeof persisted !== 'object') continue;
+
+	      for (const key in persisted) {
+	        if (!Object.prototype.hasOwnProperty.call(persisted, key)) continue;
+	        const entry = persisted[key];
+	        if (!entry || typeof entry !== 'object') continue;
+	        if (typeof entry.src !== 'string' || !entry.src) continue;
+	        if (!isLoadableIconSrc(entry.src)) continue;
+	        setFaviconCache(key, entry.src);
+	      }
+	    }
+	    faviconDebugLog('idb prefetch done', { loaded: faviconCache.size });
+	  } catch (e) {
+	    // Best-effort; failure is harmless — hydration will fallback to IDB at render time.
+	  }
+	}
+
+	function scheduleFaviconMemoryPrefetch() {
+	  // Delay so we don't compete with page's own resource loading.
+	  setTimeout(prefetchFaviconCacheFromIdb, 2000);
+	}
+
 	function fetchWarmupDomainMapFromBackground(limit) {
 	  const max = (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) ? Math.floor(limit) : 400;
 	  return sendMessagePromise({ action: MESSAGE_ACTIONS.GET_WARMUP_DOMAINS, limit: max })
@@ -2088,6 +2147,9 @@ function init() {
 
   console.log("[Content] 准备调用 init");
   init();
+
+  // Pre-populate in-memory favicon cache from IDB so the first overlay open is instant.
+  scheduleFaviconMemoryPrefetch();
 
   // Best-effort flush when this page is unloaded (e.g., Ctrl+Enter navigation).
   window.addEventListener('pagehide', () => {
