@@ -1,8 +1,8 @@
-import { getStorageWithStatus, setStorage, setValue, STORAGE_KEYS } from './storage-service.js';
+import { getStorageWithStatus, setStorage, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
 import { HISTORY_ACTIONS, PATH_SEPARATOR } from './constants.js';
-import { idbGet, idbGetAllDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
-import { getRootDomain } from './utils.js';
+import { idbGet, idbGetAllDocuments, idbPatchDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
+import { buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
 
 // 书签数据管理模块
 
@@ -44,6 +44,9 @@ const runtimeState = {
   bookmarkIndexById: new Map()
 };
 
+// 运行时 documents fingerprint 缓存，避免 ensureCacheConsistency 每次重算
+let runtimeDocumentsFingerprint = '';
+
 // 书签变化历史
 let bookmarkHistory = [];
 // 并发锁：串行化 refresh 与增量事件处理
@@ -51,23 +54,26 @@ let isUpdating = false;
 let updateQueued = false;
 let pendingRefresh = false;
 let pendingBookmarkEvents = [];
+let pendingClearHistory = false;
 // 缓存是否已从 storage 加载（避免重复 IO）
 let isCacheLoaded = false;
 let loadCachePromise = null;
 let lastStaleRefreshAt = 0;
 let runtimeCacheTtlMinutes = null;
 let runtimeCacheTtlLoaded = false;
-// 最近在搜索结果中实际打开过的根域名（用于 favicon 预热优先级）
-// key: rootDomain -> { count, lastAt, sampleUrl }
+let runtimeLastSyncTime = null; // 内存缓存 lastSyncTime，避免每次搜索读 storage
+let clearHistoryWaiters = [];
+// 最近在搜索结果中实际打开过的 favicon key（用于 favicon 预热优先级）
+// key: faviconKey -> { count, lastAt, sampleUrl }
 const recentOpenedRootMap = new Map();
 const RECENT_OPEN_ROOT_MAX = 200;
 const RECENT_OPEN_ROOT_WINDOW_MS = 60 * 60 * 1000; // 1 小时窗口
-// 最近已用于 favicon 预热的根域名，避免多 tab 重复 warmup
-// key: rootDomain -> lastWarmupAt
+// 最近已用于 favicon 预热的 favicon key，避免多 tab 重复 warmup
+// key: faviconKey -> lastWarmupAt
 const recentWarmupDomains = new Map();
 const RECENT_WARMUP_WINDOW_MS = 30 * 60 * 1000; // 30 分钟窗口
 
-// 持久化：最近打开过的根域名（防 MV3 SW 重启/休眠丢失 warmup 优先级）
+// 持久化：最近打开过的 favicon key（防 MV3 SW 重启/休眠丢失 warmup 优先级）
 let recentOpenedRootsPersistChain = Promise.resolve();
 
 function buildRecentOpenedRootsSnapshot(nowTs = Date.now()) {
@@ -174,8 +180,6 @@ function mapBookmarkToSearchDocument(bookmark) {
     subtitle: path.join(PATH_SEPARATOR),
     url,
     path,
-    keywords: path.slice(),
-    tags: [],
     iconKey: url,
     updatedAt: (typeof bookmark.dateAdded === 'number' && Number.isFinite(bookmark.dateAdded)) ? bookmark.dateAdded : 0,
     metadata: {
@@ -286,6 +290,7 @@ function searchDocuments(documents, query, limit) {
 function setRuntimeDocuments(nextDocuments) {
   runtimeState.documents = Array.isArray(nextDocuments) ? nextDocuments.filter((doc) => doc && doc.sourceType === DOCUMENT_SOURCE_TYPE && doc.sourceId && doc.url) : [];
   runtimeState.bookmarks = mapSearchDocumentsToBookmarks(runtimeState.documents);
+  runtimeDocumentsFingerprint = getDocumentsFingerprint(runtimeState.documents);
 }
 
 function setRuntimeBookmarks(nextBookmarks) {
@@ -407,20 +412,13 @@ export function updateRuntimeCacheTtlMinutes(nextValue) {
 function getWarmupDomainKeyFromUrl(url) {
   const safeUrl = typeof url === 'string' ? url.trim() : '';
   if (!safeUrl) return '';
-  try {
-    const parsed = new URL(safeUrl);
-    const host = parsed && parsed.host ? String(parsed.host).toLowerCase() : '';
-    const hostname = parsed && parsed.hostname ? String(parsed.hostname).toLowerCase() : '';
-    if (!host) return '';
-    if (hostname === 'localhost') return host;
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return host;
-    if (hostname.endsWith('.local') || hostname.endsWith('.lan') || hostname.endsWith('.internal') || hostname.endsWith('.intranet') || hostname.endsWith('.corp') || hostname.endsWith('.home') || hostname.endsWith('.localdomain') || hostname.indexOf('.') === -1) {
-      return host;
-    }
-    return getRootDomain(hostname) || host;
-  } catch (error) {
-    return '';
-  }
+  return buildFaviconServiceKey(safeUrl);
+}
+
+function getWarmupFallbackSampleUrl(root) {
+  const safeRoot = typeof root === 'string' ? root.trim() : '';
+  if (!safeRoot) return '';
+  return (isLikelyPrivateHost(safeRoot) ? 'http://' : 'https://') + safeRoot;
 }
 
 export async function recordBookmarkOpen(url) {
@@ -499,10 +497,23 @@ async function runUpdateLoop() {
         continue;
       }
 
+      if (pendingClearHistory) {
+        pendingClearHistory = false;
+        lastResult = await clearHistoryOnce();
+        resolveClearHistoryWaiters(lastResult);
+        continue;
+      }
+
       lastResult = { success: true, idle: true };
     } while (updateQueued || pendingRefresh || pendingBookmarkEvents.length > 0);
 
     return lastResult;
+  } catch (error) {
+    if (clearHistoryWaiters.length > 0) {
+      pendingClearHistory = false;
+      rejectClearHistoryWaiters(error);
+    }
+    throw error;
   } finally {
     isUpdating = false;
   }
@@ -667,6 +678,15 @@ function collectRemovedBookmarkIds(node, out) {
   }
 }
 
+export function shouldFallbackRemovedEvent(removedIds, fallbackRemovedId, indexById) {
+  const ids = Array.isArray(removedIds) ? removedIds : [];
+  const fallbackId = typeof fallbackRemovedId === 'string' ? fallbackRemovedId : '';
+  const index = indexById instanceof Map ? indexById : new Map();
+  if (!fallbackId) return false;
+  if (ids.length === 0) return !index.has(fallbackId);
+  return ids.length === 1 && ids[0] === fallbackId && !index.has(fallbackId);
+}
+
 async function applyBookmarkEventsOnce(events) {
   console.log("[Background] 开始增量处理书签事件: %d 条", Array.isArray(events) ? events.length : 0);
 
@@ -733,6 +753,7 @@ async function applyBookmarkEventsOnce(events) {
   const changes = [];
   let mutated = false;
   const removedDocIds = new Set();
+  const upsertedDocs = []; // 增量 IDB 写入：新增或修改的 document
   const now = Date.now;
 
   for (let i = 0; i < list.length; i++) {
@@ -762,7 +783,10 @@ async function applyBookmarkEventsOnce(events) {
       };
       const newDoc = mapBookmarkToSearchDocument(item);
       documents.push(newDoc);
-      if (newDoc && newDoc.id) docIndexById.set(newDoc.id, documents.length - 1);
+      if (newDoc && newDoc.id) {
+        docIndexById.set(newDoc.id, documents.length - 1);
+        upsertedDocs.push(newDoc);
+      }
       // 同步更新 bookmarks + indexById，供同批次后续 changed/moved 事件查找
       bookmarks.push(item);
       indexById.set(id, bookmarks.length - 1);
@@ -806,6 +830,7 @@ async function applyBookmarkEventsOnce(events) {
           url: nextUrl,
           iconKey: nextUrl
         };
+        upsertedDocs.push(documents[docIdx]);
       }
       mutated = true;
       changes.push({
@@ -844,9 +869,9 @@ async function applyBookmarkEventsOnce(events) {
         documents[docIdx] = {
           ...documents[docIdx],
           path: nextPathParts,
-          subtitle: nextPathParts.join(PATH_SEPARATOR),
-          keywords: nextPathParts.slice()
+          subtitle: nextPathParts.join(PATH_SEPARATOR)
         };
+        upsertedDocs.push(documents[docIdx]);
       }
       mutated = true;
       changes.push({
@@ -870,6 +895,12 @@ async function applyBookmarkEventsOnce(events) {
       const fallbackRemovedId = String(evt.id || '');
       if (fallbackRemovedId && removedIds.indexOf(fallbackRemovedId) === -1) {
         removedIds.push(fallbackRemovedId);
+      }
+
+      if (shouldFallbackRemovedEvent(removedIds, fallbackRemovedId, indexById)) {
+        pendingRefresh = true;
+        console.log('[Background][Observe] incremental_fallback_full', { reason: 'removed_without_subtree', id: fallbackRemovedId });
+        return { success: false, fallback: true };
       }
 
       for (let j = 0; j < removedIds.length; j++) {
@@ -911,15 +942,34 @@ async function applyBookmarkEventsOnce(events) {
 
   const finalCount = getRuntimeDocuments().length;
 
-  await updateHistory(changes);
-  const saveResult = await saveToStorage(Date.now());
-  if (!saveResult || !saveResult.success) {
-    return {
-      success: false,
-      error: '持久化书签缓存失败',
-      degraded: true,
-      source: saveResult && saveResult.source ? saveResult.source : 'unknown'
-    };
+  updateHistory(changes);
+
+  // 增量 IDB 写入：只 put 变化的 document，delete 被删除的 document
+  const syncTime = Date.now();
+  const deleteDocIds = removedDocIds.size > 0 ? Array.from(removedDocIds) : [];
+  try {
+    await idbPatchDocuments(upsertedDocs, deleteDocIds);
+  } catch (error) {
+    console.warn('[Background][Observe] incremental_idb_patch_failed, fallback to full replace', { message: error && error.message ? error.message : String(error) });
+    // 回退到全量写入
+    const fullOk = await writeDocumentsWithRetry();
+    if (!fullOk) {
+      return { success: false, error: '持久化书签缓存失败', degraded: true, source: 'documents_failed' };
+    }
+  }
+
+  // 更新 storage 元数据（count/history/syncTime/meta）
+  const meta = buildCacheMetaFromCount(finalCount, syncTime);
+  const storageOk = await setStorage({
+    [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
+    [STORAGE_KEYS.BOOKMARK_HISTORY]: bookmarkHistory,
+    [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
+    [STORAGE_KEYS.BOOKMARKS_META]: meta
+  });
+  runtimeLastSyncTime = meta.updatedAt;
+
+  if (!storageOk) {
+    return { success: false, error: '持久化元数据失败', degraded: true, source: 'storage_meta_failed' };
   }
 
   return { success: true, count: finalCount, changes: changes.length, incremental: true };
@@ -966,6 +1016,12 @@ async function loadCacheFromStorageOnce() {
     console.log('[Background][Observe] cache_source_selected', { source: 'empty', count: 0 });
   }
 
+  // 初始化 lastSyncTime 内存缓存
+  const storedLastSync = storageData[STORAGE_KEYS.LAST_SYNC_TIME];
+  if (typeof storedLastSync === 'number' && Number.isFinite(storedLastSync) && storedLastSync > 0) {
+    runtimeLastSyncTime = storedLastSync;
+  }
+
   if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
     console.warn('[Background][Observe] history_load_failed_keep_memory', { error: storageRead.error || 'unknown' });
   } else {
@@ -989,8 +1045,9 @@ async function ensureCacheConsistency(syncTime) {
   let needBackfillDocuments = false;
   try {
     const persistedDocuments = await readPersistedDocuments();
-    needBackfillDocuments = persistedDocuments.length !== documents.length
-      || getDocumentsFingerprint(persistedDocuments) !== getDocumentsFingerprint(documents);
+    // 使用缓存的 runtime fingerprint，避免重复计算
+    const persistedFp = getDocumentsFingerprint(persistedDocuments);
+    needBackfillDocuments = persistedFp !== runtimeDocumentsFingerprint;
   } catch (error) {
     needBackfillDocuments = true;
   }
@@ -1042,23 +1099,24 @@ async function ensureCacheConsistency(syncTime) {
   }
 }
 
+export function mergeBookmarkHistory(existingHistory, changes, maxItems = MAX_HISTORY_ITEMS) {
+  const existing = Array.isArray(existingHistory) ? existingHistory : [];
+  const incoming = Array.isArray(changes) ? changes.filter(Boolean) : [];
+  const limit = (typeof maxItems === 'number' && Number.isFinite(maxItems) && maxItems > 0)
+    ? Math.floor(maxItems)
+    : MAX_HISTORY_ITEMS;
+
+  return [...incoming, ...existing].slice(0, limit);
+}
+
 /**
  * 更新历史记录
+ * 直接合并到内存中的 bookmarkHistory，由后续 saveToStorage 统一持久化。
+ * bookmarkHistory 在 loadCacheFromStorageOnce 中从 storage 加载，之后只通过内存维护。
  * @param {Array} changes - 新变更
  */
-async function updateHistory(changes) {
-  const storageRead = await getStorageWithStatus([STORAGE_KEYS.BOOKMARK_HISTORY]);
-  if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
-    console.warn('[Background][Observe] history_read_failed_skip_override', { error: storageRead.error || 'unknown' });
-    return;
-  }
-
-  const existing = Array.isArray(storageRead.data ? storageRead.data[STORAGE_KEYS.BOOKMARK_HISTORY] : null)
-    ? storageRead.data[STORAGE_KEYS.BOOKMARK_HISTORY]
-    : [];
-
-  // 仅保留最近的 MAX_HISTORY_ITEMS 条记录
-  bookmarkHistory = [...changes, ...existing].slice(0, MAX_HISTORY_ITEMS);
+function updateHistory(changes) {
+  bookmarkHistory = mergeBookmarkHistory(bookmarkHistory, changes);
 }
 
 /**
@@ -1109,18 +1167,24 @@ async function saveToStorage(syncTime) {
     return { success: false, degraded: true, source: 'storage_meta_failed' };
   }
 
+  // 同步更新内存缓存，避免后续 searchBookmarks 再读 storage
+  runtimeLastSyncTime = meta.updatedAt;
+
   return { success: true };
 }
 
 /**
  * 加载初始数据
  */
-export async function loadInitialData() {
+export async function loadInitialData(options = {}) {
+  const skipInitialRefresh = !!(options && options.skipInitialRefresh);
   await loadCacheFromStorage();
 
   const runtimeDocuments = getRuntimeDocuments();
   if (runtimeDocuments.length > 0) {
     console.log("[Background] 已加载缓存书签: %d 条", runtimeDocuments.length);
+  } else if (skipInitialRefresh) {
+    console.log("[Background] 初始缓存为空，等待迁移后的显式重建");
   } else {
     // 如果没有缓存，立即刷新一次
     await refreshBookmarks();
@@ -1136,14 +1200,11 @@ export async function loadInitialData() {
 export async function searchBookmarks(query, { limit = 10 } = {}) {
   await loadCacheFromStorage();
 
-  const syncRead = await getStorageWithStatus(STORAGE_KEYS.LAST_SYNC_TIME);
-  const lastSync = syncRead.data ? syncRead.data[STORAGE_KEYS.LAST_SYNC_TIME] : null;
-
-  if (!syncRead.success && syncRead.state && syncRead.state[STORAGE_KEYS.LAST_SYNC_TIME] === 'failed') {
-    console.warn('[Background][Observe] last_sync_read_failed', { error: syncRead.error || 'unknown' });
-  }
-
-  const ttlMinutes = await ensureRuntimeCacheTtlMinutes();
+  // 使用内存缓存的 lastSyncTime 和 ttl，避免每次搜索都读 storage
+  const lastSync = runtimeLastSyncTime;
+  const ttlMinutes = runtimeCacheTtlLoaded && typeof runtimeCacheTtlMinutes === 'number' && runtimeCacheTtlMinutes > 0
+    ? runtimeCacheTtlMinutes
+    : await ensureRuntimeCacheTtlMinutes();
   const ttlMs = ttlMinutes * 60 * 1000 || BOOKMARK_CACHE_TTL_DEFAULT_MS;
 
   if (typeof lastSync === 'number' && lastSync > 0 && (Date.now() - lastSync) > ttlMs) {
@@ -1186,7 +1247,7 @@ export async function searchBookmarks(query, { limit = 10 } = {}) {
 }
 
 /**
- * Provide a compact map for favicon warmup: rootDomain -> sample page URL.
+ * Provide a compact map for favicon warmup: favicon key -> sample page URL.
  * Used by content scripts so they don't have to keep a full bookmark copy in chrome.storage.local.
  */
 export async function getWarmupDomainMap({ limit = 400 } = {}) {
@@ -1206,7 +1267,7 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
     }
   }
 
-  // 1) 最近实际打开过的根域名（根据 recordBookmarkOpen 记录），按最近打开时间排序
+  // 1) 最近实际打开过的 favicon key（根据 recordBookmarkOpen 记录），按最近打开时间排序
   if (recentOpenedRootMap.size > 0 && count < max) {
     const openedEntries = Array.from(recentOpenedRootMap.entries())
       .slice()
@@ -1220,14 +1281,30 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
       const info = openedEntries[i][1] || {};
       if (!root || output[root]) continue;
       if (recentWarmupDomains.has(root)) continue;
-      const sampleUrl = typeof info.sampleUrl === 'string' && info.sampleUrl ? info.sampleUrl : ("https://" + root);
+      const sampleUrl = typeof info.sampleUrl === 'string' && info.sampleUrl ? info.sampleUrl : getWarmupFallbackSampleUrl(root);
       output[root] = sampleUrl;
       recentWarmupDomains.set(root, nowTs);
       count++;
     }
   }
 
-  // 2) 根据 bookmarkHistory 中最近的变更记录统计高频根域名
+  // 预构建 faviconKey → sampleUrl 索引，避免后续步骤中对 documents 的 O(n) 嵌套扫描
+  const docKeyToSampleUrl = Object.create(null);
+  for (let i = 0; i < documents.length; i++) {
+    const doc = documents[i];
+    if (!doc || !doc.url) continue;
+    const rawUrl = String(doc.url || '').trim();
+    if (!rawUrl) continue;
+    try {
+      const u = new URL(rawUrl);
+      const key = buildFaviconServiceKey(u.href || rawUrl);
+      if (key && !docKeyToSampleUrl[key]) {
+        docKeyToSampleUrl[key] = u.href || getWarmupFallbackSampleUrl(key);
+      }
+    } catch (e) {}
+  }
+
+  // 2) 根据 bookmarkHistory 中最近的变更记录统计高频 favicon key
   if (Array.isArray(bookmarkHistory) && bookmarkHistory.length > 0 && count < max) {
     const freq = Object.create(null);
     const recent = bookmarkHistory.slice(0, MAX_HISTORY_ITEMS);
@@ -1237,12 +1314,9 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
       const rawUrl = String(item.url || '').trim();
       if (!rawUrl) continue;
       try {
-        const u = new URL(rawUrl);
-        const host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
-        if (!host) continue;
-        const root = getRootDomain(host);
-        if (!root) continue;
-        freq[root] = (freq[root] || 0) + 1;
+        const key = buildFaviconServiceKey(rawUrl);
+        if (!key) continue;
+        freq[key] = (freq[key] || 0) + 1;
       } catch (e) {}
     }
 
@@ -1253,52 +1327,22 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
       const root = hotRoots[i];
       if (!root || output[root]) continue;
       if (recentWarmupDomains.has(root)) continue;
-      // 从 documents 中找一条该 root 对应的 URL 作为 sample
-      let sampleUrl = '';
-      for (let j = 0; j < documents.length; j++) {
-        const doc = documents[j];
-        if (!doc || !doc.url) continue;
-        const rawUrl = String(doc.url || '').trim();
-        if (!rawUrl) continue;
-        try {
-          const u = new URL(rawUrl);
-          const host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
-          if (!host) continue;
-          const r = getRootDomain(host);
-          if (r === root) {
-            sampleUrl = u.href || ("https://" + root);
-            break;
-          }
-        } catch (e) {}
-      }
-      if (!sampleUrl) {
-        sampleUrl = "https://" + root;
-      }
+      const sampleUrl = docKeyToSampleUrl[root] || getWarmupFallbackSampleUrl(root);
       output[root] = sampleUrl;
       recentWarmupDomains.set(root, nowTs);
       count++;
     }
   }
 
-  // 3) 兜底：按原逻辑从完整书签列表中按顺序填充剩余名额
-  for (let i = 0; i < documents.length && count < max; i++) {
-    const doc = documents[i];
-    if (!doc || !doc.url) continue;
-    const rawUrl = String(doc.url || '').trim();
-    if (!rawUrl) continue;
-
-    try {
-      const u = new URL(rawUrl);
-      const host = u && u.hostname ? String(u.hostname).toLowerCase() : '';
-      if (!host) continue;
-      const root = getRootDomain(host);
-      if (!root) continue;
-      if (output[root]) continue;
-      if (recentWarmupDomains.has(root)) continue;
-      output[root] = u.href || ("https://" + root);
-      recentWarmupDomains.set(root, nowTs);
-      count++;
-    } catch (e) {}
+  // 3) 兜底：按预构建索引顺序填充剩余名额
+  const allDocKeys = Object.keys(docKeyToSampleUrl);
+  for (let i = 0; i < allDocKeys.length && count < max; i++) {
+    const root = allDocKeys[i];
+    if (output[root]) continue;
+    if (recentWarmupDomains.has(root)) continue;
+    output[root] = docKeyToSampleUrl[root];
+    recentWarmupDomains.set(root, nowTs);
+    count++;
   }
 
   return output;
@@ -1308,8 +1352,45 @@ export async function getWarmupDomainMap({ limit = 400 } = {}) {
  * 清空历史记录（同时清除内存和存储）
  */
 export async function clearHistory() {
+  pendingClearHistory = true;
+
+  const completion = new Promise((resolve, reject) => {
+    clearHistoryWaiters.push({ resolve, reject });
+  });
+
+  if (isUpdating) {
+    updateQueued = true;
+    return completion;
+  }
+
+  runUpdateLoop().catch((error) => {
+    rejectClearHistoryWaiters(error);
+  });
+
+  return completion;
+}
+
+async function clearHistoryOnce() {
   bookmarkHistory = [];
-  const ok = await setValue(STORAGE_KEYS.BOOKMARK_HISTORY, []);
+  await setStorageOrThrow({ [STORAGE_KEYS.BOOKMARK_HISTORY]: [] });
   console.log("[Background] 历史记录已清空");
-  return { success: ok };
+  return { success: true };
+}
+
+function resolveClearHistoryWaiters(result) {
+  if (clearHistoryWaiters.length === 0) return;
+  const waiters = clearHistoryWaiters;
+  clearHistoryWaiters = [];
+  for (let i = 0; i < waiters.length; i++) {
+    waiters[i].resolve(result);
+  }
+}
+
+function rejectClearHistoryWaiters(error) {
+  if (clearHistoryWaiters.length === 0) return;
+  const waiters = clearHistoryWaiters;
+  clearHistoryWaiters = [];
+  for (let i = 0; i < waiters.length; i++) {
+    waiters[i].reject(error);
+  }
 }

@@ -92,9 +92,9 @@ llmdoc/
 | Message Router | `background-messages.js` | `handleMessage` |
 | Search UI | `content.js` | `createSearchUI`, `showSearch`, `hideSearch`, `displayResults` |
 | Storage | `storage-service.js` | `STORAGE_KEYS`, `DEFAULTS`, `getStorage`, `setStorage` |
-| IndexedDB | `idb-service.js` | `idbGet`, `idbSet`, `idbGetMany`, `idbSetMany`, `idbGetAllDocuments`, `idbReplaceDocuments` |
+| IndexedDB | `idb-service.js` | `idbGet`, `idbSet`, `idbGetMany`, `idbSetMany`, `idbGetAllDocuments`, `idbReplaceDocuments`, `idbPatchDocuments` |
 | Constants | `constants.js` | `MESSAGE_ACTIONS`, `HISTORY_ACTIONS`, `ALARM_NAMES` |
 
 ---
 
-*Last updated: 2026-03-17*
+*Last updated: 2026-03-23*

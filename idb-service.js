@@ -296,6 +296,42 @@ async function idbReplaceDocumentsOnce(items) {
   });
 }
 
+/**
+ * 增量更新 documents store：put 需要更新/新增的，delete 需要删除的。
+ * 比 idbReplaceDocuments 更高效，适用于少量变更场景。
+ * @param {Array<Object>} upserts - 要写入的 document 对象（必须包含 id）
+ * @param {Array<string>} deleteIds - 要删除的 document id 列表
+ */
+export async function idbPatchDocuments(upserts, deleteIds) {
+  const puts = Array.isArray(upserts)
+    ? upserts.filter((item) => item && typeof item === 'object' && typeof item.id === 'string' && item.id)
+    : [];
+  const deletes = Array.isArray(deleteIds)
+    ? deleteIds.filter((id) => typeof id === 'string' && id)
+    : [];
+  if (puts.length === 0 && deletes.length === 0) return true;
+  return withRetry(() => idbPatchDocumentsOnce(puts, deletes));
+}
+
+async function idbPatchDocumentsOnce(puts, deletes) {
+  const db = await getDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DOCUMENTS_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(DOCUMENTS_STORE_NAME);
+
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
+    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+
+    for (const item of puts) {
+      store.put(item);
+    }
+    for (const id of deletes) {
+      store.delete(id);
+    }
+  });
+}
+
 export async function idbGetMeta(key) {
   validateKey(key);
   return withRetry(() => idbGetMetaOnce(key));

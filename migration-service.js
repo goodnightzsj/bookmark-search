@@ -16,6 +16,13 @@ const IDB_META_KEY_SCHEMA_VERSION = 'schemaVersion';
 const VALID_THEMES = new Set(['original', 'minimal', 'glass', 'dark']);
 const VALID_HISTORY_ACTIONS = new Set(['add', 'delete', 'edit', 'move']);
 
+function assertStorageReadSucceeded(storageRead, context) {
+  if (storageRead && storageRead.success) return;
+  const where = typeof context === 'string' && context ? context : 'storage read';
+  const message = storageRead && storageRead.error ? storageRead.error : 'unknown';
+  throw new Error(`[Migration] ${where} failed: ${message}`);
+}
+
 function normalizeSchemaVersion(value) {
   const num = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : 0;
   return num >= 0 ? num : 0;
@@ -76,8 +83,6 @@ function mapBookmarkToSearchDocument(bookmark) {
     subtitle: path.join(' > '),
     url: bookmark.url,
     path,
-    keywords: path.slice(),
-    tags: [],
     iconKey: bookmark.url,
     updatedAt: dateAdded,
     metadata: { dateAdded }
@@ -160,6 +165,7 @@ async function migrateV1ToV2() {
     STORAGE_KEYS.BOOKMARKS,
     STORAGE_KEYS.NEEDS_REBUILD
   ]);
+  assertStorageReadSucceeded(storageRead, 'v1 payload read');
 
   const data = storageRead.data || {};
   let cachedBookmarks = [];
@@ -284,6 +290,7 @@ export async function ensureSchemaReady() {
     STORAGE_KEYS.MIGRATION_STATE,
     STORAGE_KEYS.NEEDS_REBUILD
   ]);
+  assertStorageReadSucceeded(storageRead, 'schema state read');
   const data = storageRead.data || {};
   const schemaVersion = normalizeSchemaVersion(data[STORAGE_KEYS.SCHEMA_VERSION]);
   const migrationState = typeof data[STORAGE_KEYS.MIGRATION_STATE] === 'string'

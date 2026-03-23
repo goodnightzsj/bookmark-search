@@ -34,8 +34,8 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 | Store / Key Pattern | Type | Purpose |
 |-------------|------|---------|
-| `kv / recentOpenedRoots:v1` | `Array<{ root, count, lastAt, sampleUrl }>` | Recently opened root domains snapshot for favicon warmup prioritization (cleared during migration, then rebuilt) |
-| `kv / favicon:{domain}` | `FaviconEntry` | Cached favicon per domain |
+| `kv / recentOpenedRoots:v1` | `Array<{ root, count, lastAt, sampleUrl }>` | Recently opened favicon-key snapshot for warmup prioritization (cleared during migration, then rebuilt) |
+| `kv / favicon:{domain}` | `FaviconEntry` | Cached favicon per favicon service key (`host` / `host:port`) |
 | `documents / {id}` | `SearchDocument` | Primary persisted bookmark/search records derived from bookmarks |
 | `meta / schemaVersion` | `number` | IndexedDB-side schema version mirror for migration/debugging |
 
@@ -43,24 +43,23 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 **Bookmark:** `{ id, title, url, path, dateAdded }`
 
-**SearchDocument:** `{ id, sourceType, sourceId, title, subtitle, url, path: string[], keywords: string[], tags: string[], iconKey, updatedAt, metadata }`
+**SearchDocument:** `{ id, sourceType, sourceId, title, subtitle, url, path: string[], iconKey, updatedAt, metadata }`
 
 **HistoryEntry:** `{ action, title, url, path, timestamp, oldTitle?, oldUrl?, oldPath?, newPath?, folder? }`
 
-**FaviconEntry:** success entries use `{ src, updatedAt }` / `{ state: 'success', src, updatedAt }`; retryable failures use `{ state: 'failure', retryAt, updatedAt }`.
+**FaviconEntry:** success entries use `{ src, updatedAt }` / `{ state: 'success', src, updatedAt }`.
 
 Notes:
 - Migration keeps user assets (settings/history/meta), but intentionally clears transient favicon and warmup caches. These are rebuilt lazily after upgrade instead of being compat-migrated.
 - Bookmark persistence is now documents-first: the `documents` store is the durable bookmark source, while background runtime state keeps `documents` as the primary in-memory cache and derives bookmark arrays plus a bookmark-id index only for compatibility with incremental update and compare logic.
 - Schema V3 removes legacy `kv/cachedBookmarks` and `kv/cachedBookmarksTime` keys after the documents store takeover.
 - Startup migration writes schema state to both `chrome.storage.local` and IDB `meta/schemaVersion`; migration-critical storage writes now use strict failure semantics and debug clients can query raw state through `GET_MIGRATION_STATUS`.
-- Persisted favicon success entries are reused without read-time TTL; retry suppression is represented by failure entries with `retryAt` cooldown. Search-time failure cooldown is now only written for explicit fast-fail states (`5xx`, `429`, `421`), with a 10-minute TTL.
-- Browser-provided favicon cache in `background-messages.js` is an in-memory SW LRU keyed by normalized host for public sites, but by exact `host:port` service key for private/local hosts. It no longer uses positive TTL; entries live until evicted by capacity or Service Worker restart. Private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) still use a 1200ms fetch timeout and placeholder rejection.
-- Content-side in-memory and persisted favicon lookups follow the same rule: public domains may reuse root-domain aliases, while private/local hosts keep exact per-service (`host:port`) keys and skip root alias expansion.
+- Persisted favicon success entries are reused without read-time TTL. Browser-provided favicon cache in `background-messages.js` is an in-memory SW LRU keyed by exact favicon service key (`host` / `host:port`) and lives until evicted by capacity or Service Worker restart.
+- Private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) still use a 1200ms browser-favicon fetch timeout and placeholder rejection.
+- Content-side in-memory and persisted favicon lookups now use the same exact service-key semantics as background-side lookup, with compatibility reads for older root-based entries.
 - Main bookmark cache staleness is controlled by `bookmarkCacheTtlMinutes` and checked during search with async stale refresh (non-blocking).
 - Sync interval updates now go through background message `SET_SYNC_INTERVAL`, which persists `syncInterval` and updates the browser alarm in one background-owned flow.
-- Warmup recent-open aggregation now preserves `host:port` granularity for private/local services, while public sites still aggregate by root domain.
+- Warmup recent-open aggregation now uses the same favicon service-key semantics as render-time lookup, preserving `host:port` granularity where needed.
 - Background-side favicon host/service-key normalization now also uses the shared `utils.js` helpers, reducing drift between persistence, browser-favicon cache, warmup, and content-side lookup rules.
 - Documents consistency repair uses an order-insensitive fingerprint summary before backfilling IndexedDB, so reordering without content change is less likely to trigger unnecessary repairs. Search reads the runtime `documents` cache first, then lazily rehydrates it from IndexedDB when needed before falling back to `chrome.bookmarks.search`.
 - Background message success replies are now normalized through a local helper while preserving the existing `{ success: true, ...payload }` wire contract.
-- Content-side root-domain normalization now matches the background-side multi-part public-suffix handling, reducing favicon alias drift across `*.co.uk` / `*.com.cn` style domains.

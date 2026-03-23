@@ -62,7 +62,6 @@
 	    GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
 	    GET_FAVICONS: 'getFavicons',
 	    SET_FAVICONS: 'setFavicons',
-	    PROBE_FAVICON_URL_STATUS: 'probeFaviconUrlStatus',
 	    TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
 	    TOGGLE_SEARCH: 'toggleSearch',
 	    CLEAR_FAVICON_CACHE: 'clearFaviconCache'
@@ -74,7 +73,6 @@
 	    GET_BROWSER_FAVICONS_BATCH: true,
 	    GET_FAVICONS: true,
 	    SET_FAVICONS: true,
-	    PROBE_FAVICON_URL_STATUS: true,
 	    TRACK_BOOKMARK_OPEN: true,
 	    TOGGLE_SEARCH: true,
 	    CLEAR_FAVICON_CACHE: true
@@ -128,6 +126,18 @@
 	    'co.kr',
 	    'com.br', 'com.mx', 'com.tr'
 	  ]);
+	  const MULTI_TENANT_FAVICON_SUFFIXES = new Set([
+	    'github.io',
+	    'pages.dev',
+	    'vercel.app',
+	    'netlify.app',
+	    'workers.dev',
+	    'web.app',
+	    'firebaseapp.com',
+	    'blogspot.com',
+	    'herokuapp.com',
+	    'azurewebsites.net'
+	  ]);
 
 	  function getRootDomain(domain) {
 	    const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
@@ -149,8 +159,7 @@
 	  function normalizeFaviconDomain(domain) {
 	    const safe = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
 	    if (!safe) return '';
-	    const withoutWww = safe.indexOf('www.') === 0 ? safe.slice(4) : safe;
-	    return getRootDomain(withoutWww) || withoutWww;
+	    return safe.charAt(safe.length - 1) === '.' ? safe.slice(0, -1) : safe;
 	  }
 
 	  function getHostForPrivateCheck(value) {
@@ -198,47 +207,101 @@
 	    return false;
 	  }
 
-	  function buildFaviconServiceKey(domain, pageUrl) {
-	    const safeDomain = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
-	    const safePageUrl = typeof pageUrl === 'string' ? pageUrl.trim() : '';
-	    if (!safeDomain && !safePageUrl) return '';
+	  function isKnownMultiTenantFaviconHost(host) {
+	    const safe = getHostForPrivateCheck(host);
+	    if (!safe) return false;
+	    const withoutWww = safe.indexOf('www.') === 0 ? safe.slice(4) : safe;
+	    const suffixes = Array.from(MULTI_TENANT_FAVICON_SUFFIXES);
+	    for (let i = 0; i < suffixes.length; i++) {
+	      const suffix = suffixes[i];
+	      if (withoutWww === suffix || withoutWww.endsWith('.' + suffix)) return true;
+	    }
+	    return false;
+	  }
+
+	  function getLegacyFaviconKey(host) {
+	    const exact = normalizeFaviconDomain(host);
+	    const hostname = getHostForPrivateCheck(exact);
+	    if (!exact || !hostname) return '';
+	    if (isLikelyPrivateHost(hostname)) return exact;
+	    if (exact !== hostname) return '';
+	    const withoutWww = hostname.indexOf('www.') === 0 ? hostname.slice(4) : hostname;
+	    if (!withoutWww) return '';
+	    if (isKnownMultiTenantFaviconHost(withoutWww)) return '';
+	    return getRootDomain(withoutWww) || withoutWww;
+	  }
+
+	  function buildFaviconLookupKeys(value) {
+	    const safe = typeof value === 'string' ? value.trim() : '';
+	    if (!safe) return [];
+
+	    let exact = '';
+	    let hostname = '';
 	    try {
-	      if (safePageUrl) {
-	        const url = new URL(safePageUrl);
-	        const host = (url.host || '').trim().toLowerCase();
-	        const hostname = (url.hostname || '').trim().toLowerCase();
-	        if (host && isLikelyPrivateHost(hostname || host)) return host;
+	      if (safe.indexOf('://') !== -1) {
+	        const url = new URL(safe);
+	        exact = normalizeFaviconDomain(url.host || url.hostname);
+	        hostname = normalizeFaviconDomain(url.hostname || '');
+	      } else {
+	        exact = normalizeFaviconDomain(safe);
+	        hostname = normalizeFaviconDomain(getHostForPrivateCheck(safe));
 	      }
-	    } catch (e) {}
-	    return normalizeFaviconDomain(safeDomain) || safeDomain;
+	    } catch (e) {
+	      exact = normalizeFaviconDomain(safe);
+	      hostname = normalizeFaviconDomain(getHostForPrivateCheck(safe));
+	    }
+
+	    if (!exact) return [];
+
+	    const keys = [];
+	    const seen = Object.create(null);
+	    function push(entry) {
+	      const candidate = normalizeFaviconDomain(entry);
+	      if (!candidate || seen[candidate]) return;
+	      seen[candidate] = true;
+	      keys.push(candidate);
+	    }
+
+	    push(exact);
+
+	    if (hostname && exact === hostname && !isLikelyPrivateHost(hostname)) {
+	      const withoutWww = hostname.indexOf('www.') === 0 ? hostname.slice(4) : hostname;
+	      if (withoutWww && withoutWww !== hostname) push(withoutWww);
+	      if (withoutWww && withoutWww.indexOf('.') !== -1 && hostname.indexOf('www.') !== 0 && !isKnownMultiTenantFaviconHost(withoutWww)) {
+	        push('www.' + withoutWww);
+	      }
+	      const legacy = getLegacyFaviconKey(hostname);
+	      if (legacy && legacy !== hostname) {
+	        push(legacy);
+	        if (legacy.indexOf('.') !== -1 && legacy.indexOf('www.') !== 0) {
+	          push('www.' + legacy);
+	        }
+	      }
+	    }
+
+	    return keys;
+	  }
+
+	  // SYNC: must match utils.js buildFaviconServiceKey semantics
+	  function buildFaviconServiceKey(pageUrl) {
+	    const safe = typeof pageUrl === 'string' ? pageUrl.trim() : '';
+	    if (!safe) return '';
+	    try {
+	      const url = new URL(safe);
+	      return normalizeFaviconDomain(url.host || url.hostname);
+	    } catch (e) {
+	      return '';
+	    }
 	  }
 
 	  function setFaviconCache(domain, src) {
 	    if (!domain || typeof src !== 'string') return;
 	    const safeDomain = String(domain).trim().toLowerCase();
 	    if (!safeDomain) return;
-	    const domainsToSet = [];
-	    domainsToSet.push(safeDomain);
-	    if (!isLikelyPrivateHost(safeDomain)) {
-	      // 额外为根域名写一份缓存键，提升跨子域命中率（例如 foo.example.com 与 bar.example.com 共用）
-	      const root = getRootDomain(safeDomain);
-	      if (root && root !== safeDomain) {
-	        const rootNormalized = normalizeFaviconDomain(root);
-	        if (rootNormalized && rootNormalized !== safeDomain) {
-	          domainsToSet.push(rootNormalized);
-	        } else if (root !== safeDomain) {
-	          domainsToSet.push(root);
-	        }
-	      }
+	    if (faviconCache.has(safeDomain)) {
+	      faviconCache.delete(safeDomain);
 	    }
-	    for (let i = 0; i < domainsToSet.length; i++) {
-	      const key = domainsToSet[i];
-	      if (!key) continue;
-	      if (faviconCache.has(key)) {
-	        faviconCache.delete(key);
-	      }
-	      faviconCache.set(key, src);
-	    }
+	    faviconCache.set(safeDomain, src);
 	    // LRU 淘汰（Map 迭代顺序即插入顺序，第一个是最旧的）
 	    while (faviconCache.size > FAVICON_CACHE_MAX_SIZE) {
 	      const oldest = faviconCache.keys().next().value;
@@ -256,10 +319,9 @@
 	  // Warmup state: prefetch favicons after closing the overlay.
 	  let faviconWarmupTimer = null;
 	  let faviconWarmupInProgress = false;
-	  let faviconWarmupQueued = false;
-	  let faviconWarmupRunId = 0;
-	  let faviconWarmupLastAttemptAt = Object.create(null);
-	  let faviconWarmupRetryAt = Object.create(null);
+		  let faviconWarmupQueued = false;
+		  let faviconWarmupRunId = 0;
+		  let faviconWarmupLastAttemptAt = Object.create(null);
 	  // Focus retries (some pages may steal focus immediately after injection/show).
 	  let focusRetryTimer = null;
 	  let focusTrapEnabled = false;
@@ -328,6 +390,29 @@ function createSearchUI() {
   resultsContainer.setAttribute('aria-live', 'polite');
   resultsContainer.addEventListener('mousemove', () => {
     lastPointerMoveAt = Date.now();
+  });
+
+  // 事件委托：统一处理结果项的 hover 和 click
+  // 注意：mouseenter 不冒泡，必须用 mouseover 做委托
+  let lastHoverIndex = -1;
+  resultsContainer.addEventListener('mouseover', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.bookmark-item') : null;
+    if (!item) return;
+    if (!lastPointerMoveAt || Date.now() - lastPointerMoveAt > 200) return;
+    const index = Array.prototype.indexOf.call(item.parentNode.children, item);
+    if (index < 0 || index >= filteredResults.length) return;
+    if (index === lastHoverIndex) return; // 同一项不重复触发
+    lastHoverIndex = index;
+    selectedIndex = index;
+    updateSelection({ scroll: false });
+  });
+
+  resultsContainer.addEventListener('click', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.bookmark-item') : null;
+    if (!item) return;
+    const index = Array.prototype.indexOf.call(item.parentNode.children, item);
+    if (index < 0 || index >= filteredResults.length) return;
+    openBookmark(filteredResults[index], !(e.ctrlKey || e.metaKey));
   });
 
   // 创建快捷键提示
@@ -407,18 +492,17 @@ function showSearch() {
 
   // 若之前创建失败导致元素未挂载到 DOM，则重置并重建
   if (searchOverlay && !document.body.contains(searchOverlay)) {
-    try { searchOverlay.remove(); } catch (e) {}
-    searchContainer = null;
-    searchOverlay = null;
-    searchInput = null;
-    resultsContainer = null;
-    filteredResults = [];
-    selectedIndex = -1;
+    resetSearchUiState();
   }
 
   if (!searchOverlay) {
     console.log("[Content] searchOverlay 不存在，创建UI");
-    createSearchUI();
+    try {
+      createSearchUI();
+    } catch (error) {
+      resetSearchUiState();
+      throw error;
+    }
   }
   
   console.log("[Content] 显示搜索框");
@@ -471,7 +555,8 @@ function hideSearch() {
   if (resultsContainer) resultsContainer.innerHTML = "";
   filteredResults = [];
   selectedIndex = -1;
-  cachedResultItems = null; // 清除 DOM 缓存
+  cachedResultItems = null;
+  prevSelectedIndex = -1;
   console.log("[Content] 搜索框已隐藏");
 
   // Persist any newly discovered favicons ASAP so other tabs can benefit without waiting for timers.
@@ -479,6 +564,28 @@ function hideSearch() {
 
   // Start favicon warmup after the overlay is closed (runs in the background within this content script lifetime).
   scheduleFaviconWarmup();
+}
+
+function resetSearchUiState() {
+  stopFocusEnforcer();
+  disableFocusTrap();
+  disableGlobalKeydownTrap();
+  if (focusRetryTimer) { clearTimeout(focusRetryTimer); focusRetryTimer = null; }
+
+  try {
+    if (searchOverlay && searchOverlay.parentNode) {
+      searchOverlay.parentNode.removeChild(searchOverlay);
+    }
+  } catch (e) {}
+
+  searchContainer = null;
+  searchOverlay = null;
+  searchInput = null;
+  resultsContainer = null;
+  filteredResults = [];
+  selectedIndex = -1;
+  cachedResultItems = null;
+  prevSelectedIndex = -1;
 }
 
 function focusSearchInput() {
@@ -702,33 +809,42 @@ function handleKeydown(e) {
   }
 }
 
-// 更新选中项的高亮
+// 上一次选中的索引，用于增量更新 DOM
+let prevSelectedIndex = -1;
+
+// 更新选中项的高亮（只操作变化的节点，避免全量遍历）
 function updateSelection(options) {
   const shouldScroll = !(options && typeof options === 'object' && options.scroll === false);
-  // 使用缓存的 DOM 引用（由 displayResults 设置），避免每次导航都查询
   const items = cachedResultItems || resultsContainer.querySelectorAll(".bookmark-item");
+
+  // 清除上一个选中项
+  if (prevSelectedIndex >= 0 && prevSelectedIndex !== selectedIndex && prevSelectedIndex < items.length) {
+    const prevItem = items[prevSelectedIndex];
+    prevItem.classList.remove("selected");
+    prevItem.setAttribute('aria-selected', 'false');
+  }
+
+  // 设置当前选中项
   let activeId = '';
-  items.forEach((item, index) => {
-    if (index === selectedIndex) {
-      item.classList.add("selected");
-      item.setAttribute('aria-selected', 'true');
-      if (shouldScroll) {
-        // 直接操作 scrollTop，避免 scrollIntoView 连带滚动宿主页面
-        const ct = resultsContainer;
-        const itemTop = item.offsetTop - ct.offsetTop;
-        const itemBottom = itemTop + item.offsetHeight;
-        if (itemTop < ct.scrollTop) {
-          ct.scrollTop = itemTop;
-        } else if (itemBottom > ct.scrollTop + ct.clientHeight) {
-          ct.scrollTop = itemBottom - ct.clientHeight;
-        }
+  if (selectedIndex >= 0 && selectedIndex < items.length) {
+    const item = items[selectedIndex];
+    item.classList.add("selected");
+    item.setAttribute('aria-selected', 'true');
+    activeId = item.id || '';
+    if (shouldScroll) {
+      const ct = resultsContainer;
+      const itemTop = item.offsetTop - ct.offsetTop;
+      const itemBottom = itemTop + item.offsetHeight;
+      if (itemTop < ct.scrollTop) {
+        ct.scrollTop = itemTop;
+      } else if (itemBottom > ct.scrollTop + ct.clientHeight) {
+        ct.scrollTop = itemBottom - ct.clientHeight;
       }
-      activeId = item.id || '';
-    } else {
-      item.classList.remove("selected");
-      item.setAttribute('aria-selected', 'false');
     }
-  });
+  }
+
+  prevSelectedIndex = selectedIndex;
+
   if (searchInput) {
     searchInput.setAttribute('aria-activedescendant', activeId);
   }
@@ -808,22 +924,6 @@ function shouldRetryAfterBrowserResult(result) {
   if (!src || !isLoadableIconSrc(src)) return true;
   return !isTrustedPersistableFaviconSrc(src);
 }
-
-function buildFaviconFailureEntry(domain, retryAt) {
-	  const safeDomain = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
-	  if (!safeDomain) return null;
-	  const now = Date.now();
-	  const fallbackTtl = 10 * 60 * 1000;
-	  const safeRetryAt = (typeof retryAt === 'number' && Number.isFinite(retryAt) && retryAt > now)
-	    ? retryAt
-	    : (now + fallbackTtl);
-	  return { domain: safeDomain, state: 'failure', retryAt: safeRetryAt, updatedAt: now };
-	}
-
-	function shouldPersistFaviconFailure(reason) {
-	  const safeReason = typeof reason === 'string' ? reason.trim().toLowerCase() : '';
-	  return safeReason === 'origin-fast-fail';
-	}
 
 	function collectDeclaredFaviconCandidates(pageUrl) {
 	  const candidates = [];
@@ -941,6 +1041,7 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	      done = true;
 	      img.onload = null;
 	      img.onerror = null;
+	      if (!ok) img.src = ''; // 中止正在进行的网络请求
 	      resolve(ok);
 	    }
 
@@ -962,11 +1063,10 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	function clearInMemoryFaviconState() {
 	  faviconCache = new Map();
 	  faviconRenderFailureDomains = Object.create(null);
-	  faviconPersistQueue = Object.create(null);
-	  faviconPersistQueueSize = 0;
-	  faviconWarmupLastAttemptAt = Object.create(null);
-	  faviconWarmupRetryAt = Object.create(null);
-	  if (faviconPersistFlushTimer) {
+		  faviconPersistQueue = Object.create(null);
+		  faviconPersistQueueSize = 0;
+		  faviconWarmupLastAttemptAt = Object.create(null);
+		  if (faviconPersistFlushTimer) {
 	    clearTimeout(faviconPersistFlushTimer);
 	    faviconPersistFlushTimer = null;
 	  }
@@ -1026,41 +1126,12 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  if (!safeDomain || !safeSrc) return;
 	  if (!isTrustedPersistableFaviconSrc(safeSrc)) return;
 
-	  const key = isLikelyPrivateHost(safeDomain)
-	    ? safeDomain
-	    : (normalizeFaviconDomain(safeDomain) || safeDomain);
+		  const key = normalizeFaviconDomain(safeDomain) || safeDomain;
 	  const existed = !!faviconPersistQueue[key];
 	  faviconPersistQueue[key] = { domain: key, src: safeSrc, updatedAt: Date.now() };
 	  if (!existed) faviconPersistQueueSize++;
 
 	  faviconDebugLog('persist success queued', { domain: key, src: safeSrc });
-
-	  if (faviconPersistQueueSize >= 50) {
-	    flushFaviconPersistQueue();
-	  } else {
-	    scheduleFaviconPersistFlush();
-	  }
-	}
-
-	function queuePersistFaviconFailure(domain, retryAt, reason) {
-	  const safeDomain = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
-	  if (!safeDomain) return;
-	  if (!shouldPersistFaviconFailure(reason)) {
-	    faviconDebugLog('persist failure skipped', { domain: safeDomain, reason: reason || '' });
-	    return;
-	  }
-	  const key = isLikelyPrivateHost(safeDomain)
-	    ? safeDomain
-	    : (normalizeFaviconDomain(safeDomain) || safeDomain);
-	  const current = faviconPersistQueue[key];
-	  if (current && typeof current.src === 'string' && current.src) return;
-	  const entry = buildFaviconFailureEntry(key, retryAt);
-	  if (!entry) return;
-	  const existed = !!faviconPersistQueue[key];
-	  faviconPersistQueue[key] = entry;
-	  if (!existed) faviconPersistQueueSize++;
-
-	  faviconDebugLog('persist failure queued', { domain: key, retryAt: entry.retryAt, reason: reason || '' });
 
 	  if (faviconPersistQueueSize >= 50) {
 	    flushFaviconPersistQueue();
@@ -1085,15 +1156,7 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	      }
 	      continue;
 	    }
-	    const normalized = normalizeFaviconDomain(lower);
-
-	    const variants = [lower];
-	    if (normalized && normalized !== lower) variants.push(normalized);
-
-	    // Compatibility: old caches might store `www.` variants even when current normalization strips them.
-	    if (normalized && normalized.indexOf('.') !== -1 && normalized !== 'localhost' && !isIpAddress(normalized)) {
-	      variants.push('www.' + normalized);
-	    }
+		    const variants = buildFaviconLookupKeys(lower);
 
 	    for (let j = 0; j < variants.length; j++) {
 	      const d = variants[j];
@@ -1176,7 +1239,6 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	    src: failingSrc,
 	    token: safeToken
 	  });
-	  queuePersistFaviconFailure(safeDomain, undefined, 'render-error');
 	}
 
 	function applyFaviconToImages(images, src, token) {
@@ -1213,28 +1275,7 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  const raw = typeof domain === 'string' ? domain.trim() : '';
 	  if (!raw) return '';
 
-	  const lower = raw.toLowerCase();
-	  if (isLikelyPrivateHost(lower)) {
-	    return faviconCache.get(lower) || '';
-	  }
-	  const normalized = normalizeFaviconDomain(lower);
-	  const root = getRootDomain(normalized || lower);
-	  const rootNormalized = root ? normalizeFaviconDomain(root) : '';
-
-	  const candidates = [];
-	  if (normalized) candidates.push(normalized);
-	  candidates.push(lower);
-
-	  if (normalized && normalized.indexOf('.') !== -1 && normalized !== 'localhost' && !isIpAddress(normalized)) {
-	    candidates.push('www.' + normalized);
-	  }
-
-	  if (rootNormalized) candidates.push(rootNormalized);
-	  if (rootNormalized && rootNormalized.indexOf('.') !== -1 && rootNormalized !== 'localhost' && !isIpAddress(rootNormalized)) {
-	    candidates.push('www.' + rootNormalized);
-	  }
-
-	  if (root) candidates.push(root);
+	  const candidates = buildFaviconLookupKeys(raw.toLowerCase());
 
 	  for (let i = 0; i < candidates.length; i++) {
 	    const key = candidates[i];
@@ -1287,11 +1328,14 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  const reqSeen = Object.create(null);
 	  for (let i = 0; i < domains.length; i++) {
 	    const domain = domains[i];
-	    if (!reqSeen[domain]) { reqSeen[domain] = true; requestDomains.push(domain); }
-	    if (isLikelyPrivateHost(domain)) continue;
-	    const root = getRootDomain(domain);
-	    if (root && !reqSeen[root]) { reqSeen[root] = true; requestDomains.push(root); }
-	  }
+		    const candidates = buildFaviconLookupKeys(domain);
+		    for (let j = 0; j < candidates.length; j++) {
+		      const candidate = candidates[j];
+		      if (reqSeen[candidate]) continue;
+		      reqSeen[candidate] = true;
+		      requestDomains.push(candidate);
+		    }
+		  }
 
 	  let persisted = {};
 	  try {
@@ -1386,10 +1430,6 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	            setFaviconCache(domain, safeUrl);
 	            applyFaviconToImages(domainToImages[domain], safeUrl, token);
 	            queuePersistFavicon(domain, safeUrl);
-	          } else {
-	            const retryAt = result && typeof result === 'object' ? result.retryAt : undefined;
-	            const reason = result && typeof result === 'object' ? result.reason : 'external-failed';
-	            queuePersistFaviconFailure(domain, retryAt, reason);
 	          }
 	          resolve();
 	        }, { allowBrowserCache: false, allowExternal: true, allowLocal: isLikelyPrivateHost(domain) });
@@ -1504,8 +1544,6 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	  const WARMUP_MAX_ATTEMPTS = 12;
 	  for (let i = 0; i < list.length; i++) {
 	    const domain = list[i];
-	    const retryAt = faviconWarmupRetryAt[domain] || 0;
-	    if (retryAt > now) continue;
 	    const lastAttemptAt = faviconWarmupLastAttemptAt[domain] || 0;
 	    if (lastAttemptAt > 0 && now - lastAttemptAt < WARMUP_MIN_INTERVAL_MS) continue;
 	    filtered.push(domain);
@@ -1550,19 +1588,11 @@ function buildFaviconFailureEntry(domain, retryAt) {
 	        reason
 	      });
 	      if (safeSrc && isLoadableIconSrc(safeSrc)) {
-	        delete faviconWarmupRetryAt[domain];
 	        setFaviconCache(domain, safeSrc);
 	        queuePersistFavicon(domain, safeSrc);
-	      } else {
-	        const retryAt = result && typeof result === 'object' ? result.retryAt : undefined;
-	        if (reason === 'origin-fast-fail') {
-	          faviconWarmupRetryAt[domain] = retryAt && retryAt > Date.now() ? retryAt : (Date.now() + 10 * 60 * 1000);
-	        }
-	        if (isPrivateHost) {
-	          faviconDebugLog('warmup private failure skipped', { domain, pageUrl, reason, retryAt: retryAt || 0 });
-	          continue;
-	        }
-	        queuePersistFaviconFailure(domain, retryAt, reason);
+	      } else if (isPrivateHost) {
+	        faviconDebugLog('warmup private failure skipped', { domain, pageUrl, reason });
+	        continue;
 	      }
 	      // Yield CPU between domains so warmup stays invisible to the user.
 	      if (nextIndex < filtered.length) await warmupDelay();
@@ -1663,6 +1693,7 @@ async function searchBookmarksInBackground(query) {
 	    filteredResults = [];
 	    selectedIndex = -1;
 	    cachedResultItems = null;
+	    prevSelectedIndex = -1;
 	    resultsContainer.innerHTML = "";
 
 	    const emptyMsg = document.createElement("div");
@@ -1683,6 +1714,7 @@ async function searchBookmarksInBackground(query) {
 	    resultsContainer.innerHTML = "";
 	    cachedResultItems = null;
 	    selectedIndex = -1;
+	    prevSelectedIndex = -1;
 	    if (searchInput) {
 	      searchInput.setAttribute('aria-expanded', 'false');
 	      searchInput.setAttribute('aria-activedescendant', '');
@@ -1696,7 +1728,8 @@ async function searchBookmarksInBackground(query) {
 // 显示搜索结果
 function displayResults(results) {
   resultsContainer.innerHTML = "";
-  cachedResultItems = null; // 清除缓存
+  cachedResultItems = null;
+  prevSelectedIndex = -1;
   const token = ++faviconRenderToken;
   faviconRenderFailureDomains = Object.create(null);
   const domainToImages = Object.create(null);
@@ -1731,17 +1764,12 @@ function displayResults(results) {
     favicon.addEventListener('error', handleRenderedFaviconError);
     resetFaviconImageErrorState(favicon, defaultIcon, token);
     favicon.src = defaultIcon;
-    let domain = "";
-    try { domain = new URL(bookmark.url).hostname; } catch (e) {}
-    if (domain) {
-      domain = String(domain || '').trim().toLowerCase();
-      let pageUrl = '';
-      try {
-        pageUrl = String(bookmark && bookmark.url ? bookmark.url : '');
-        pageUrl = pageUrl ? new URL(pageUrl).href : '';
-      } catch (e) {}
-      const key = buildFaviconServiceKey(domain, pageUrl);
-      const resolvedPageUrl = pageUrl || ("https://" + (key || domain));
+    let parsedUrl = null;
+    try { parsedUrl = new URL(bookmark.url); } catch (e) {}
+    if (parsedUrl && parsedUrl.hostname) {
+      const pageUrl = parsedUrl.href;
+      const key = buildFaviconServiceKey(pageUrl);
+      const resolvedPageUrl = pageUrl || ("https://" + (key || parsedUrl.hostname));
       setFaviconImageContext(favicon, key, resolvedPageUrl, token);
       // 优先使用内存缓存（包括 data: 和外部 URL），避免二次搜索延迟
       const cachedSrc = getCachedFaviconForDomain(key);
@@ -1764,29 +1792,22 @@ function displayResults(results) {
     const title = document.createElement("div");
     title.className = "bookmark-title";
     title.textContent = bookmark.title;
+    textContainer.appendChild(title);
+
+    if (bookmark.path) {
+      const pathEl = document.createElement("div");
+      pathEl.className = "bookmark-path";
+      pathEl.textContent = bookmark.path;
+      textContainer.appendChild(pathEl);
+    }
 
     const url = document.createElement("div");
     url.className = "bookmark-url";
     url.textContent = bookmark.url;
-
-    textContainer.appendChild(title);
     textContainer.appendChild(url);
 
     item.appendChild(favicon);
     item.appendChild(textContainer);
-
-    // 鼠标悬停时更新选中项
-    item.addEventListener("mouseenter", () => {
-      if (!lastPointerMoveAt || Date.now() - lastPointerMoveAt > 200) return;
-      selectedIndex = index;
-      // Hover 只更新高亮，不应改变滚动位置（否则会出现“列表顶部跳到当前悬浮项”的体验）
-      updateSelection({ scroll: false });
-    });
-
-    item.addEventListener("click", (e) => {
-      // 按住 Ctrl/Cmd 时在当前页打开，否则在新标签打开
-      openBookmark(bookmark, !(e.ctrlKey || e.metaKey));
-    });
 
     fragment.appendChild(item);
   });
@@ -1825,17 +1846,17 @@ function displayResults(results) {
     if (externalFaviconFailTimestamps.length >= 20 && now >= externalFaviconCircuitUntil) {
       // 10 秒内失败 >= 20 次，30 秒内不再请求外部 favicon
       externalFaviconCircuitUntil = now + 30000;
+      externalFaviconFailTimestamps = []; // 重置计数，避免恢复后残留旧记录干扰
     }
   }
 
-function loadFavicon(domain, pageUrl, callback, options) {
-  // 提取一级域名（IP/localhost 直接返回自身）
-  var rootDomain = getRootDomain(domain);
-  var isSubdomain = rootDomain && domain !== rootDomain;
-  var localProbeStatusCache = Object.create(null);
+	function loadFavicon(domain, pageUrl, callback, options) {
+	  // 提取一级域名（IP/localhost 直接返回自身）
+	  var rootDomain = getRootDomain(domain);
+	  var isSubdomain = rootDomain && domain !== rootDomain;
 
-  var allowExternal = !options || options.allowExternal !== false;
-  var allowBrowserCache = !options || options.allowBrowserCache !== false;
+	  var allowExternal = !options || options.allowExternal !== false;
+	  var allowBrowserCache = !options || options.allowBrowserCache !== false;
   var allowLocal = !!(options && options.allowLocal);
   var safePageUrl = pageUrl ? String(pageUrl) : '';
   var done = false;
@@ -1877,30 +1898,13 @@ function loadFavicon(domain, pageUrl, callback, options) {
     });
   }
 
-  function probeLocalFaviconStatus(url) {
-    var safeUrl = typeof url === 'string' ? url : '';
-    if (!safeUrl) return Promise.resolve({ success: true, status: 0, isFastFailStatus: false });
-    if (localProbeStatusCache[safeUrl]) return localProbeStatusCache[safeUrl];
-    localProbeStatusCache[safeUrl] = sendMessagePromise({ action: MESSAGE_ACTIONS.PROBE_FAVICON_URL_STATUS, url: safeUrl }, 2500)
-      .then(function(response) {
-        return {
-          success: !!(response && response.success),
-          status: response && typeof response.status === 'number' ? response.status : 0,
-          isFastFailStatus: !!(response && response.isFastFailStatus)
-        };
-      })
-      .catch(function() {
-        return { success: false, status: 0, isFastFailStatus: false };
-      });
-    return localProbeStatusCache[safeUrl];
-  }
-
-  // 构建源列表：优先浏览器 favicon 缓存，再按需降级第三方源。
+	  // 构建源列表：优先浏览器 favicon 缓存，再按需降级第三方源。
   // 注意：不要直接请求站点自身 /favicon.ico（会触发 Mixed Content、证书错误、CORP 阻断等，且在 https 页面里 http 图标会被自动升级导致失败）。
   var sources = [];
 
-  // 对局域网/私有主机：不走第三方 favicon 服务（一般会 404，且有隐私泄露）
-  var isPrivateHost = isLikelyPrivateHost(domain);
+	  // 对局域网/私有主机：不走第三方 favicon 服务（一般会 404，且有隐私泄露）
+	  var isPrivateHost = isLikelyPrivateHost(domain);
+	  var allowRootDomainExternalFallback = !!(isSubdomain && rootDomain && !isKnownMultiTenantFaviconHost(rootDomain));
 
   faviconDebugLog('start', { domain: domain, pageUrl: safePageUrl, isPrivateHost: isPrivateHost, allowBrowserCache: allowBrowserCache, allowExternal: allowExternal, allowLocal: allowLocal });
 
@@ -1929,19 +1933,19 @@ function loadFavicon(domain, pageUrl, callback, options) {
   if (allowExternal && !isPrivateHost) {
     // DDG
     appendUniqueCandidate(sources, "https://icons.duckduckgo.com/ip3/" + domain + ".ico");
-    if (isSubdomain) {
+    if (allowRootDomainExternalFallback) {
       appendUniqueCandidate(sources, "https://icons.duckduckgo.com/ip3/" + rootDomain + ".ico");
     }
 
     // Google
     appendUniqueCandidate(sources, "https://www.google.com/s2/favicons?domain=" + domain + "&sz=32");
-    if (isSubdomain) {
+    if (allowRootDomainExternalFallback) {
       appendUniqueCandidate(sources, "https://www.google.com/s2/favicons?domain=" + rootDomain + "&sz=32");
     }
 
     // Faviconkit
     appendUniqueCandidate(sources, "https://api.faviconkit.com/" + domain + "/32");
-    if (isSubdomain) {
+    if (allowRootDomainExternalFallback) {
       appendUniqueCandidate(sources, "https://api.faviconkit.com/" + rootDomain + "/32");
     }
   }
@@ -1973,16 +1977,17 @@ function loadFavicon(domain, pageUrl, callback, options) {
           faviconDebugLog('possible mixed-content local favicon', { domain: domain, pageUrl: safePageUrl, currentPageProtocol: window.location.protocol, url: url });
         }
       } catch (e) {}
+      var img = new Image();
       var timer = setTimeout(function() {
         if (settled) return;
         settled = true;
         img.onload = null;
         img.onerror = null;
+        img.src = ''; // 中止正在进行的网络请求
         faviconDebugLog('timeout', { domain: domain, url: url, idx: idx, timeoutMs: timeoutMs });
         tryLoad(idx + 1);
       }, timeoutMs);
 
-      var img = new Image();
       img.onload = function() {
         if (settled) return;
         settled = true;
@@ -2000,6 +2005,7 @@ function loadFavicon(domain, pageUrl, callback, options) {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        img.src = ''; // 确保浏览器不会继续重试
         if (isThirdParty) recordExternalFaviconFailure();
         faviconDebugLog('error', { domain: domain, url: url, idx: idx, isThirdParty: isThirdParty });
         tryLoad(idx + 1);
@@ -2007,28 +2013,8 @@ function loadFavicon(domain, pageUrl, callback, options) {
       img.src = url;
     }
 
-    if (!isThirdParty) {
-      probeLocalFaviconStatus(url).then(function(probe) {
-        if (done) return;
-        if (probe && probe.isFastFailStatus) {
-          faviconDebugLog('local probe fast-fail abort site', {
-            domain: domain,
-            url: url,
-            idx: idx,
-            status: probe.status || 0
-          });
-          finishFailure('origin-fast-fail');
-          return;
-        }
-        startImageLoad();
-      }).catch(function() {
-        startImageLoad();
-      });
-      return;
-    }
-
-    startImageLoad();
-  }
+	    startImageLoad();
+	  }
 
   if (allowBrowserCache && safePageUrl) {
     fetchBrowserFaviconForPageUrl(safePageUrl)
@@ -2089,6 +2075,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true, message: "搜索框已切换" });
     } catch (error) {
       console.error("[Content] toggleSearch 执行失败:", error);
+      resetSearchUiState();
       sendResponse({ success: false, error: error.message });
     }
     return true; // 表示会异步调用 sendResponse
@@ -2135,13 +2122,7 @@ function init() {
     console.log("[Content] 初始化完成");
   } catch (error) {
     console.error("[Content] 初始化失败:", error);
-    try { if (searchOverlay) searchOverlay.remove(); } catch (e) {}
-    searchContainer = null;
-    searchOverlay = null;
-    searchInput = null;
-    resultsContainer = null;
-    filteredResults = [];
-    selectedIndex = -1;
+    resetSearchUiState();
   }
 }
 
