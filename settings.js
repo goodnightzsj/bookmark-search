@@ -1,7 +1,7 @@
 import { initThemeSelector } from './settings-theme.js';
 import { loadShortcutInfo, bindShortcutEvents } from './settings-shortcuts.js';
 import { loadSyncSettings, loadBookmarkStats, bindSyncEvents } from './settings-sync.js';
-import { loadUpdateHistory, bindHistoryEvents, showUpdateNotification } from './settings-history.js';
+import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpdateNotification } from './settings-history.js';
 
 console.log("[Settings] settings.js 开始加载 (主入口)");
 
@@ -62,8 +62,12 @@ function setupStorageListener() {
       console.log("[Settings] 检测到书签历史变化，重新加载历史");
       loadUpdateHistory();
       
-      // 显示更新提示
-      showUpdateNotification();
+      const nextHistory = changes.bookmarkHistory.newValue;
+      if (Array.isArray(nextHistory) && nextHistory.length > 0) {
+        showUpdateNotification();
+      } else {
+        clearUpdateNotification();
+      }
     }
   });
 

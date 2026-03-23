@@ -6,7 +6,7 @@ The extension uses two storage layers: chrome.storage.local for metadata and set
 
 ## 2. Source of Truth
 
-- **Primary Code:** `storage-service.js` - STORAGE_KEYS and DEFAULTS definitions, including migration metadata keys and strict storage-write helper.
+- **Primary Code:** `storage-service.js` - STORAGE_KEYS and DEFAULTS definitions, plus permissive vs strict storage read/write helpers (`getStorage`, `getStorageWithStatus`, `getStorageOrThrow`, `setStorageOrThrow`).
 - **IDB Service:** `idb-service.js` - Database configuration and multi-store accessors (`kv`, `documents`, `meta`).
 - **Migration Runner:** `migration-service.js` - schema migration, asset normalization, cache cleanup, bookmark-to-document migration, and V3 legacy bookmark-key cleanup.
 - **Integration:** `background-data.js` - documents-first bookmark persistence with derived bookmark runtime compatibility view.
@@ -54,6 +54,8 @@ Notes:
 - Bookmark persistence is now documents-first: the `documents` store is the durable bookmark source, while background runtime state keeps `documents` as the primary in-memory cache and derives bookmark arrays plus a bookmark-id index only for compatibility with incremental update and compare logic.
 - Schema V3 removes legacy `kv/cachedBookmarks` and `kv/cachedBookmarksTime` keys after the documents store takeover.
 - Startup migration writes schema state to both `chrome.storage.local` and IDB `meta/schemaVersion`; migration-critical storage writes now use strict failure semantics and debug clients can query raw state through `GET_MIGRATION_STATUS`.
+- `bookmarksMeta`, `bookmarkCount`, `lastSyncTime`, and `bookmarkHistory` are treated as one metadata mirror set. Background consistency repair rewrites them together when any key drifts or a storage read fails.
+- Metadata mirror writes retry once before giving up, and runtime `lastSyncTime` only advances after the write succeeds.
 - Persisted favicon success entries are reused without read-time TTL. Browser-provided favicon cache in `background-messages.js` is an in-memory SW LRU keyed by exact favicon service key (`host` / `host:port`) and lives until evicted by capacity or Service Worker restart.
 - Private hosts (`localhost`, IPv4, `.local/.lan/.internal/...`) still use a 1200ms browser-favicon fetch timeout and placeholder rejection.
 - Content-side in-memory and persisted favicon lookups now use the same exact service-key semantics as background-side lookup, with compatibility reads for older root-based entries.
@@ -63,3 +65,4 @@ Notes:
 - Background-side favicon host/service-key normalization now also uses the shared `utils.js` helpers, reducing drift between persistence, browser-favicon cache, warmup, and content-side lookup rules.
 - Documents consistency repair uses an order-insensitive fingerprint summary before backfilling IndexedDB, so reordering without content change is less likely to trigger unnecessary repairs. Search reads the runtime `documents` cache first, then lazily rehydrates it from IndexedDB when needed before falling back to `chrome.bookmarks.search`.
 - Background message success replies are now normalized through a local helper while preserving the existing `{ success: true, ...payload }` wire contract.
+- Theme reads use strict storage access in user-facing pages and fall back to the localStorage theme cache only when the storage read actually fails.

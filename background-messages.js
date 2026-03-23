@@ -3,7 +3,7 @@ import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
-import { buildFaviconServiceKey, isIpAddress, isLikelyPrivateHost, normalizeFaviconHost, getHostForPrivateCheck } from './utils.js';
+import { buildFaviconLookupKeys, buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
 import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
@@ -12,9 +12,8 @@ const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 // We keep a small in-memory LRU so repeated searches across tabs/pages don't re-fetch + re-base64 the same icon.
 // Entries stay in memory until evicted by LRU or the service worker restarts.
 const BROWSER_FAVICON_CACHE_MAX_SIZE = 800;
-const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 250;
+const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 500;
 const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = 1200;
-const FAVICON_STATUS_PROBE_TIMEOUT_MS = 1200;
 const PERSISTED_FAVICON_FAILURE_TTL_MS = 10 * 60 * 1000; // 10m
 const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = 10 * 60 * 1000; // 10m
 const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = 24 * 60 * 60 * 1000; // 24h
@@ -60,6 +59,11 @@ function getCachedBrowserFaviconSrc(key) {
 function setCachedBrowserFaviconSrc(key, src, isPlaceholder = false) {
   if (!key) return;
   const safeSrc = typeof src === 'string' ? src : '';
+
+  if (!safeSrc) {
+    browserFaviconCache.delete(key);
+    return;
+  }
 
   browserFaviconCache.delete(key);
   browserFaviconCache.set(key, { src: safeSrc, isPlaceholder: !!isPlaceholder });
@@ -264,63 +268,37 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-async function probeFaviconUrlStatus(url) {
-  const safeUrl = typeof url === 'string' ? url.trim() : '';
-  if (!safeUrl) return { success: true, status: 0, isFastFailStatus: false };
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FAVICON_STATUS_PROBE_TIMEOUT_MS);
-  try {
-    const res = await fetch(safeUrl, {
-      method: 'HEAD',
-      mode: 'no-cors',
-      redirect: 'follow',
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-    const status = res && typeof res.status === 'number' ? res.status : 0;
-    return {
-      success: true,
-      status,
-      isFastFailStatus: (status >= 500 && status < 600) || status === 429 || status === 421
-    };
-  } catch (error) {
-    return {
-      success: false,
-      status: 0,
-      isFastFailStatus: false,
-      error: normalizeUnknownError(error)
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function loadFaviconsForResults(results) {
   if (!Array.isArray(results) || results.length === 0) return {};
 
-  const domainSet = new Set();
+  const lookupKeysByResult = new Map();
+  const lookupSet = new Set();
   for (const item of results) {
     if (!item || typeof item.url !== 'string') continue;
     try {
       const key = buildFaviconServiceKey(item.url);
-      if (key) domainSet.add(key);
+      if (!key) continue;
+      const candidates = buildFaviconLookupKeys(item.url);
+      lookupKeysByResult.set(key, candidates);
+      for (const candidate of candidates) lookupSet.add(candidate);
     } catch (e) { /* skip invalid URLs */ }
   }
 
-  if (domainSet.size === 0) return {};
+  if (lookupSet.size === 0) return {};
 
-  const domains = Array.from(domainSet);
-  const keys = domains.map((d) => IDB_KEY_PREFIX_FAVICON + d);
+  const keys = Array.from(lookupSet).map((d) => IDB_KEY_PREFIX_FAVICON + d);
 
   try {
     const result = await idbGetMany(keys);
     const favicons = {};
-    for (const domain of domains) {
-      const entry = result ? result[IDB_KEY_PREFIX_FAVICON + domain] : undefined;
-      const state = getPersistedFaviconEntryState(entry, domain);
-      if (state.kind !== 'success') continue;
-      favicons[domain] = state.entry;
+    for (const [domain, candidates] of lookupKeysByResult.entries()) {
+      for (const candidate of candidates) {
+        const entry = result ? result[IDB_KEY_PREFIX_FAVICON + candidate] : undefined;
+        const state = getPersistedFaviconEntryState(entry, candidate);
+        if (state.kind !== 'success') continue;
+        favicons[domain] = state.entry;
+        break;
+      }
     }
     return favicons;
   } catch (e) {
@@ -657,28 +635,6 @@ export function handleMessage(request, sender, sendResponse) {
           idbSetMany(migrations)
             .then(finish)
             .catch(() => finish());
-        })
-        .catch((error) => {
-          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
-        });
-
-      return true;
-    }
-
-    case MESSAGE_ACTIONS.PROBE_FAVICON_URL_STATUS: {
-      const url = typeof (request && request.url) === 'string' ? request.url.trim() : '';
-      if (!url) {
-        sendOkResponse(sendResponse, { status: 0, isFastFailStatus: false });
-        return false;
-      }
-
-      probeFaviconUrlStatus(url)
-        .then((result) => {
-          sendOkResponse(sendResponse, {
-            status: result.status || 0,
-            isFastFailStatus: !!result.isFastFailStatus,
-            error: result.error || ''
-          });
         })
         .catch((error) => {
           sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));

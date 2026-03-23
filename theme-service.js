@@ -3,7 +3,7 @@
  * 整合 theme-loader.js 和 settings-theme.js 的共享常量
  */
 
-import { getValue, setValue, STORAGE_KEYS } from './storage-service.js';
+import { getValueOrThrow, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 // 可用主题配置
 export const THEMES = {
@@ -41,13 +41,14 @@ export const THEME_CACHE_KEY = 'bookmark-search-theme';
  */
 export async function getCurrentTheme() {
   try {
-    const theme = await getValue(STORAGE_KEYS.THEME);
+    const theme = await getValueOrThrow(STORAGE_KEYS.THEME);
     const validTheme = THEMES[theme] ? theme : DEFAULT_THEME;
     // 同步到 localStorage 作为缓存
     localStorage.setItem(THEME_CACHE_KEY, validTheme);
     return validTheme;
   } catch (e) {
-    return localStorage.getItem(THEME_CACHE_KEY) || DEFAULT_THEME;
+    const cachedTheme = localStorage.getItem(THEME_CACHE_KEY);
+    return THEMES[cachedTheme] ? cachedTheme : DEFAULT_THEME;
   }
 }
 
@@ -63,7 +64,7 @@ export async function saveTheme(themeName) {
   }
   
   // 先写 chrome.storage；成功后再更新 localStorage 保持一致性
-  await setValue(STORAGE_KEYS.THEME, themeName);
+  await setStorageOrThrow({ [STORAGE_KEYS.THEME]: themeName });
   localStorage.setItem(THEME_CACHE_KEY, themeName);
   
   return true;

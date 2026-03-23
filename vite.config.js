@@ -1,59 +1,6 @@
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
-import obfuscatorPlugin from 'javascript-obfuscator';
 import { resolve } from 'path';
-
-// 自定义插件来调用 javascript-obfuscator
-function obfuscator(options = {}) {
-  function injectWindowAliasAfterImports(code) {
-    const injection = 'var window=globalThis;';
-
-    if (code.includes(injection)) return code;
-
-    let index = 0;
-    if (code.charCodeAt(0) === 0xFEFF) index = 1; // BOM
-
-    const isWhitespace = (ch) => ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t';
-
-    while (index < code.length && isWhitespace(code[index])) index++;
-
-    // Keep ESM valid: imports must stay at the top of the module.
-    while (code.startsWith('import', index) && code[index + 6] !== '(') {
-      const semi = code.indexOf(';', index);
-      if (semi === -1) break;
-      index = semi + 1;
-      while (index < code.length && isWhitespace(code[index])) index++;
-    }
-
-    return code.slice(0, index) + injection + code.slice(index);
-  }
-
-  return {
-    name: 'vite-plugin-obfuscator',
-    apply: 'build',
-    enforce: 'post', // 在构建后期执行
-    transform(code, id) {
-      if (/\.js$/.test(id) && !id.includes('node_modules')) {
-        const result = obfuscatorPlugin.obfuscate(code, options);
-        return {
-          code: result.getObfuscatedCode(),
-          map: null // 禁用 sourcemap 增加安全性
-        };
-      }
-    }
-    ,
-    renderChunk(code, chunk) {
-      if (!chunk || !chunk.fileName || !chunk.fileName.endsWith('.js')) return null;
-      // content.js 运行在网页上下文中，window 天然存在；
-      // 注入 var window=globalThis 会在 Terser 压缩后与混淆器变量名冲突
-      if (chunk.fileName === 'content.js') return null;
-      return {
-        code: injectWindowAliasAfterImports(code),
-        map: null
-      };
-    }
-  };
-}
 
 export default defineConfig({
   build: {
@@ -102,29 +49,6 @@ export default defineConfig({
         { src: 'LICENSE', dest: '.' },
         { src: '_locales', dest: '.' }
       ]
-    }),
-    // 使用自定义混淆插件
-    obfuscator({
-      compact: true,
-      controlFlowFlattening: true,
-      controlFlowFlatteningThreshold: 0.75,
-      numbersToExpressions: true,
-      simplify: true,
-      stringArray: true,
-      // Keep string array encoding, but ensure runtime works in ESM (MV3 service worker is a module).
-      // A small `window` alias is injected at build time (see renderChunk) so the runtime can safely access atob.
-      stringArrayEncoding: 'rc4',
-      stringArrayThreshold: 0.75,
-      splitStrings: true,
-      unicodeEscapeSequence: false,
-      renameGlobals: false,
-      identifierNamesGenerator: 'hexadecimal',
-      // 关键修正：
-      target: 'browser-no-eval', // 避免使用 eval，兼容性更好
-      selfDefending: false,      // 禁用自我防御（通常依赖 window）
-      domainLock: [],            // 禁用域名锁定
-      debugProtection: false,    // 禁用调试保护（依赖 debugger 语句）
-      disableConsoleOutput: false // 允许 console（可选，方便调试）
     })
   ]
 });

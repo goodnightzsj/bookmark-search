@@ -10,7 +10,6 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "javascript-obfuscator": "^0.25.0",
     "terser": "^5.44.1",
     "vite": "^5.0.0",
     "vite-plugin-static-copy": "^1.0.0"

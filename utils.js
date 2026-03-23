@@ -104,6 +104,19 @@ const MULTI_PART_PUBLIC_SUFFIXES = new Set([
   'com.br', 'com.mx', 'com.tr'
 ]);
 
+const MULTI_TENANT_FAVICON_SUFFIXES = new Set([
+  'github.io',
+  'pages.dev',
+  'vercel.app',
+  'netlify.app',
+  'workers.dev',
+  'web.app',
+  'firebaseapp.com',
+  'blogspot.com',
+  'herokuapp.com',
+  'azurewebsites.net'
+]);
+
 export function isIpAddress(host) {
   const safe = typeof host === 'string' ? host.trim() : '';
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(safe)) return false;
@@ -151,8 +164,82 @@ export function isLikelyPrivateHost(host) {
 export function normalizeFaviconHost(host) {
   const safe = typeof host === 'string' ? host.trim().toLowerCase() : '';
   if (!safe) return '';
+  return safe.endsWith('.') ? safe.slice(0, -1) : safe;
+}
+
+export function isKnownMultiTenantFaviconHost(host) {
+  const safe = getHostForPrivateCheck(host);
+  if (!safe) return false;
   const withoutWww = safe.startsWith('www.') ? safe.slice(4) : safe;
+  for (const suffix of MULTI_TENANT_FAVICON_SUFFIXES) {
+    if (withoutWww === suffix || withoutWww.endsWith(`.${suffix}`)) return true;
+  }
+  return false;
+}
+
+export function getLegacyFaviconKey(host) {
+  const exact = normalizeFaviconHost(host);
+  const hostname = getHostForPrivateCheck(exact);
+  if (!exact || !hostname) return '';
+  if (isLikelyPrivateHost(hostname)) return exact;
+  if (exact !== hostname) return '';
+
+  const withoutWww = hostname.startsWith('www.') ? hostname.slice(4) : hostname;
+  if (!withoutWww) return '';
+  if (isKnownMultiTenantFaviconHost(withoutWww)) return '';
   return getRootDomain(withoutWww) || withoutWww;
+}
+
+export function buildFaviconLookupKeys(value) {
+  const safe = typeof value === 'string' ? value.trim() : '';
+  if (!safe) return [];
+
+  let exact = '';
+  let hostname = '';
+  try {
+    if (safe.indexOf('://') !== -1) {
+      const url = new URL(safe);
+      exact = normalizeFaviconHost(url.host || url.hostname);
+      hostname = normalizeFaviconHost(url.hostname || '');
+    } else {
+      exact = normalizeFaviconHost(safe);
+      hostname = normalizeFaviconHost(getHostForPrivateCheck(safe));
+    }
+  } catch (e) {
+    exact = normalizeFaviconHost(safe);
+    hostname = normalizeFaviconHost(getHostForPrivateCheck(safe));
+  }
+
+  if (!exact) return [];
+
+  const keys = [];
+  const seen = new Set();
+  const push = (entry) => {
+    const candidate = normalizeFaviconHost(entry);
+    if (!candidate || seen.has(candidate)) return;
+    seen.add(candidate);
+    keys.push(candidate);
+  };
+
+  push(exact);
+
+  if (hostname && exact === hostname && !isLikelyPrivateHost(hostname)) {
+    const withoutWww = hostname.startsWith('www.') ? hostname.slice(4) : hostname;
+    if (withoutWww && withoutWww !== hostname) push(withoutWww);
+    if (withoutWww && withoutWww.indexOf('.') !== -1 && !hostname.startsWith('www.') && !isKnownMultiTenantFaviconHost(withoutWww)) {
+      push(`www.${withoutWww}`);
+    }
+
+    const legacy = getLegacyFaviconKey(hostname);
+    if (legacy && legacy !== hostname) {
+      push(legacy);
+      if (legacy.indexOf('.') !== -1 && !legacy.startsWith('www.')) {
+        push(`www.${legacy}`);
+      }
+    }
+  }
+
+  return keys;
 }
 
 export function buildFaviconServiceKey(pageUrl) {
@@ -160,10 +247,7 @@ export function buildFaviconServiceKey(pageUrl) {
   if (!safe) return '';
   try {
     const url = new URL(safe);
-    const host = (url.host || '').trim().toLowerCase();
-    const hostname = (url.hostname || '').trim().toLowerCase();
-    if (host && isLikelyPrivateHost(hostname || host)) return host;
-    return normalizeFaviconHost(hostname);
+    return normalizeFaviconHost(url.host || url.hostname);
   } catch (e) {
     return '';
   }

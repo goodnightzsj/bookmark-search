@@ -5,26 +5,27 @@
 | Setting | Location | Options | Default | Storage Key |
 |---------|----------|---------|---------|-------------|
 | Theme | Theme card | original, minimal, glass, dark | original | `STORAGE_KEYS.THEME` |
-
-Theme changes now update a fully themed settings page: theme chooser, shortcut panel, sync stats, strategy rows, maintenance card, history toolbar/list, and about section all follow the active theme.
 | Sync Interval | Sync card dropdown | 5/10/15/30/60/120/360/720/1440 min, 0 (disabled) | 30 | `STORAGE_KEYS.SYNC_INTERVAL` |
 | Bookmark Cache TTL | Sync card dropdown | 30/60/360/720/1440 min | 30 | `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` |
 | Favicon Cache Clear | Sync card button | Manual clear | - | Message action `CLEAR_FAVICON_CACHE` |
 | Keyboard Shortcut | Shortcuts card | Read-only (modify via Chrome) | - | `chrome.commands` |
 
+Theme changes now update a fully themed settings page: theme chooser, shortcut panel, sync stats, strategy rows, maintenance card, history toolbar/list, and about section all follow the active theme.
+Theme writes now use strict storage semantics; failed writes surface an error instead of leaving the selector in a false-success state.
+
 ## Configure Sync Interval
 
 1. Open settings page via popup or `chrome-extension://[id]/settings.html`.
 2. Locate "书签同步设置" card, find the dropdown `#syncInterval`.
-3. Select desired interval. `settings-sync.js:130-143` saves to storage and sends `MESSAGE_ACTIONS.SET_SYNC_INTERVAL` to background.
-4. Background service worker updates `chrome.alarms` schedule.
+3. Select desired interval. `settings-sync.js` sends `MESSAGE_ACTIONS.SET_SYNC_INTERVAL` to background and treats any missing/failed runtime response as an error.
+4. Background service worker persists the new interval and updates `chrome.alarms` schedule in the same flow.
 5. Verify: "下次同步时间" display updates immediately.
 
 ## Configure Main Cache TTL
 
 1. In "书签同步设置", locate dropdown `#bookmarkCacheTtl`.
 2. Choose one of 30 分钟 / 1 小时 / 6 小时 / 12 小时 / 24 小时.
-3. `settings-sync.js:162-177` writes `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` to `chrome.storage.local`.
+3. `settings-sync.js` writes `STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES` with strong failure semantics; on failure the select is reloaded back to the persisted value.
 4. Search path (`background-data.js:627-636`) reads this value and compares against `lastSyncTime`.
 5. If stale, it triggers `refreshBookmarks()` asynchronously (non-blocking), so current search result returns immediately and data self-heals in background.
 
@@ -41,8 +42,15 @@ Theme changes now update a fully themed settings page: theme chooser, shortcut p
 1. Scroll to "书签更新历史" card.
 2. Click "导出书签" button to enter export mode (`settings-history.js:281-302`).
 3. Use "全选" / "取消全选" or click individual items to select.
-4. Click "导出选中" to generate Netscape HTML file (`bookmark-export.js`).
+4. Click "导出选中" to generate Netscape HTML file (`bookmark-export.js`). Duplicate URLs are preserved if they came from different history entries.
 5. File downloads as `bookmarks_export.html`, importable to any browser.
+
+## Clear History
+
+1. In the history card, click "清空历史记录".
+2. The settings page sends `MESSAGE_ACTIONS.CLEAR_HISTORY` to background instead of mutating storage locally.
+3. Background serializes clear-history with refresh/incremental sync work, so clear and sync cannot race.
+4. If the storage write fails, in-memory history is rolled back and the settings page shows an error.
 
 ## Add a New Setting
 

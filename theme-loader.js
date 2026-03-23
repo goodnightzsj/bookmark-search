@@ -21,7 +21,14 @@ export async function setTheme(themeName) {
   if (!THEMES[themeName]) themeName = DEFAULT_THEME;
   lastAppliedBySetTheme = themeName;
   // 保存设置（委托给 theme-service）
-  await saveTheme(themeName);
+  try {
+    await saveTheme(themeName);
+  } catch (error) {
+    if (lastAppliedBySetTheme === themeName) {
+      lastAppliedBySetTheme = '';
+    }
+    throw error;
+  }
   applyTheme(themeName);
 }
 

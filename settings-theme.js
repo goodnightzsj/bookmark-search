@@ -19,7 +19,12 @@ export async function initThemeSelector() {
     if (!option) return;
     
     const theme = option.dataset.theme;
-    await setTheme(theme);
-    console.log("[Settings] 主题已切换为:", theme);
+    try {
+      await setTheme(theme);
+      console.log("[Settings] 主题已切换为:", theme);
+    } catch (error) {
+      console.error("[Settings] 主题切换失败:", error);
+      alert('设置失败：' + (error && error.message ? error.message : String(error)));
+    }
   });
 }

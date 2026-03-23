@@ -7,7 +7,7 @@
 
 ## 2. Core Components
 
-- `storage-service.js` (STORAGE_KEYS, DEFAULTS, getStorage, setStorage, setStorageOrThrow, getValue, setValue): Wraps chrome.storage.local with type-safe defaults and unified error handling, including schema/migration metadata keys.
+- `storage-service.js` (STORAGE_KEYS, DEFAULTS, getStorage, getStorageWithStatus, getStorageOrThrow, setStorage, setStorageOrThrow, getValue, getValueOrThrow, setValue): Wraps chrome.storage.local with type-safe defaults plus two read modes: permissive default fallback for non-critical reads and strict throw-on-failure reads for migration/UI paths. It also provides strong write semantics through `setStorageOrThrow`.
 - `idb-service.js` (idbGet, idbGetMany, idbSet, idbSetMany, idbGetAllDocuments, idbReplaceDocuments, idbPatchDocuments, idbGetMeta, idbSetMeta): IndexedDB access layer. The active bookmark persistence is now the `documents` store, while `kv` remains for non-bookmark keyed records such as favicon and warmup snapshots. `idbPatchDocuments` provides incremental document upsert/delete within a single transaction.
 - `migration-service.js` (`ensureSchemaReady`, `getMigrationStatus`): Version migration runner. Normalizes persisted assets, migrates legacy bookmark cache into `documents`, clears transient caches, and in V3 removes the old bookmark-array keys from `kv`.
 - `background-data.js` (loadCacheFromStorage, saveToStorage): Orchestrates documents-first bookmark cache read/write through a single runtime state container, keeps a derived bookmark-shaped compatibility view plus bookmark-id index for incremental update paths, and syncs metadata into chrome.storage.local.
@@ -29,15 +29,15 @@
 
 - **1. Entry:** `loadCacheFromStorage` reads bookmark history/meta from chrome.storage.local and bookmark records from IndexedDB `documents`.
 - **2. Runtime Shape:** `background-data.js` restores `documents` into a runtime state container, then derives a bookmark-shaped compatibility view and bookmark-id index for compare and incremental event code paths while keeping `documents` as the primary in-memory source.
-- **3. Fallback:** If `documents` is empty, runtime cache stays empty and normal startup/search fallback logic triggers a fresh bookmark rebuild.
+- **3. Fallback:** If `documents` is empty, runtime cache stays empty and normal startup/search fallback logic triggers a fresh bookmark rebuild. When `lastSyncTime` is missing but `bookmarksMeta.updatedAt` is present, runtime sync time falls back to metadata instead of treating cache age as unknown.
 - **4. Result:** Persisted bookmark truth is documents-only; chrome.storage.local only mirrors metadata, and runtime search can rehydrate the in-memory documents cache from IndexedDB before using the native Chrome API fallback.
 
 ### Write Path (Bookmark Save)
 
 - **1. Entry:** `saveToStorage` remains the main write path after full/incremental sync.
 - **2. Primary Persistence:** Runtime bookmark changes are normalized into `SearchDocument` records. Full refresh uses `idbReplaceDocuments` (clear + put all); incremental updates use `idbPatchDocuments` (put changed + delete removed) with automatic full-replace fallback on failure.
-- **3. Metadata Write:** chrome.storage.local stores only count/history/lastSync/meta for UI and bootstrapping. The legacy `bookmarks` key still exists as a compatibility/default slot, but the active save path no longer writes full bookmark arrays there. Metadata writes now happen only after `documents` persistence succeeds, avoiding “meta new / documents old” split-brain.
-- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys. Drift detection now checks both count and an order-insensitive document fingerprint summary, not just array length, so harmless document ordering differences are less likely to trigger false repairs.
+- **3. Metadata Write:** chrome.storage.local stores only count/history/lastSync/meta for UI and bootstrapping. The legacy `bookmarks` key still exists as a compatibility/default slot, but the active save path no longer writes full bookmark arrays there. Metadata writes now happen only after `documents` persistence succeeds, retry once on failure, and only then advance runtime `lastSyncTime`, avoiding both “meta new / documents old” and “documents new / runtime mirror old” split-brain.
+- **4. Consistency Repair:** `ensureCacheConsistency` backfills `documents` and storage metadata when drift is detected; it no longer backfills legacy bookmark-array keys. Drift detection now checks the whole storage mirror set (`bookmarksMeta`, `bookmarkCount`, `lastSyncTime`, `bookmarkHistory`) plus an order-insensitive document fingerprint summary, so harmless document ordering differences are less likely to trigger false repairs.
 
 ### Favicon Cache Path
 
@@ -50,10 +50,12 @@
 - **Dual-layer architecture** avoids chrome.storage.local quota limits (~5MB) by offloading large bookmark data to IndexedDB.
 - **Documents-first persistence** makes the new search model the single durable bookmark source, while keeping a lightweight derived bookmark runtime view for compatibility with existing algorithms.
 - **chrome.storage.local** remains source of truth for metadata (count, sync time, theme) plus migration state because it is available very early in Service Worker startup.
+- **Strict read semantics** keep migration and user-facing settings from silently treating transient `chrome.storage` failures as default values.
 - **Singleton DB connection** (`dbPromise` pattern) prevents connection leaks in Service Worker lifecycle.
 - **Graceful degradation** ensures functionality even when IndexedDB is unavailable (e.g., private browsing).
 - **Asset-vs-cache migration policy** keeps user settings/history, but intentionally clears favicon/warmup caches because they are transient and cheaper to rebuild than to compat-migrate.
 - **Versioned cleanup** lets the extension first introduce new structures safely, then remove obsolete bookmark-array persistence once runtime reads/writes have fully switched over.
+- **Rollback on destructive writes** keeps in-memory history consistent with persisted state when a clear-history storage write fails.
 
 ## 5. IndexedDB Schema
 

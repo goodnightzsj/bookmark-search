@@ -12,6 +12,7 @@ const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';  // 最近打开过�
 const DOCUMENT_SOURCE_TYPE = 'bookmark';
 const BOOKMARK_CACHE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 默认主缓存 TTL：30 分钟
 const STALE_REFRESH_MIN_GAP_MS = 30 * 1000; // 过期触发全量刷新的最小间隔
+const STORAGE_METADATA_RETRY_DELAY_MS = 500;
 
 function normalizeCacheMeta(meta, fallbackCount = 0, fallbackUpdatedAt = 0) {
   const safeMeta = (meta && typeof meta === 'object') ? meta : {};
@@ -33,6 +34,18 @@ function buildCacheMetaFromCount(count, updatedAt) {
   const safeCount = (typeof count === 'number' && Number.isFinite(count) && count >= 0) ? Math.floor(count) : 0;
   const safeUpdatedAt = (typeof updatedAt === 'number' && Number.isFinite(updatedAt) && updatedAt > 0) ? updatedAt : Date.now();
   return { updatedAt: safeUpdatedAt, count: safeCount };
+}
+
+function normalizeLastSyncValue(value) {
+  return (typeof value === 'number' && Number.isFinite(value) && value > 0) ? value : 0;
+}
+
+function normalizeHistoryList(list) {
+  return Array.isArray(list) ? list.filter(Boolean).slice(0, MAX_HISTORY_ITEMS) : [];
+}
+
+function getHistorySignature(list) {
+  return JSON.stringify(normalizeHistoryList(list));
 }
 
 const runtimeState = {
@@ -960,13 +973,7 @@ async function applyBookmarkEventsOnce(events) {
 
   // 更新 storage 元数据（count/history/syncTime/meta）
   const meta = buildCacheMetaFromCount(finalCount, syncTime);
-  const storageOk = await setStorage({
-    [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
-    [STORAGE_KEYS.BOOKMARK_HISTORY]: bookmarkHistory,
-    [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
-    [STORAGE_KEYS.BOOKMARKS_META]: meta
-  });
-  runtimeLastSyncTime = meta.updatedAt;
+  const storageOk = await writeStorageMetadataWithRetry(meta, { history: bookmarkHistory });
 
   if (!storageOk) {
     return { success: false, error: '持久化元数据失败', degraded: true, source: 'storage_meta_failed' };
@@ -1016,10 +1023,16 @@ async function loadCacheFromStorageOnce() {
     console.log('[Background][Observe] cache_source_selected', { source: 'empty', count: 0 });
   }
 
+  const storedMeta = normalizeCacheMeta(storageData[STORAGE_KEYS.BOOKMARKS_META]);
+
   // 初始化 lastSyncTime 内存缓存
   const storedLastSync = storageData[STORAGE_KEYS.LAST_SYNC_TIME];
   if (typeof storedLastSync === 'number' && Number.isFinite(storedLastSync) && storedLastSync > 0) {
     runtimeLastSyncTime = storedLastSync;
+  } else if (storedMeta.updatedAt > 0) {
+    runtimeLastSyncTime = storedMeta.updatedAt;
+  } else {
+    runtimeLastSyncTime = null;
   }
 
   if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
@@ -1052,16 +1065,14 @@ async function ensureCacheConsistency(syncTime) {
     needBackfillDocuments = true;
   }
 
-  // Check storage meta consistency — also backfill when storage read itself failed
-  let needUpdateStorageMeta = false;
-  const storageRead = await getStorageWithStatus([STORAGE_KEYS.BOOKMARKS_META]);
-  if (storageRead.success && storageRead.data) {
-    const storageMeta = normalizeCacheMeta(storageRead.data[STORAGE_KEYS.BOOKMARKS_META]);
-    needUpdateStorageMeta = storageMeta.updatedAt < meta.updatedAt || storageMeta.count !== meta.count;
-  } else {
-    // Storage read failed or returned no data — attempt to repair metadata
-    needUpdateStorageMeta = true;
-  }
+  // Check storage meta/history consistency — backfill when any mirror drifted or read failed.
+  const storageRead = await getStorageWithStatus([
+    STORAGE_KEYS.BOOKMARKS_META,
+    STORAGE_KEYS.BOOKMARK_COUNT,
+    STORAGE_KEYS.LAST_SYNC_TIME,
+    STORAGE_KEYS.BOOKMARK_HISTORY
+  ]);
+  const needUpdateStorageMeta = needsStorageMetadataRepair(storageRead, meta, bookmarkHistory);
 
   if (!needBackfillDocuments && !needUpdateStorageMeta) {
     return;
@@ -1080,11 +1091,7 @@ async function ensureCacheConsistency(syncTime) {
 
   if (needUpdateStorageMeta) {
     tasks.push(
-      setStorage({
-        [STORAGE_KEYS.BOOKMARKS_META]: meta,
-        [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
-        [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt
-      }).then((ok) => {
+      writeStorageMetadataWithRetry(meta, { history: bookmarkHistory }).then((ok) => {
         if (!ok) {
           console.warn('[Background][Observe] consistency_backfill_failed', { target: 'storage_meta', message: 'setStorage returned false' });
         }
@@ -1117,6 +1124,86 @@ export function mergeBookmarkHistory(existingHistory, changes, maxItems = MAX_HI
  */
 function updateHistory(changes) {
   bookmarkHistory = mergeBookmarkHistory(bookmarkHistory, changes);
+}
+
+function waitForDelay(ms) {
+  const delayMs = (typeof ms === 'number' && Number.isFinite(ms) && ms >= 0) ? ms : 0;
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function buildStorageMetadataPayload(meta, historySnapshot = bookmarkHistory) {
+  return {
+    [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
+    [STORAGE_KEYS.BOOKMARK_HISTORY]: normalizeHistoryList(historySnapshot),
+    [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
+    [STORAGE_KEYS.BOOKMARKS_META]: meta
+  };
+}
+
+export function needsStorageMetadataRepair(storageRead, meta, historySnapshot = bookmarkHistory) {
+  const expectedMeta = normalizeCacheMeta(meta);
+  const expectedHistory = normalizeHistoryList(historySnapshot);
+
+  if (!storageRead || !storageRead.success || !storageRead.data) {
+    return true;
+  }
+
+  const data = storageRead.data || {};
+  const state = storageRead.state && typeof storageRead.state === 'object' ? storageRead.state : {};
+  const trackedKeys = [
+    STORAGE_KEYS.BOOKMARKS_META,
+    STORAGE_KEYS.BOOKMARK_COUNT,
+    STORAGE_KEYS.LAST_SYNC_TIME,
+    STORAGE_KEYS.BOOKMARK_HISTORY
+  ];
+
+  for (let i = 0; i < trackedKeys.length; i++) {
+    if (state[trackedKeys[i]] === 'failed') return true;
+  }
+
+  const storedMeta = normalizeCacheMeta(data[STORAGE_KEYS.BOOKMARKS_META]);
+  if (storedMeta.updatedAt !== expectedMeta.updatedAt || storedMeta.count !== expectedMeta.count) {
+    return true;
+  }
+
+  const storedCountRaw = data[STORAGE_KEYS.BOOKMARK_COUNT];
+  const storedCount = (typeof storedCountRaw === 'number' && Number.isFinite(storedCountRaw) && storedCountRaw >= 0)
+    ? Math.floor(storedCountRaw)
+    : 0;
+  if (storedCount !== expectedMeta.count) {
+    return true;
+  }
+
+  if (normalizeLastSyncValue(data[STORAGE_KEYS.LAST_SYNC_TIME]) !== normalizeLastSyncValue(expectedMeta.updatedAt)) {
+    return true;
+  }
+
+  if (getHistorySignature(data[STORAGE_KEYS.BOOKMARK_HISTORY]) !== getHistorySignature(expectedHistory)) {
+    return true;
+  }
+
+  return false;
+}
+
+export async function writeStorageMetadataWithRetry(meta, options = {}) {
+  const expectedMeta = normalizeCacheMeta(meta);
+  const retryDelayMs = (typeof options.retryDelayMs === 'number' && Number.isFinite(options.retryDelayMs) && options.retryDelayMs >= 0)
+    ? options.retryDelayMs
+    : STORAGE_METADATA_RETRY_DELAY_MS;
+  const payload = buildStorageMetadataPayload(expectedMeta, options.history);
+
+  let storageOk = await setStorage(payload);
+  if (!storageOk) {
+    await waitForDelay(retryDelayMs);
+    storageOk = await setStorage(payload);
+  }
+
+  if (!storageOk) {
+    return false;
+  }
+
+  runtimeLastSyncTime = expectedMeta.updatedAt;
+  return true;
 }
 
 /**
@@ -1155,20 +1242,12 @@ async function saveToStorage(syncTime) {
     return { success: false, degraded: true, source: 'documents_failed' };
   }
 
-  const storageOk = await setStorage({
-    [STORAGE_KEYS.BOOKMARK_COUNT]: meta.count,
-    [STORAGE_KEYS.BOOKMARK_HISTORY]: bookmarkHistory,
-    [STORAGE_KEYS.LAST_SYNC_TIME]: meta.updatedAt,
-    [STORAGE_KEYS.BOOKMARKS_META]: meta
-  });
+  const storageOk = await writeStorageMetadataWithRetry(meta, { history: bookmarkHistory });
 
   if (!storageOk) {
     console.warn('[Background][Observe] cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
     return { success: false, degraded: true, source: 'storage_meta_failed' };
   }
-
-  // 同步更新内存缓存，避免后续 searchBookmarks 再读 storage
-  runtimeLastSyncTime = meta.updatedAt;
 
   return { success: true };
 }
@@ -1371,10 +1450,44 @@ export async function clearHistory() {
 }
 
 async function clearHistoryOnce() {
+  const previousHistory = Array.isArray(bookmarkHistory) ? bookmarkHistory.slice() : [];
   bookmarkHistory = [];
-  await setStorageOrThrow({ [STORAGE_KEYS.BOOKMARK_HISTORY]: [] });
+  try {
+    await setStorageOrThrow({ [STORAGE_KEYS.BOOKMARK_HISTORY]: [] });
+  } catch (error) {
+    bookmarkHistory = previousHistory;
+    throw error;
+  }
   console.log("[Background] 历史记录已清空");
   return { success: true };
+}
+
+export function __resetBackgroundDataForTests() {
+  bookmarkHistory = [];
+  isUpdating = false;
+  updateQueued = false;
+  pendingRefresh = false;
+  pendingBookmarkEvents = [];
+  pendingClearHistory = false;
+  isCacheLoaded = false;
+  loadCachePromise = null;
+  lastStaleRefreshAt = 0;
+  runtimeCacheTtlMinutes = null;
+  runtimeCacheTtlLoaded = false;
+  runtimeLastSyncTime = null;
+  clearHistoryWaiters = [];
+  recentOpenedRootMap.clear();
+  recentWarmupDomains.clear();
+  recentOpenedRootsPersistChain = Promise.resolve();
+  setRuntimeDocuments([]);
+  rebuildBookmarkIndex();
+}
+
+export function __getBackgroundDataInternalsForTests() {
+  return {
+    runtimeLastSyncTime,
+    bookmarkHistory: Array.isArray(bookmarkHistory) ? bookmarkHistory.slice() : []
+  };
 }
 
 function resolveClearHistoryWaiters(result) {

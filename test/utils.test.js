@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { escapeHtml, formatFutureTime, formatRelativeTime } from '../utils.js';
+import {
+  buildFaviconLookupKeys,
+  buildFaviconServiceKey,
+  escapeHtml,
+  formatFutureTime,
+  formatRelativeTime
+} from '../utils.js';
 
 test('escapeHtml: handles null/undefined and escapes', () => {
   assert.equal(escapeHtml(null), '');
@@ -35,3 +41,15 @@ test('formatFutureTime: basic buckets', () => {
   }
 });
 
+test('buildFaviconServiceKey: keeps exact host semantics', () => {
+  assert.equal(buildFaviconServiceKey('https://foo.github.io/docs'), 'foo.github.io');
+  assert.equal(buildFaviconServiceKey('http://localhost:3000/app'), 'localhost:3000');
+  assert.equal(buildFaviconServiceKey('https://example.com:8443/app'), 'example.com:8443');
+});
+
+test('buildFaviconLookupKeys: preserves compatibility without multi-tenant root fallback', () => {
+  assert.deepEqual(buildFaviconLookupKeys('foo.github.io'), ['foo.github.io']);
+  assert.deepEqual(buildFaviconLookupKeys('www.example.com'), ['www.example.com', 'example.com']);
+  assert.deepEqual(buildFaviconLookupKeys('example.com'), ['example.com', 'www.example.com']);
+  assert.deepEqual(buildFaviconLookupKeys('localhost:3000'), ['localhost:3000']);
+});

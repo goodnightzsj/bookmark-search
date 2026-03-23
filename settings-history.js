@@ -1,7 +1,8 @@
 import { formatTime, escapeHtml } from './utils.js';
 import { HISTORY_ACTIONS, MESSAGE_ACTIONS } from './constants.js';
 import { generateNetscapeBookmarkFile } from './bookmark-export.js';
-import { getStorage, STORAGE_KEYS } from './storage-service.js';
+import { assertSuccessfulMessageResponse } from './message-response.js';
+import { getStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 // 状态变量
 let exportMode = false;
@@ -11,12 +12,50 @@ let currentHistory = [];
 // 缓存 DOM 引用，避免重复 querySelectorAll
 let cachedSelectableItems = null;
 
+function syncExportModeControls() {
+  const exportControls = document.getElementById('exportControls');
+  const toggleBtn = document.getElementById('toggleExportMode');
+  if (exportControls) {
+    exportControls.style.display = exportMode ? 'flex' : 'none';
+  }
+  if (toggleBtn) {
+    const label = toggleBtn.querySelector('.btn-text');
+    if (label) label.textContent = exportMode ? '取消导出' : '导出书签';
+  }
+}
+
+function clearHistorySelectionState(resetExportMode = false) {
+  selectedItems.clear();
+  if (resetExportMode) {
+    exportMode = false;
+  }
+  syncExportModeControls();
+}
+
+function renderHistoryLoadError() {
+  const historyList = document.getElementById('historyList');
+  const historyCount = document.getElementById('historyCount');
+  if (!historyList || !historyCount) return;
+
+  currentHistory = [];
+  cachedSelectableItems = null;
+  clearHistorySelectionState(true);
+  historyCount.textContent = '!';
+  historyList.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2 1 21h22L12 2z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="1"/></svg></div>
+      <p>历史记录加载失败，请稍后重试</p>
+    </div>
+  `;
+  updateSelectionUI();
+}
+
 /**
  * 加载更新历史
  */
 export async function loadUpdateHistory() {
   try {
-    const result = await getStorage(STORAGE_KEYS.BOOKMARK_HISTORY);
+    const result = await getStorageOrThrow(STORAGE_KEYS.BOOKMARK_HISTORY);
     const historyList = document.getElementById('historyList');
     const historyCount = document.getElementById('historyCount');
 
@@ -28,7 +67,7 @@ export async function loadUpdateHistory() {
     const history = result[STORAGE_KEYS.BOOKMARK_HISTORY];
     if (history && Array.isArray(history) && history.length > 0) {
       // 按时间倒序排列（创建副本避免修改原始数据）
-      const sortedHistory = [...history].sort((a, b) => b.timestamp - a.timestamp);
+      const sortedHistory = assignHistorySelectionKeys([...history].sort((a, b) => b.timestamp - a.timestamp));
       currentHistory = sortedHistory; // 保存排序后的历史（与 UI 索引保持一致）
       historyCount.textContent = currentHistory.length;
 
@@ -84,12 +123,14 @@ export async function loadUpdateHistory() {
       // 绑定选择事件
       if (exportMode) {
         bindSelectionEvents();
+        updateSelectionUI();
       }
 
       console.log("[Settings] 加载了 %d 条历史记录", history.length);
     } else {
       currentHistory = [];
       cachedSelectableItems = null; // 清除缓存
+      clearHistorySelectionState(true);
       historyCount.textContent = '0';
       historyList.innerHTML = `
         <div class="empty-state">
@@ -97,10 +138,12 @@ export async function loadUpdateHistory() {
           <p>暂无书签更新记录</p>
         </div>
       `;
+      updateSelectionUI();
       console.log("[Settings] 无历史记录");
     }
   } catch (error) {
     console.error("[Settings] 加载更新历史失败:", error);
+    renderHistoryLoadError();
   }
 }
 
@@ -124,14 +167,10 @@ export function bindHistoryEvents() {
 
       try {
         // 通知 background 清空历史（同步内存和存储）
-        const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_HISTORY });
-        if (result && result.success === false) {
-          const err = result && result.error;
-          const message = (err && typeof err === 'object' && typeof err.message === 'string')
-            ? err.message
-            : (typeof err === 'string' ? err : '清空失败');
-          throw new Error(message);
-        }
+        assertSuccessfulMessageResponse(
+          await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_HISTORY }),
+          '清空失败'
+        );
         await loadUpdateHistory();
         console.log("[Settings] 历史记录已清空");
       } catch (error) {
@@ -169,6 +208,21 @@ export function bindHistoryEvents() {
 let notificationTimerOuter = null;
 let notificationTimerInner = null;
 
+export function clearUpdateNotification() {
+  if (notificationTimerOuter !== null) { clearTimeout(notificationTimerOuter); notificationTimerOuter = null; }
+  if (notificationTimerInner !== null) { clearTimeout(notificationTimerInner); notificationTimerInner = null; }
+
+  const historyList = document.getElementById('historyList');
+  if (!historyList) return;
+  const historyCard = historyList.closest('.card');
+  if (!historyCard) return;
+
+  const existingNotice = historyCard.querySelector('.update-notice');
+  if (existingNotice) {
+    existingNotice.remove();
+  }
+}
+
 /**
  * 显示更新通知
  */
@@ -179,15 +233,7 @@ export function showUpdateNotification() {
   const historyCard = historyList.closest('.card');
   if (!historyCard) return;
 
-  // 清除旧的通知定时器
-  if (notificationTimerOuter !== null) { clearTimeout(notificationTimerOuter); notificationTimerOuter = null; }
-  if (notificationTimerInner !== null) { clearTimeout(notificationTimerInner); notificationTimerInner = null; }
-
-  // 移除已存在的通知
-  const existingNotice = historyCard.querySelector('.update-notice');
-  if (existingNotice) {
-    existingNotice.remove();
-  }
+  clearUpdateNotification();
 
   // 创建通知元素
   const notice = document.createElement('div');
@@ -218,6 +264,13 @@ export function showUpdateNotification() {
 // === 内部辅助函数 ===
 
 function getHistoryItemKey(item) {
+  if (item && typeof item.selectionKey === 'string' && item.selectionKey) {
+    return item.selectionKey;
+  }
+  return getHistoryItemBaseKey(item);
+}
+
+function getHistoryItemBaseKey(item) {
   if (!item) return '';
   const action = item.action === 'update' ? HISTORY_ACTIONS.EDIT : item.action;
   const parts = [
@@ -233,6 +286,21 @@ function getHistoryItemKey(item) {
     item.folder || ''
   ];
   return parts.join('\u001F');
+}
+
+export function assignHistorySelectionKeys(items) {
+  const list = Array.isArray(items) ? items : [];
+  const seen = new Map();
+
+  return list.map((item) => {
+    const baseKey = getHistoryItemBaseKey(item);
+    const nextOrdinal = (seen.get(baseKey) || 0) + 1;
+    seen.set(baseKey, nextOrdinal);
+    return {
+      ...(item && typeof item === 'object' ? item : {}),
+      selectionKey: `${baseKey}\u001Fdup:${nextOrdinal}`
+    };
+  });
 }
 
 // 获取操作文本
@@ -291,6 +359,10 @@ function updateSelectionUI() {
   const selectInfo = document.getElementById('selectInfo');
   if (selectInfo) selectInfo.textContent = `已选择 ${selectedItems.size} 条`;
 
+  syncExportModeControls();
+
+  if (!exportMode) return;
+
   // 更新每个item的选中状态（使用缓存的 DOM 引用）
   const items = getSelectableItems();
   items.forEach(item => {
@@ -313,23 +385,14 @@ function updateSelectionUI() {
 // 切换导出模式
 function toggleExportMode() {
   exportMode = !exportMode;
-  
-  const exportControls = document.getElementById('exportControls');
-  const toggleBtn = document.getElementById('toggleExportMode');
-  
+
   if (exportMode) {
-    exportControls.style.display = 'flex';
-    const label = toggleBtn.querySelector('.btn-text');
-    if (label) label.textContent = '取消导出';
     // 默认全选
     selectAllItems();
   } else {
-    exportControls.style.display = 'none';
-    const label = toggleBtn.querySelector('.btn-text');
-    if (label) label.textContent = '导出书签';
-    selectedItems.clear();
+    clearHistorySelectionState(false);
   }
-  
+
   // 重新渲染历史列表
   loadUpdateHistory();
 }
@@ -349,6 +412,11 @@ function deselectAllItems() {
   updateSelectionUI();
 }
 
+export function getExportableHistoryItems(items) {
+  const list = Array.isArray(items) ? items : [];
+  return list.filter((item) => item && item.url);
+}
+
 // 导出选中的书签
 async function exportSelectedBookmarks() {
   if (selectedItems.size === 0) {
@@ -357,28 +425,19 @@ async function exportSelectedBookmarks() {
   }
   
   // 获取选中的历史记录
-  const selectedHistory = currentHistory
-    .filter(item => item && selectedItems.has(getHistoryItemKey(item)) && item.url); // 只导出有URL的记录
+  const selectedHistory = getExportableHistoryItems(
+    currentHistory.filter(item => item && selectedItems.has(getHistoryItemKey(item)))
+  );
   
   if (selectedHistory.length === 0) {
     alert('选中的记录中没有可导出的书签');
     return;
   }
-  
-  // 去重：同一URL保留最新记录（时间戳最大的）
-  const urlMap = new Map();
-  selectedHistory.forEach(item => {
-    const existing = urlMap.get(item.url);
-    if (!existing || item.timestamp > existing.timestamp) {
-      urlMap.set(item.url, item);
-    }
-  });
-  
-  const uniqueBookmarks = Array.from(urlMap.values());
-  console.log(`[Settings] 去重后导出 ${uniqueBookmarks.length} 个书签（原选中 ${selectedHistory.length} 条）`);
+
+  console.log(`[Settings] 导出 ${selectedHistory.length} 个书签`);
   
   // 生成Netscape格式的书签HTML
-  const html = generateNetscapeBookmarkFile(uniqueBookmarks);
+  const html = generateNetscapeBookmarkFile(selectedHistory);
   
   // 下载文件
   downloadFile(html, 'bookmarks_export.html', 'text/html');

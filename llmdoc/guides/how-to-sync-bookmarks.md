@@ -33,7 +33,7 @@
 
 2. **Implement Handler:** Add case to switch in `background-messages.js`. Follow the existing success/error wrapper pattern so async branches keep the stable `{ success: true, ...payload }` / `{ success: false, error }` contract when replying.
 
-3. **Call from Client:** Use `chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.YOUR_ACTION, ...params })`.
+3. **Call from Client:** Use `chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.YOUR_ACTION, ...params })`, then validate that the reply is an object with `success === true`. Current popup/settings callers use `message-response.js` for this check.
 
 ## Modifying Sync Intervals
 
@@ -48,4 +48,4 @@
 - Check `chrome://extensions` → Service Worker → Inspect → Console for `[Background]` logs.
 - For favicon diagnosis, enable `chrome.storage.local.set({ debugFavicon: true })` or set `window.__BOOKMARK_SEARCH_DEBUG_FAVICON__ = true` in the page console before reopening the overlay, then inspect `[Content][Favicon]` and `[Background][Favicon]` logs.
 - Verify alarm status: `chrome.alarms.getAll()` in DevTools console.
-- Check storage: `chrome.storage.local.get(['lastSyncTime', 'bookmarkCount'])`.
+- Check storage: `chrome.storage.local.get(['bookmarksMeta', 'bookmarkCount', 'lastSyncTime', 'bookmarkHistory'])`.

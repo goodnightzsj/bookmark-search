@@ -1,13 +1,14 @@
 import { formatRelativeTime, formatFutureTime } from './utils.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
-import { getStorage, setValue, STORAGE_KEYS } from './storage-service.js';
+import { assertSuccessfulMessageResponse } from './message-response.js';
+import { getStorageOrThrow, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 /**
  * 加载同步设置
  */
 export async function loadSyncSettings() {
   try {
-    const result = await getStorage([
+    const result = await getStorageOrThrow([
       STORAGE_KEYS.SYNC_INTERVAL,
       STORAGE_KEYS.LAST_SYNC_TIME,
       STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES
@@ -62,6 +63,10 @@ export async function loadSyncSettings() {
     }
   } catch (error) {
     console.error("[Settings] 加载同步设置失败:", error);
+    const lastSyncDisplay = document.getElementById('lastSyncDisplay');
+    const nextSyncDisplay = document.getElementById('nextSyncDisplay');
+    if (lastSyncDisplay) lastSyncDisplay.textContent = '错误';
+    if (nextSyncDisplay) nextSyncDisplay.textContent = '错误';
   }
 }
 
@@ -70,7 +75,7 @@ export async function loadSyncSettings() {
  */
 export async function loadBookmarkStats() {
   try {
-    const result = await getStorage([STORAGE_KEYS.BOOKMARK_COUNT]);
+    const result = await getStorageOrThrow([STORAGE_KEYS.BOOKMARK_COUNT]);
     const totalElement = document.getElementById('totalBookmarks');
 
     const countValue = result[STORAGE_KEYS.BOOKMARK_COUNT];
@@ -80,7 +85,8 @@ export async function loadBookmarkStats() {
     console.log("[Settings] 书签总数:", count);
   } catch (error) {
     console.error("[Settings] 加载书签统计失败:", error);
-    document.getElementById('totalBookmarks').textContent = '!';
+    const totalElement = document.getElementById('totalBookmarks');
+    if (totalElement) totalElement.textContent = '!';
   }
 }
 
@@ -99,14 +105,11 @@ export function bindSyncEvents() {
     btn.disabled = true;
 
     try {
-      const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS });
-      if (result && result.success === false && !result.skipped) {
-        const err = result && result.error;
-        const message = (err && typeof err === 'object' && typeof err.message === 'string')
-          ? err.message
-          : (typeof err === 'string' ? err : '同步失败');
-        throw new Error(message);
-      }
+      const result = assertSuccessfulMessageResponse(
+        await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS }),
+        '同步失败',
+        { allowSkipped: true }
+      );
       // 并行重新加载书签统计和同步设置
       await Promise.all([loadBookmarkStats(), loadSyncSettings()]);
 
@@ -133,10 +136,10 @@ export function bindSyncEvents() {
     console.log("[Settings] 修改同步间隔为:", interval, "分钟");
 
     try {
-      await chrome.runtime.sendMessage({
+      assertSuccessfulMessageResponse(await chrome.runtime.sendMessage({
         action: MESSAGE_ACTIONS.SET_SYNC_INTERVAL,
         interval: interval
-      });
+      }), '设置失败');
 
       // 重新加载同步设置显示
       await loadSyncSettings();
@@ -144,6 +147,7 @@ export function bindSyncEvents() {
       console.log("[Settings] 同步间隔已更新");
     } catch (error) {
       console.error("[Settings] 更新同步间隔失败:", error);
+      await loadSyncSettings();
       alert('设置失败：' + error.message);
     }
   });
@@ -158,10 +162,11 @@ export function bindSyncEvents() {
       console.log("[Settings] 修改主缓存 TTL 为:", ttlMinutes, "分钟");
 
       try {
-        await setValue(STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES, ttlMinutes);
+        await setStorageOrThrow({ [STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES]: ttlMinutes });
         console.log("[Settings] 主缓存 TTL 已更新");
       } catch (error) {
         console.error("[Settings] 更新主缓存 TTL 失败:", error);
+        await loadSyncSettings();
         alert('设置失败：' + error.message);
       }
     });
@@ -179,14 +184,10 @@ export function bindSyncEvents() {
       btn.disabled = true;
 
       try {
-        const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE });
-        if (!result || result.success === false) {
-          const err = result && result.error;
-          const message = (err && typeof err === 'object' && typeof err.message === 'string')
-            ? err.message
-            : (typeof err === 'string' ? err : '清理失败');
-          throw new Error(message);
-        }
+        assertSuccessfulMessageResponse(
+          await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE }),
+          '清理失败'
+        );
 
         if (label) label.textContent = '清理成功';
         setTimeout(() => {

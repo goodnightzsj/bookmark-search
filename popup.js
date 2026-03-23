@@ -1,6 +1,7 @@
 import { formatRelativeTime, formatFutureTime, SPECIAL_PROTOCOLS } from './utils.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
-import { getStorage, getValue, STORAGE_KEYS } from './storage-service.js';
+import { assertSuccessfulMessageResponse } from './message-response.js';
+import { getStorageOrThrow, getValueOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 // 常量定义
 const BUTTON_RESET_DELAY_MS = 1500;  // 按钮状态恢复延时
@@ -122,7 +123,7 @@ async function init() {
 // 单次批量读取 popup 所需的全部 storage 数据
 async function loadPopupStorageData() {
   try {
-    const result = await getStorage([
+    const result = await getStorageOrThrow([
       STORAGE_KEYS.BOOKMARK_COUNT,
       STORAGE_KEYS.LAST_SYNC_TIME,
       STORAGE_KEYS.SYNC_INTERVAL
@@ -160,7 +161,9 @@ async function applySyncTimes(lastSyncTime, syncInterval) {
     lastSyncElement.textContent = '从未';
   }
 
-  if (lastSyncTime && syncInterval) {
+  if (syncInterval === 0) {
+    nextSyncElement.textContent = '已禁用';
+  } else if (lastSyncTime && syncInterval) {
     const nextSyncTime = lastSyncTime + (syncInterval * 60 * 1000);
     nextSyncElement.textContent = formatFutureTime(nextSyncTime);
     console.log("[Popup] 下次同步:", new Date(nextSyncTime).toLocaleString());
@@ -178,7 +181,7 @@ async function applySyncTimes(lastSyncTime, syncInterval) {
 // 按需刷新：仅重新读取书签数量或同步时间
 async function loadBookmarkCount() {
   try {
-    const countValue = await getValue(STORAGE_KEYS.BOOKMARK_COUNT);
+    const countValue = await getValueOrThrow(STORAGE_KEYS.BOOKMARK_COUNT);
     applyBookmarkCount(countValue);
   } catch (error) {
     console.error("[Popup] 加载书签数量失败:", error);
@@ -189,7 +192,7 @@ async function loadBookmarkCount() {
 
 async function loadSyncTimes() {
   try {
-    const result = await getStorage([STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.SYNC_INTERVAL]);
+    const result = await getStorageOrThrow([STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.SYNC_INTERVAL]);
     await applySyncTimes(result[STORAGE_KEYS.LAST_SYNC_TIME], result[STORAGE_KEYS.SYNC_INTERVAL]);
   } catch (error) {
     console.error("[Popup] 加载同步时间失败:", error);
@@ -220,14 +223,11 @@ function bindEvents() {
     
     try {
       // 发送消息给 background 刷新书签
-      const result = await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS });
-      if (result && result.success === false && !result.skipped) {
-        const err = result && result.error;
-        const message = (err && typeof err === 'object' && typeof err.message === 'string')
-          ? err.message
-          : (typeof err === 'string' ? err : '刷新失败');
-        throw new Error(message);
-      }
+      const result = assertSuccessfulMessageResponse(
+        await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.REFRESH_BOOKMARKS }),
+        '刷新失败',
+        { allowSkipped: true }
+      );
 
       // 并行重新加载书签数量和同步时间
       await Promise.all([loadBookmarkCount(), loadSyncTimes()]);

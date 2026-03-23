@@ -14,7 +14,7 @@ Bookmark Search provides a spotlight-style search overlay that can be invoked on
 | Layer | Technology |
 |-------|------------|
 | Runtime | Chrome Extension Manifest V3 |
-| Build | Vite 5.x + Terser + javascript-obfuscator |
+| Build | Vite 5.x + Terser |
 | Storage | chrome.storage.local (metadata) + IndexedDB (large data) |
 | Testing | Node.js built-in test runner |
 | i18n | Chrome i18n API (`_locales/`) |
@@ -27,13 +27,14 @@ Bookmark Search provides a spotlight-style search overlay that can be invoked on
 | Content Script | `content.js` | Search overlay UI, keyboard navigation, favicon caching |
 | Popup | `popup.html/js` | Extension status display, quick actions |
 | Settings | `settings.html/js` | Theme selection, sync config, history viewer, shortcut management |
-| Shared Modules | `storage-service.js`, `idb-service.js`, `theme-*.js` | Storage abstraction, theme system |
+| Shared Modules | `storage-service.js`, `idb-service.js`, `theme-*.js`, `message-response.js` | Storage abstraction, theme system, runtime message contract validation |
 
 ## 5. Key Features
 
 - **Global Shortcut Search:** Invoke search overlay on any page via keyboard shortcut (default: Ctrl+Space; mac: Command+Space)
 - **Real-time Bookmark Sync:** Hybrid sync with event-driven incremental updates + periodic full refresh
 - **Change History Tracking:** Records add/delete/edit/move operations (100-item cap)
+- **Hardened Persistence Paths:** Strict storage read/write semantics, metadata mirror repair, and rollback on failed history clear
 - **Theme System:** 4 themes (original, minimal, glass, dark) with instant switching
 - **Favicon Caching:** Multi-tier cache (content memory, Service Worker LRU memory, persisted IndexedDB) with background warmup
 - **IME Support:** Proper handling for Chinese/Japanese input composition

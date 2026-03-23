@@ -29,10 +29,10 @@ System design documents with execution flows for LLM retrieval.
 
 | Document | Description |
 |----------|-------------|
-| [background-service.md](architecture/background-service.md) | MV3 Service Worker: migration-first init, documents-first bookmark sync, message routing, event debouncing, alarm scheduling. |
+| [background-service.md](architecture/background-service.md) | MV3 Service Worker: migration-first init, documents-first bookmark sync, metadata mirror repair, message routing, event debouncing, alarm scheduling. |
 | [content-script.md](architecture/content-script.md) | Search overlay UI: DOM rendering, 3-layer focus management, favicon caching, IME handling. |
-| [settings-module.md](architecture/settings-module.md) | Settings page: theme/sync/shortcuts/history modules, real-time storage listener. |
-| [storage-layer.md](architecture/storage-layer.md) | Dual-tier storage: chrome.storage.local + IndexedDB, documents-first persistence, migration cleanup, graceful degradation. |
+| [settings-module.md](architecture/settings-module.md) | Settings page: theme/sync/shortcuts/history modules, strict failure surfacing, real-time storage listener. |
+| [storage-layer.md](architecture/storage-layer.md) | Dual-tier storage: chrome.storage.local + IndexedDB, documents-first persistence, strict read/write semantics, migration cleanup, graceful degradation. |
 
 ---
 
@@ -97,4 +97,4 @@ llmdoc/
 
 ---
 
-*Last updated: 2026-03-23*
+*Last updated: 2026-03-24*

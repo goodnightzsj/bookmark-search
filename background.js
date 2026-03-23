@@ -3,6 +3,7 @@ import { handleSyncAlarm, initSyncSettings } from './background-sync.js';
 import { handleMessage, setEnsureInit } from './background-messages.js';
 import { ensureSchemaReady } from './migration-service.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
+import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 
 console.log("[Background] Service Worker 启动");
@@ -14,22 +15,29 @@ async function init() {
   console.log("[Background] 初始化开始");
 
   const schemaResult = await ensureSchemaReady();
+  const rebuildPending = !!(schemaResult && schemaResult.needsRebuild);
   if (schemaResult && schemaResult.migrated) {
     console.log('[Background] 数据迁移完成', {
       schemaVersion: schemaResult.schemaVersion,
-      needsRebuild: !!schemaResult.needsRebuild
+      needsRebuild: rebuildPending
     });
   }
 
   // 并行加载数据和初始化同步设置（互不依赖）
   await Promise.all([
-    loadInitialData(),
+    loadInitialData({ skipInitialRefresh: rebuildPending }),
     initSyncSettings()
   ]);
 
-  if (schemaResult && schemaResult.needsRebuild) {
+  if (rebuildPending) {
     console.log('[Background] 迁移后触发全量重建');
-    await refreshBookmarks();
+    const rebuildResult = await refreshBookmarks();
+    if (rebuildResult && rebuildResult.success) {
+      await setStorageOrThrow({ [STORAGE_KEYS.NEEDS_REBUILD]: false });
+      console.log('[Background] 迁移后的重建完成，已清除 needsRebuild');
+    } else {
+      console.warn('[Background] 迁移后的重建未成功，保留 needsRebuild 以便后续重试', rebuildResult);
+    }
   }
 
   console.log("[Background] 初始化完成");

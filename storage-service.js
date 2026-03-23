@@ -107,6 +107,24 @@ export async function getStorageWithStatus(keys) {
 }
 
 /**
+ * 获取存储数据（读取失败时抛错，缺失键仍回退默认值）
+ * @param {string|string[]} keys - 要获取的键名或键名数组
+ * @returns {Promise<Object>}
+ */
+export async function getStorageOrThrow(keys) {
+  const keyArray = Array.isArray(keys) ? keys : [keys];
+  const read = await getStorageWithStatus(keyArray);
+  const state = read && read.state && typeof read.state === 'object' ? read.state : {};
+  const hasFailedKey = keyArray.some((key) => state[key] === 'failed');
+
+  if (!read.success && hasFailedKey) {
+    throw new Error(read.error || 'chrome.storage.local.get failed');
+  }
+
+  return read && read.data && typeof read.data === 'object' ? read.data : {};
+}
+
+/**
  * 设置存储数据
  * @param {Object} data - 要存储的键值对
  * @returns {Promise<boolean>} 是否成功
@@ -140,6 +158,16 @@ export async function setStorageOrThrow(data) {
  */
 export async function getValue(key) {
   const result = await getStorage(key);
+  return result[key];
+}
+
+/**
+ * 获取单个值（读取失败时抛错）
+ * @param {string} key - 键名
+ * @returns {Promise<*>}
+ */
+export async function getValueOrThrow(key) {
+  const result = await getStorageOrThrow(key);
   return result[key];
 }
 
