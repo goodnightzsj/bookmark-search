@@ -7,7 +7,7 @@
 
 ## 2. High-Level Description
 
-Bookmark Search provides a spotlight-style search overlay that can be invoked on any webpage via a configurable keyboard shortcut. The extension maintains a synchronized cache of the user's bookmarks, supports real-time search with multi-token matching, and tracks bookmark change history. It targets power users who manage large bookmark collections and need fast, keyboard-driven access.
+Bookmark Search provides a spotlight-style search overlay that can be invoked on any webpage via a configurable keyboard shortcut. The extension maintains a synchronized cache of the user's bookmarks, supports multi-token search across bookmark title, URL, and folder path, and tracks bookmark change history. It targets power users who manage large bookmark collections and need fast, keyboard-driven access.
 
 ## 3. Tech Stack
 
@@ -37,6 +37,7 @@ Bookmark Search provides a spotlight-style search overlay that can be invoked on
 - **Hardened Persistence Paths:** Strict storage read/write semantics, metadata mirror repair, and rollback on failed history clear
 - **Theme System:** 4 themes (original, minimal, glass, dark) with instant switching
 - **Favicon Caching:** Multi-tier cache (content memory, Service Worker LRU memory, persisted IndexedDB) with background warmup
+- **Cache Controls:** Settings page exposes bookmark cache TTL and manual favicon cache clear
 - **IME Support:** Proper handling for Chinese/Japanese input composition
 
 ## 6. Target Users
