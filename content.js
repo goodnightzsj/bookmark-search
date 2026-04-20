@@ -2448,12 +2448,6 @@ function displayResults(results, options) {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (isDDG && img.naturalWidth === 48 && img.naturalHeight === 48) {
-          recordExternalFaviconFailure();
-          faviconDebugLog('loaded but DDG placeholder, skip', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight });
-          tryLoad(idx + 1);
-          return;
-        }
         faviconDebugLog('loaded', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight, source: isThirdParty ? 'external' : 'local' });
         finishSuccess(url, isThirdParty ? 'external' : 'local');
       };
