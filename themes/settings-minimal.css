@@ -31,6 +31,8 @@
   --radius-lg: 0;
   --radius-md: 0;
   --radius-sm: 0;
+  --scrollbar-thumb: rgba(10, 10, 10, 0.4);
+  --scrollbar-thumb-hover: rgba(10, 10, 10, 0.75);
 }
 
 body {
@@ -220,7 +222,7 @@ body {
 
 /* Swiss stat-card：严格 baseline 对齐，8/16/24px rhythm */
 .stat-card {
-  padding: 16px 0;
+  padding: 18px 16px;
   border-top: 1px solid var(--rule-hairline);
   background: transparent;
   border-radius: 0;
@@ -313,12 +315,13 @@ body {
   grid-template-columns: minmax(0, 1fr) 200px;
   gap: 24px;
   align-items: baseline;
-  padding: 16px 0;
+  padding: 18px 16px;
   border-bottom: 1px solid var(--rule-hairline);
   background: transparent;
 }
 
 .setting-row:last-child { border-bottom: 1px solid var(--rule-soft); }
+.setting-row:first-child { border-top: 1px solid var(--rule-soft); }
 
 .setting-meta { min-width: 0; }
 
@@ -359,11 +362,18 @@ body {
   border: none;
   border-bottom: 1.5px solid var(--rule);
   border-radius: 0;
-  padding: 10px 2px;
+  padding: 10px 8px;
   font-family: inherit;
   font-size: 13px;
   color: var(--ink);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 120ms linear, background 120ms linear;
+}
+
+/* Swiss chevron: 黑色细线 */
+select.form-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%230a0a0a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  padding-right: 34px;
+  font-weight: 500;
 }
 
 .form-input:hover { background: var(--bg-subtle); }
@@ -372,7 +382,7 @@ body {
   outline: none;
   background: var(--paper);
   border-bottom-color: var(--ink);
-  box-shadow: 0 2px 0 var(--ink);
+  box-shadow: 0 1.5px 0 var(--ink);
 }
 
 .form-input[readonly] {
@@ -380,9 +390,20 @@ body {
   cursor: default;
 }
 
+/* Swiss：shortcut 只读输入用 mono 强调 + uppercase */
 .shortcut-input {
-  font-size: 15px;
+  font-family: var(--bs-font-mono);
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-right: 8px;
+  background: transparent;
+}
+.shortcut-input::placeholder {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
 }
 
 .action-grid {
@@ -670,6 +691,18 @@ body {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Swiss checkbox override：直角 + 纯黑 */
+.history-checkbox {
+  border-radius: 0;
+  border-color: var(--ink);
+  border-width: 1.5px;
+}
+.history-checkbox:hover { border-color: var(--ink); }
+.history-checkbox:checked {
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
 .btn-primary {

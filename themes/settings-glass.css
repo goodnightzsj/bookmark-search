@@ -30,6 +30,8 @@
     0 6px 16px rgba(44, 62, 80, 0.1),
     0 18px 36px rgba(44, 62, 80, 0.12);
   --shadow-sm: 0 6px 16px rgba(44, 62, 80, 0.1);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.45);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.65);
 }
 
 body {
@@ -358,33 +360,70 @@ body {
 
 .form-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  border-radius: 14px;
-  padding: 12px 14px;
-  font-size: 14px;
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  transition: border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              background 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+}
+
+/* glass chevron：跟随 accent */
+select.form-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%232563eb' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+select.form-input option {
+  background: #ffffff;
+  color: var(--text-primary);
 }
 
 .form-input:hover {
   background: rgba(255, 255, 255, 0.66);
+  border-color: var(--glass-border);
 }
 
 .form-input:focus {
   outline: none;
-  border-color: rgba(37, 99, 235, 0.36);
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
-  background: rgba(255, 255, 255, 0.8);
+  border-color: var(--accent-color);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 0 0 3px rgba(37, 99, 235, 0.24);
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .form-input[readonly] {
   color: var(--text-secondary);
+  cursor: default;
+}
+
+/* Glass checkbox：磨砂方块 + indigo 勾 */
+.history-checkbox {
+  border-color: var(--glass-border);
+  border-radius: 5px;
+  background: var(--glass-bg-soft);
+  backdrop-filter: blur(8px) saturate(180%);
+  -webkit-backdrop-filter: blur(8px) saturate(180%);
+}
+.history-checkbox:hover { border-color: var(--accent-color); }
+.history-checkbox:checked {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
 }
 
 .shortcut-input {
-  font-size: 15px;
+  font-family: var(--bs-font-mono);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
 }
 
 .action-grid {

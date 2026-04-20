@@ -86,6 +86,123 @@ body.theme-ready {
   outline-offset: var(--bs-focus-ring-offset);
 }
 
+/* ============================================================
+ * 原生控件重写：select / input / checkbox / scrollbar
+ * 跨主题共享"去 native chrome"基线，具体色彩/边框由各主题覆盖
+ * ============================================================ */
+
+/* 全局 scrollbar：跨主题统一细条，具体色由主题通过 --scrollbar-thumb 等变量覆盖 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(148, 163, 184, 0.32)) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(148, 163, 184, 0.32));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(148, 163, 184, 0.6));
+  background-clip: content-box;
+}
+
+/* select：去掉浏览器自带下拉箭头，用 CSS 背景 SVG chevron */
+select.form-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 10px 7px;
+  padding-right: 38px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.3;
+}
+
+/* Firefox 下 option 文字颜色对齐（默认 Firefox 用 Windows 系统色） */
+select.form-input option {
+  background: var(--card-bg, var(--paper, #ffffff));
+  color: var(--text-primary, var(--ink, #0a0a0a));
+}
+
+/* IE/Edge 老箭头隐藏（MV3 Chrome-only 其实不需要，但 Chromium 内 flutter 的页面时不时挂在 Edge） */
+select.form-input::-ms-expand { display: none; }
+
+/* 去 Firefox 默认虚线 focus 边框 */
+select.form-input:-moz-focusring {
+  color: transparent;
+  text-shadow: 0 0 0 var(--text-primary, var(--ink, #0a0a0a));
+}
+
+/* input[type=text|search]：统一字体 + 去 native chrome */
+input.form-input,
+input[type="text"].form-input,
+input[type="search"].form-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  line-height: 1.3;
+}
+input.form-input::placeholder {
+  color: var(--text-tertiary, var(--ink-3, #8a929d));
+  opacity: 0.8;
+}
+/* 隐藏 Chrome/Edge readonly input 的灰色气泡 */
+input.form-input[readonly] {
+  cursor: default;
+}
+
+/* 自定义 checkbox (history-checkbox)：方块 + 勾号 SVG */
+.history-checkbox {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong, var(--rule, #0a0a0a));
+  background: var(--paper, var(--card-bg, #ffffff));
+  border-radius: 3px;
+  cursor: pointer;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms linear, border-color 120ms linear;
+  position: relative;
+  margin: 0;
+  flex-shrink: 0;
+}
+.history-checkbox:hover {
+  border-color: var(--accent, var(--ink, #0a0a0a));
+}
+.history-checkbox:checked {
+  background: var(--accent, var(--ink, #0a0a0a));
+  border-color: var(--accent, var(--ink, #0a0a0a));
+}
+.history-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+}
+.history-checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(94, 106, 210, 0.4));
+}
+
 /* Inline help 图标：native title 悬停；跨主题共享视觉 */
 .help-tip {
   display: inline-flex;
