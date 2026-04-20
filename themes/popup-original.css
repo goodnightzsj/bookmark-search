@@ -37,26 +37,49 @@ body {
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
 .header {
-  padding: 14px 16px 12px;
-  background: var(--surface);
+  padding: 18px 18px 16px;
+  background: linear-gradient(135deg, var(--accent) 0%, #4a55b9 100%);
   border-bottom: 1px solid var(--border);
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   position: relative;
+  overflow: hidden;
 }
 
-/* signature 左侧 indigo 竖条 */
+/* header 上叠 dot pattern，与 settings page-header 呼应 */
 .header::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 16px;
-  bottom: 14px;
-  width: 3px;
-  background: var(--accent);
-  border-radius: 0 2px 2px 0;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.16) 1px, transparent 1px),
+    radial-gradient(260px 160px at 100% 0%, rgba(255,255,255,0.1), transparent 70%);
+  background-size: 12px 12px, auto;
+  opacity: 0.9;
+}
+
+.header > * { position: relative; }
+
+.header h1 {
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.header h1 .icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.header .subtitle {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .header h1 {
@@ -178,11 +201,21 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .btn .icon { font-size: 14px; }
 
 .btn-primary {
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-hover) 100%);
   color: #ffffff;
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.2) inset,
+    0 1px 2px rgba(94, 106, 210, 0.28),
+    0 4px 10px rgba(94, 106, 210, 0.2);
 }
-.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.btn-primary:hover {
+  background: linear-gradient(180deg, var(--accent-hover) 0%, #3a459f 100%);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.22) inset,
+    0 2px 4px rgba(94, 106, 210, 0.3),
+    0 6px 14px rgba(94, 106, 210, 0.26);
+}
 .btn-primary:active { transform: translateY(0); }
 
 .btn-secondary {

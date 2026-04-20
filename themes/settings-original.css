@@ -31,6 +31,22 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
+  position: relative;
+  isolation: isolate;
+}
+
+/* 经典渐变：低调的 dot-grid 纹理作为 Linear 产品气质 signature */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(94, 106, 210, 0.14) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
 }
 
 .container { max-width: 940px; margin: 0 auto; }
@@ -38,37 +54,58 @@ body {
 .page-header {
   text-align: left;
   color: var(--text-primary);
-  margin-bottom: 36px;
-  padding-left: 16px;
+  margin-bottom: 40px;
+  padding: 20px 24px;
   position: relative;
+  background: linear-gradient(135deg, var(--accent) 0%, #4a55b9 100%);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(94, 106, 210, 0.18);
+  color: #ffffff;
+  overflow: hidden;
 }
 
-/* Linear signature：左侧 indigo 竖条作为品牌标记 */
+/* page-header 上叠加 signature dot-pattern 作为"产品" brand */
 .page-header::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 10px;
-  width: 3px;
-  background: var(--accent);
-  border-radius: 2px;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.18) 1px, transparent 1px),
+    radial-gradient(400px 200px at 100% 0%, rgba(255,255,255,0.08), transparent 70%);
+  background-size: 14px 14px, auto;
+  opacity: 0.9;
 }
 
+.page-header > * { position: relative; }
+
 .page-header h1 {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
-  margin: 0 0 6px 0;
+  margin: 0 0 4px 0;
   letter-spacing: -0.02em;
-  color: var(--text-primary);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-header h1 .icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  flex-shrink: 0;
 }
 
 .page-header p {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.82);
   opacity: 1;
   margin: 0;
   letter-spacing: 0;
+  max-width: 480px;
 }
 
 .card {
@@ -190,33 +227,60 @@ body {
 
 .stat-card {
   border-radius: 12px;
-  padding: 16px;
+  padding: 18px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: rgba(94, 106, 210, 0.3);
+}
+
+/* Hero 主卡：Linear 的彩色"产品 tile"气质 — 满色 indigo 填充 + 白字 */
 .stat-card-primary {
-  background: var(--card-bg);
-  border-color: var(--border);
-  border-left: 3px solid var(--accent);
-  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--accent) 0%, #4a55b9 100%);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(94, 106, 210, 0.24);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(400px 200px at 100% 0%, rgba(255,255,255,0.14), transparent 60%);
+}
+
+.stat-card-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(94, 106, 210, 0.32);
+  border-color: transparent;
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
 }
 
-.stat-card-primary .stat-label { color: var(--accent); }
-.stat-card-primary .stat-value { color: var(--text-primary); }
-.stat-card-primary .stat-meta  { color: var(--text-secondary); }
+.stat-card-primary .stat-label { color: rgba(255, 255, 255, 0.78); }
+.stat-card-primary .stat-value { color: #ffffff; }
+.stat-card-primary .stat-value small { color: rgba(255, 255, 255, 0.7); }
+.stat-card-primary .stat-meta  { color: rgba(255, 255, 255, 0.72); }
 
 .stat-value {
   font-size: 22px;
