@@ -1,22 +1,23 @@
-import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen } from './background-data.js';
+import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks } from './background-data.js';
 import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
-import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES } from './constants.js';
+import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES, FAVICON_CONFIG } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
 import { buildFaviconLookupKeys, buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
 import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
+import { ensureInit } from './lifecycle.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
 // Browser favicon cache (derived from chrome.favicon.getFaviconUrl).
 // We keep a small in-memory LRU so repeated searches across tabs/pages don't re-fetch + re-base64 the same icon.
 // Entries stay in memory until evicted by LRU or the service worker restarts.
-const BROWSER_FAVICON_CACHE_MAX_SIZE = 800;
-const BROWSER_FAVICON_FETCH_TIMEOUT_MS = 500;
-const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = 1200;
-const PERSISTED_FAVICON_FAILURE_TTL_MS = 10 * 60 * 1000; // 10m
-const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = 10 * 60 * 1000; // 10m
-const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = 24 * 60 * 60 * 1000; // 24h
+const BROWSER_FAVICON_CACHE_MAX_SIZE = FAVICON_CONFIG.BROWSER_CACHE_MAX_SIZE;
+const BROWSER_FAVICON_FETCH_TIMEOUT_MS = FAVICON_CONFIG.FETCH_TIMEOUT_MS;
+const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = FAVICON_CONFIG.FETCH_TIMEOUT_PRIVATE_MS;
+const PERSISTED_FAVICON_FAILURE_TTL_MS = FAVICON_CONFIG.FAILURE_TTL_MS;
+const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = FAVICON_CONFIG.FAILURE_TTL_PRIVATE_MS;
+const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = FAVICON_CONFIG.FAILURE_TTL_MAX_MS;
 
 const browserFaviconCache = new Map(); // key -> { src, isPlaceholder }
 const browserFaviconInFlight = new Map(); // key -> Promise<{ src, isPlaceholder }>
@@ -369,15 +370,6 @@ function isValidSyncInterval(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-let _ensureInit = null;
-
-/**
- * 注入 ensureInit 函数（避免循环导入）
- */
-export function setEnsureInit(fn) {
-  _ensureInit = fn;
-}
-
 /**
  * 处理扩展消息
  */
@@ -397,7 +389,7 @@ export function handleMessage(request, sender, sendResponse) {
 
   // 需要初始化的异步 action，在 ensureInit 完成后再执行
   const initThen = (asyncFn) => {
-    const run = _ensureInit ? _ensureInit().then(asyncFn) : asyncFn();
+    const run = ensureInit().then(asyncFn);
     run.catch((error) => {
       sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
     });
@@ -436,6 +428,27 @@ export function handleMessage(request, sender, sendResponse) {
         });
       return true;
 
+    case MESSAGE_ACTIONS.GET_POPUP_STATUS:
+      return initThen(async () => {
+        try {
+          const result = await chrome.storage.local.get([
+            STORAGE_KEYS.BOOKMARK_COUNT,
+            STORAGE_KEYS.LAST_SYNC_TIME,
+            STORAGE_KEYS.SYNC_INTERVAL
+          ]);
+          const alarms = await chrome.alarms.getAll();
+          const syncAlarm = (alarms || []).find((a) => a && a.name === 'syncBookmarks');
+          sendOkResponse(sendResponse, {
+            bookmarkCount: typeof result[STORAGE_KEYS.BOOKMARK_COUNT] === 'number' ? result[STORAGE_KEYS.BOOKMARK_COUNT] : 0,
+            lastSyncTime: typeof result[STORAGE_KEYS.LAST_SYNC_TIME] === 'number' ? result[STORAGE_KEYS.LAST_SYNC_TIME] : null,
+            syncInterval: typeof result[STORAGE_KEYS.SYNC_INTERVAL] === 'number' ? result[STORAGE_KEYS.SYNC_INTERVAL] : 30,
+            nextSyncScheduledTime: syncAlarm && syncAlarm.scheduledTime ? syncAlarm.scheduledTime : null
+          });
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+
     case MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN: {
       const url = String(request && request.url ? request.url : '').trim();
 
@@ -465,6 +478,26 @@ export function handleMessage(request, sender, sendResponse) {
             const results = Array.isArray(resultsRaw) ? resultsRaw : [];
             return loadFaviconsForResults(results).then((favicons) => {
               sendOkResponse(sendResponse, { results, favicons });
+            });
+          })
+          .catch((error) => {
+            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+          })
+      );
+    }
+
+    case MESSAGE_ACTIONS.GET_RECENT_OPENED: {
+      const limitRaw = request && request.limit;
+      const limit = (typeof limitRaw === 'number' && Number.isFinite(limitRaw) && limitRaw > 0)
+        ? Math.floor(limitRaw)
+        : 10;
+
+      return initThen(() =>
+        getRecentOpenedBookmarks({ limit })
+          .then((resultsRaw) => {
+            const items = Array.isArray(resultsRaw) ? resultsRaw : [];
+            return loadFaviconsForResults(items).then((favicons) => {
+              sendOkResponse(sendResponse, { items, favicons });
             });
           })
           .catch((error) => {

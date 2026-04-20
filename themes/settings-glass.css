@@ -1,28 +1,47 @@
-/* 毛玻璃主题 - 马卡龙渐变 */
+/* 毛玻璃主题 - liquid-glass variant */
 :root {
   --glass-bg: rgba(255, 255, 255, 0.56);
-  --glass-bg-strong: rgba(255, 255, 255, 0.74);
-  --glass-subtle: rgba(255, 255, 255, 0.3);
-  --glass-border: rgba(255, 255, 255, 0.46);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-bg-elevated: rgba(255, 255, 255, 0.85);
+  --glass-subtle: rgba(255, 255, 255, 0.34);
+  --glass-border: rgba(255, 255, 255, 0.5);
   --glass-border-soft: rgba(255, 255, 255, 0.28);
-  --text-primary: #203247;
-  --text-secondary: #5f7388;
+  --glass-highlight: rgba(255, 255, 255, 0.85);
+  --glass-rim-shadow: rgba(15, 23, 42, 0.07);
+  --text-primary: #1c2b3d;
+  --text-secondary: #5a6f84;
   --text-tertiary: rgba(32, 50, 71, 0.55);
   --accent-color: #2563eb;
   --accent-soft: rgba(37, 99, 235, 0.14);
+  --focus-ring: rgba(37, 99, 235, 0.45);
   --success: #0f9f6e;
   --warning: #c27212;
   --danger: #d0455a;
-  --shadow-lg: 0 28px 60px rgba(44, 62, 80, 0.16);
-  --shadow-md: 0 18px 36px rgba(44, 62, 80, 0.12);
-  --shadow-sm: 0 10px 20px rgba(44, 62, 80, 0.08);
+  --motion-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --glass-inner-highlight:
+    0 1px 0 var(--glass-highlight) inset,
+    0 -1px 0 var(--glass-rim-shadow) inset;
+  --shadow-lg:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 10px 28px rgba(44, 62, 80, 0.14),
+    0 30px 70px rgba(44, 62, 80, 0.2);
+  --shadow-md:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 6px 16px rgba(44, 62, 80, 0.1),
+    0 18px 36px rgba(44, 62, 80, 0.12);
+  --shadow-sm: 0 6px 16px rgba(44, 62, 80, 0.1);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-family: var(--bs-font-rounded);
+  letter-spacing: -0.005em;
+  /* 青绿 → 珊瑚 palette，跳出 #E0C3FC→#8EC5FC 马卡龙 AI 套路；blur 背后仍有强色彩层次 */
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.35), transparent 34%),
-    linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+    radial-gradient(900px 700px at 0% 0%, rgba(86, 176, 181, 0.8), transparent 55%),
+    radial-gradient(850px 620px at 100% 100%, rgba(240, 148, 124, 0.72), transparent 55%),
+    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+    linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);
+  background-attachment: fixed;
   color: var(--text-primary);
   min-height: 100vh;
   padding: 48px 20px 64px;
@@ -61,15 +80,44 @@ body {
 .history-list {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  box-shadow: var(--glass-inner-highlight);
+  position: relative;
+}
+
+/* 顶缘镜面高光（liquid-glass 特征） */
+.card::before,
+.stat-card::before,
+.action-card::before,
+.setting-row::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 14%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
 }
 
 .card {
   border-radius: 24px;
   margin-bottom: 24px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), var(--glass-inner-highlight);
   overflow: hidden;
+  transition: box-shadow 260ms var(--motion-spring), transform 260ms var(--motion-spring);
+}
+
+.stat-card,
+.action-card {
+  transition: box-shadow 220ms var(--motion-spring), transform 220ms var(--motion-spring);
+}
+
+.stat-card:hover,
+.action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md), var(--glass-inner-highlight);
 }
 
 .card-title {
@@ -660,4 +708,39 @@ body {
   body { padding: 24px 12px 40px; }
   .card-title,
   .card-content { padding-left: 18px; padding-right: 18px; }
+}
+
+/* 可访问性降级 */
+@media (prefers-reduced-transparency: reduce) {
+  body {
+    background: #eef2ff;
+  }
+  .card,
+  .shortcut-panel,
+  .stat-card,
+  .setting-row,
+  .action-card,
+  .export-controls,
+  .history-list {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.12);
+  }
+  .card::before,
+  .stat-card::before,
+  .action-card::before,
+  .setting-row::before { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .stat-card,
+  .action-card {
+    transition: none !important;
+  }
+  .stat-card:hover,
+  .action-card:hover {
+    transform: none !important;
+  }
 }

@@ -1,7 +1,8 @@
 export const PATH_SEPARATOR = ' > ';
 
 export const ALARM_NAMES = {
-  SYNC_BOOKMARKS: 'syncBookmarks'
+  SYNC_BOOKMARKS: 'syncBookmarks',
+  FLUSH_PENDING_EVENTS: 'flushPendingBookmarkEvents'
 };
 
 export const HISTORY_ACTIONS = {
@@ -21,6 +22,8 @@ export const MESSAGE_ACTIONS = {
   GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
   GET_FAVICONS: 'getFavicons',
   SET_FAVICONS: 'setFavicons',
+  GET_RECENT_OPENED: 'getRecentOpened',
+  GET_POPUP_STATUS: 'getPopupStatus',
   GET_MIGRATION_STATUS: 'getMigrationStatus',
   TOGGLE_SEARCH: 'toggleSearch',
   CLEAR_FAVICON_CACHE: 'clearFaviconCache',
@@ -35,3 +38,27 @@ export const MESSAGE_ERROR_CODES = {
   INVALID_PARAMS: 'INVALID_PARAMS',
   INTERNAL_ERROR: 'INTERNAL_ERROR'
 };
+
+export const FAVICON_CONFIG = Object.freeze({
+  BROWSER_CACHE_MAX_SIZE: 800,
+  CONTENT_CACHE_MAX_SIZE: 2000,
+  FETCH_TIMEOUT_MS: 500,
+  FETCH_TIMEOUT_PRIVATE_MS: 1200,
+  FAILURE_TTL_MS: 10 * 60 * 1000,
+  FAILURE_TTL_PRIVATE_MS: 10 * 60 * 1000,
+  FAILURE_TTL_MAX_MS: 24 * 60 * 60 * 1000
+});
+
+export const WARMUP_CONFIG = Object.freeze({
+  RECENT_OPEN_ROOT_MAX: 200,
+  RECENT_OPEN_ROOT_WINDOW_MS: 60 * 60 * 1000,
+  RECENT_WARMUP_WINDOW_MS: 30 * 60 * 1000
+});
+
+export const THEME_NAMES = Object.freeze({
+  ORIGINAL: 'original',
+  MINIMAL: 'minimal',
+  GLASS: 'glass',
+  DARK: 'dark',
+  AUTO: 'auto'
+});

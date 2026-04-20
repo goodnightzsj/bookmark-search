@@ -3,6 +3,14 @@ import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { getStorageOrThrow, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
+function notifySettings(message, type = 'success') {
+  try {
+    if (typeof window !== 'undefined' && typeof window.__bsShowToast === 'function') {
+      window.__bsShowToast(message, { type });
+    }
+  } catch (e) {}
+}
+
 /**
  * 加载同步设置
  */
@@ -145,10 +153,11 @@ export function bindSyncEvents() {
       await loadSyncSettings();
 
       console.log("[Settings] 同步间隔已更新");
+      notifySettings(interval === 0 ? '已禁用自动同步' : `同步间隔已更新为 ${interval} 分钟`);
     } catch (error) {
       console.error("[Settings] 更新同步间隔失败:", error);
       await loadSyncSettings();
-      alert('设置失败：' + error.message);
+      notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
     }
   });
 
@@ -164,10 +173,11 @@ export function bindSyncEvents() {
       try {
         await setStorageOrThrow({ [STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES]: ttlMinutes });
         console.log("[Settings] 主缓存 TTL 已更新");
+        notifySettings(`主缓存 TTL 已更新为 ${ttlMinutes} 分钟`);
       } catch (error) {
         console.error("[Settings] 更新主缓存 TTL 失败:", error);
         await loadSyncSettings();
-        alert('设置失败：' + error.message);
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
       }
     });
   }
@@ -176,6 +186,9 @@ export function bindSyncEvents() {
   const clearFaviconCacheBtn = document.getElementById('clearFaviconCache');
   if (clearFaviconCacheBtn) {
     clearFaviconCacheBtn.addEventListener('click', async () => {
+      if (!confirm('确定要清除扩展内置的 icon / favicon 缓存吗？\n\n清除后，下次搜索时图标会重新从浏览器缓存或网络抓取，首次可能略慢。')) {
+        return;
+      }
       const btn = clearFaviconCacheBtn;
       const label = btn.querySelector('.btn-text');
       const originalText = label ? label.textContent : '';
@@ -190,6 +203,7 @@ export function bindSyncEvents() {
         );
 
         if (label) label.textContent = '清理成功';
+        notifySettings('图标缓存已清除');
         setTimeout(() => {
           if (label) label.textContent = originalText;
           btn.disabled = false;
@@ -197,6 +211,7 @@ export function bindSyncEvents() {
       } catch (error) {
         console.error('[Settings] 清除 favicon 缓存失败:', error);
         if (label) label.textContent = '清理失败';
+        notifySettings('清除图标缓存失败：' + (error && error.message ? error.message : String(error)), 'error');
         setTimeout(() => {
           if (label) label.textContent = originalText;
           btn.disabled = false;

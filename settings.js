@@ -5,6 +5,42 @@ import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpda
 
 console.log("[Settings] settings.js 开始加载 (主入口)");
 
+/**
+ * 轻量 toast：设置变更 / 维护操作成功的非打断反馈。
+ * 暴露到 window 方便各子模块使用。
+ */
+function showToast(message, options = {}) {
+  const type = options.type === 'error' ? 'error' : (options.type === 'warning' ? 'warning' : 'success');
+  const duration = typeof options.duration === 'number' ? options.duration : 2400;
+
+  let container = document.getElementById('bs-toast-root');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'bs-toast-root';
+    container.setAttribute('role', 'status');
+    container.setAttribute('aria-live', 'polite');
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = 'bs-toast bs-toast-' + type;
+  toast.textContent = String(message || '');
+  container.appendChild(toast);
+
+  // enter
+  requestAnimationFrame(() => toast.classList.add('bs-toast-visible'));
+
+  // exit + cleanup
+  setTimeout(() => {
+    toast.classList.remove('bs-toast-visible');
+    setTimeout(() => { try { container.removeChild(toast); } catch (e) {} }, 220);
+  }, duration);
+}
+
+if (typeof window !== 'undefined') {
+  window.__bsShowToast = showToast;
+}
+
 // 初始化
 async function init() {
   console.log("[Settings] 初始化开始");

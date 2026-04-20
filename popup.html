@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>书签搜索 - 极速收藏夹管理与查找工具</title>
+  <link rel="stylesheet" href="themes/_tokens.css">
   <style>
     /* 基础重置和防闪烁 */
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11,7 +12,7 @@
     body.theme-ready { opacity: 1; }
     .icon { display: inline-flex; align-items: center; justify-content: center; }
     .icon svg { width: 1em; height: 1em; display: block; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    :focus-visible { outline: 2px solid rgba(59, 130, 246, 0.6); outline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--focus-ring, rgba(59, 130, 246, 0.6)); outline-offset: 2px; }
     /* 底部提示布局，避免多行时重叠 */
     #footerHint {
       display: inline-flex;
@@ -31,6 +32,28 @@
     .hint-title { font-weight: 600; }
     .hint-sep { opacity: 0.8; }
     #footerHint .kbd { margin: 0 2px; }
+    /* 合并后的同步行 */
+    .info-row-sync .sync-compound {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      font-weight: 500;
+    }
+    .info-row-sync .sync-pair {
+      display: inline-flex;
+      gap: 4px;
+      align-items: baseline;
+    }
+    .info-row-sync .sync-pair-label {
+      opacity: 0.6;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .info-row-sync .sync-sep {
+      opacity: 0.5;
+    }
   </style>
 </head>
 <body data-page="popup">
@@ -78,27 +101,23 @@
         </span>
       </div>
 
-      <div class="info-row">
+      <div class="info-row info-row-sync">
         <span class="info-label">
           <span class="icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></svg>
           </span>
-          最后同步
+          同步时间
         </span>
-        <span class="info-value" id="lastSyncTime" style="font-size: 12px;">
-          --
-        </span>
-      </div>
-
-      <div class="info-row">
-        <span class="info-label">
-          <span class="icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M5 6l2-2"/><path d="M19 6l-2-2"/></svg>
+        <span class="info-value sync-compound" style="font-size: 12px;">
+          <span class="sync-pair">
+            <span class="sync-pair-label">上次</span>
+            <span id="lastSyncTime">--</span>
           </span>
-          下次同步
-        </span>
-        <span class="info-value" id="nextSyncTime" style="font-size: 12px;">
-          --
+          <span class="sync-sep" aria-hidden="true">·</span>
+          <span class="sync-pair">
+            <span class="sync-pair-label">下次</span>
+            <span id="nextSyncTime">--</span>
+          </span>
         </span>
       </div>
     </div>

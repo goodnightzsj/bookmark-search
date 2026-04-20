@@ -1,0 +1,162 @@
+/*
+ * 共享设计令牌 & 跨主题基线样式
+ * 所有主题在自己的 CSS 变量上覆盖具体色彩；此文件只提供尺寸/节奏/可达性相关的 token
+ * 与少量跨主题完全一致的结构性规则（如 *reset、.icon 包装），减少每个主题文件的重复。
+ */
+
+:root {
+  /* Spacing scale（跨主题稳定） */
+  --bs-space-1: 4px;
+  --bs-space-2: 8px;
+  --bs-space-3: 12px;
+  --bs-space-4: 16px;
+  --bs-space-5: 24px;
+
+  /* Radius scale */
+  --bs-radius-sm: 6px;
+  --bs-radius-md: 10px;
+  --bs-radius-lg: 14px;
+  --bs-radius-pill: 999px;
+
+  /* Motion */
+  --bs-motion-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --bs-motion-medium: 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --bs-motion-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 可访问性 */
+  --bs-focus-ring-width: 2px;
+  --bs-focus-ring-offset: 2px;
+
+  /* 字体栈（默认 system；各主题可用 --bs-font-* 覆盖） */
+  --bs-font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bs-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --bs-font-serif: ui-serif, Georgia, "Iowan Old Style", "Apple Garamond", "Palatino Linotype", serif;
+  --bs-font-swiss: "Helvetica Neue", "Inter", "Arial", sans-serif;
+  --bs-font-rounded: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "SF Pro Text", "Segoe UI Variable", sans-serif;
+
+  /* 回退用的 focus-ring 颜色（主题可覆写 --focus-ring） */
+  --focus-ring: var(--focus-ring, rgba(59, 130, 246, 0.45));
+}
+
+/* 跨主题共享：box-sizing/icon 基线（避免每个主题重复） */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 跨主题共用的结构性规则（去重） */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--bs-font-stack);
+}
+
+/* 页面加载期透明度渐入：所有 popup/settings 主题都依赖此模式 */
+body.theme-ready {
+  opacity: 1;
+}
+
+/* 状态指示点基线尺寸；颜色由各主题自己的 .status-indicator.active / .inactive 覆盖 */
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* focus-visible 统一可访问轮廓 */
+:focus-visible {
+  outline: var(--bs-focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--bs-focus-ring-offset);
+}
+
+/* Inline help 图标：native title 悬停；跨主题共享视觉 */
+.help-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.14);
+  color: inherit;
+  font-family: var(--bs-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+  transition: background 150ms, transform 150ms;
+  vertical-align: middle;
+  opacity: 0.7;
+}
+.help-tip:hover,
+.help-tip:focus-visible {
+  background: rgba(148, 163, 184, 0.28);
+  opacity: 1;
+  outline: none;
+}
+
+/* Toast（跨主题共享结构样式，颜色由各主题 override） */
+#bs-toast-root {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 99998;
+  pointer-events: none;
+}
+
+.bs-toast {
+  pointer-events: auto;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  max-width: 320px;
+  color: #ffffff;
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), 0 10px 24px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 200ms cubic-bezier(0.22, 1, 0.36, 1), transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bs-toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.bs-toast-success { background: #0f766e; }
+.bs-toast-warning { background: #b45309; }
+.bs-toast-error { background: #b91c1c; }
+
+/* 尊重用户 reduced motion 偏好 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -20,6 +20,8 @@
 	  let lastPointerMoveAt = 0;
 	  let searchDebounceTimer = null;
 	  let backgroundSearchToken = 0;
+	  let currentQueryTokens = [];
+	  let recentLoadToken = 0;
 	  let imeComposing = false;
 	  let imeEnterDuringComposition = false;
 	  // Suppress stray/synthetic Enter events right after IME composition ends (esp. macOS built-in IME).
@@ -54,14 +56,18 @@
 	      }
 	    } catch (e) {}
 	  }
-	  // SYNC: values must match constants.js MESSAGE_ACTIONS (IIFE cannot import ES modules)
-	  const MESSAGE_ACTIONS = {
+	  // SYNC: values must match constants.js MESSAGE_ACTIONS (IIFE cannot import ES modules).
+	  // Prefer the build-time injected table when available (see vite config `bs-inject-message-actions` plugin).
+	  const INJECTED_MESSAGE_ACTIONS = (typeof window !== 'undefined' && window.__BS_INJECTED_MESSAGE_ACTIONS__)
+	    || null;
+	  const MESSAGE_ACTIONS = INJECTED_MESSAGE_ACTIONS || {
 	    SEARCH_BOOKMARKS: 'searchBookmarks',
 	    GET_WARMUP_DOMAINS: 'getWarmupDomains',
 	    GET_BROWSER_FAVICON: 'getBrowserFavicon',
 	    GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
 	    GET_FAVICONS: 'getFavicons',
 	    SET_FAVICONS: 'setFavicons',
+	    GET_RECENT_OPENED: 'getRecentOpened',
 	    TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
 	    TOGGLE_SEARCH: 'toggleSearch',
 	    CLEAR_FAVICON_CACHE: 'clearFaviconCache'
@@ -73,6 +79,7 @@
 	    GET_BROWSER_FAVICONS_BATCH: true,
 	    GET_FAVICONS: true,
 	    SET_FAVICONS: true,
+	    GET_RECENT_OPENED: true,
 	    TRACK_BOOKMARK_OPEN: true,
 	    TOGGLE_SEARCH: true,
 	    CLEAR_FAVICON_CACHE: true
@@ -109,7 +116,9 @@
 	    if (changes.theme) {
 	      const newTheme = changes.theme.newValue;
 	      if (typeof newTheme === 'string' && newTheme) {
-	        currentTheme = newTheme;
+	        currentRawTheme = newTheme;
+	        ensureOverlayMediaListener();
+	        currentTheme = resolveOverlayTheme(newTheme);
 	        applyThemeToOverlay();
 	      }
 	    }
@@ -330,14 +339,46 @@
 	  let lastFocusTrapAt = 0;
 
 	  let currentTheme = 'original';
+	  let currentRawTheme = 'original';
+	  let overlayMediaQuery = null;
+	  let overlayMediaListenerBound = false;
+
+	  function resolveOverlayTheme(rawTheme) {
+	    const theme = typeof rawTheme === 'string' ? rawTheme : '';
+	    if (theme !== 'auto') return theme || 'original';
+	    const prefersDark = !!(overlayMediaQuery && overlayMediaQuery.matches)
+	      || !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+	    return prefersDark ? 'dark' : 'original';
+	  }
+
+	  function ensureOverlayMediaListener() {
+	    if (overlayMediaListenerBound) return;
+	    if (typeof matchMedia !== 'function') return;
+	    try {
+	      overlayMediaQuery = matchMedia('(prefers-color-scheme: dark)');
+	      const handler = () => {
+	        if (currentRawTheme === 'auto') {
+	          currentTheme = resolveOverlayTheme(currentRawTheme);
+	          applyThemeToOverlay();
+	        }
+	      };
+	      if (typeof overlayMediaQuery.addEventListener === 'function') {
+	        overlayMediaQuery.addEventListener('change', handler);
+	      } else if (typeof overlayMediaQuery.addListener === 'function') {
+	        overlayMediaQuery.addListener(handler);
+	      }
+	      overlayMediaListenerBound = true;
+	    } catch (e) {}
+	  }
 
 	  async function loadThemeSetting() {
 	    try {
 	      const result = await chrome.storage.local.get('theme');
-	      if (result.theme && typeof result.theme === 'string') {
-	        currentTheme = result.theme;
-	        applyThemeToOverlay();
-	      }
+	      const raw = (result && typeof result.theme === 'string' && result.theme) ? result.theme : 'original';
+	      currentRawTheme = raw;
+	      ensureOverlayMediaListener();
+	      currentTheme = resolveOverlayTheme(raw);
+	      applyThemeToOverlay();
 	    } catch (e) {}
 	  }
 
@@ -415,24 +456,40 @@ function createSearchUI() {
     openBookmark(filteredResults[index], !(e.ctrlKey || e.metaKey));
   });
 
+  // 创建搜索进度条（防抖期间可见）
+  const progressBar = document.createElement("div");
+  progressBar.className = "bookmark-progress";
+  progressBar.setAttribute('aria-hidden', 'true');
+
   // 创建快捷键提示
+  const isMacPlatform = (function() {
+    try { return /Mac|iPod|iPhone|iPad/i.test(navigator.platform || ''); } catch (e) { return false; }
+  })();
+  const modKey = isMacPlatform ? '⌘' : 'Ctrl';
   const shortcuts = document.createElement("div");
   shortcuts.className = "bookmark-shortcuts";
   shortcuts.innerHTML = `
-    <div class="bookmark-shortcut">
+    <div class="bookmark-shortcut" data-hint="nav">
       <kbd>↑</kbd><kbd>↓</kbd> 导航
     </div>
-    <div class="bookmark-shortcut">
+    <div class="bookmark-shortcut" data-hint="open">
       <kbd>Enter</kbd> 新标签
     </div>
-    <div class="bookmark-shortcut">
-      <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 当前页
+    <div class="bookmark-shortcut" data-hint="openCurrent">
+      <kbd>${modKey}</kbd>+<kbd>Enter</kbd> 当前页
     </div>
-    <div class="bookmark-shortcut">
+    <div class="bookmark-shortcut" data-hint="jump">
+      <kbd>${modKey}</kbd>+<kbd>1</kbd>~<kbd>9</kbd> 直达
+    </div>
+    <div class="bookmark-shortcut" data-hint="focus">
+      <kbd>/</kbd> 聚焦
+    </div>
+    <div class="bookmark-shortcut" data-hint="close">
       <kbd>Esc</kbd> 关闭
     </div>
   `;
 
+  searchContainer.appendChild(progressBar);
   searchContainer.appendChild(searchInput);
   searchContainer.appendChild(resultsContainer);
   searchContainer.appendChild(shortcuts);
@@ -665,6 +722,23 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  // Cmd/Ctrl + 1~9 直达搜索结果（同 handleKeydown）
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+      && typeof key === 'string' && key.length === 1 && key >= '1' && key <= '9') {
+    event.preventDefault();
+    event.stopPropagation();
+    handleKeydown(event);
+    return;
+  }
+
+  // "/" 聚焦搜索框（不把 "/" 当成普通字符注入）
+  if (key === '/') {
+    event.preventDefault();
+    event.stopPropagation();
+    focusSearchInput();
+    return;
+  }
+
   if (!searchInput) return;
 
   if (key === 'Backspace') {
@@ -766,6 +840,21 @@ function toggleSearch() {
 function handleKeydown(e) {
   // Prefer our own composition state over legacy keyCode=229 (macOS IME can keep 229 briefly after commit).
   const composing = !!(imeComposing || (e && e.isComposing));
+
+  // Cmd/Ctrl + 1~9 直达对应搜索结果（覆盖浏览器默认的切换 tab）
+  if (!composing && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey
+      && typeof e.key === 'string' && e.key.length === 1
+      && e.key >= '1' && e.key <= '9') {
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx >= 0 && idx < filteredResults.length && filteredResults[idx]) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Cmd/Ctrl 已被按下 → 在当前页打开
+      openBookmark(filteredResults[idx], false);
+      return;
+    }
+  }
+
   switch (e.key) {
     case "Escape":
       hideSearch();
@@ -853,9 +942,19 @@ function updateSelection(options) {
 	// 防抖搜索
 	function handleSearchDebounced(e) {
 	  clearTimeout(searchDebounceTimer);
+	  const value = String((e && e.target && e.target.value) || '');
+	  // 只有用户真的在输入时才显示进度条；空查询不需要
+	  if (value.trim()) setProgressVisible(true);
 	  searchDebounceTimer = setTimeout(() => {
-	    handleSearch(e.target.value);
+	    handleSearch(value);
 	  }, 200);
+	}
+
+	function setProgressVisible(visible) {
+	  if (!searchContainer) return;
+	  const bar = searchContainer.querySelector('.bookmark-progress');
+	  if (!bar) return;
+	  bar.classList.toggle('is-active', !!visible);
 	}
 
 	function sendMessagePromise(message, timeoutMs) {
@@ -892,8 +991,13 @@ function updateSelection(options) {
 	  if (lower.indexOf('chrome://') === 0) return false;
 	  if (lower.indexOf('edge://') === 0) return false;
 	  if (lower.indexOf('about:') === 0) return false;
-	  if (lower.indexOf('chrome-extension://') === 0) return false;
-	  if (lower.indexOf('edge-extension://') === 0) return false;
+	  // 允许走本扩展暴露的 _favicon 端点；其它 chrome-extension:// 仍拒绝以防注入
+	  if (lower.indexOf('chrome-extension://') === 0) {
+	    return lower.indexOf('/_favicon/') !== -1;
+	  }
+	  if (lower.indexOf('edge-extension://') === 0) {
+	    return lower.indexOf('/_favicon/') !== -1;
+	  }
 	  if (lower.indexOf('javascript:') === 0) return false;
 	  if (lower.indexOf('data:text/html') === 0) return false;
 	  return true;
@@ -1660,6 +1764,7 @@ async function searchBookmarksInBackground(query) {
 	  try {
 	    const response = await sendMessagePromise({ action: MESSAGE_ACTIONS.SEARCH_BOOKMARKS, query });
 	    if (token !== backgroundSearchToken) return;
+	    setProgressVisible(false);
 
 	    if (!response || response.success === false) {
 	      const err = response && response.error;
@@ -1688,6 +1793,7 @@ async function searchBookmarksInBackground(query) {
 	    displayResults(filteredResults);
 	  } catch (error) {
 	    if (token !== backgroundSearchToken) return;
+	    setProgressVisible(false);
 
 	    console.error("[Content] 后台搜索失败:", error);
 	    filteredResults = [];
@@ -1698,8 +1804,20 @@ async function searchBookmarksInBackground(query) {
 
 	    const emptyMsg = document.createElement("div");
 	    emptyMsg.className = "bookmark-empty";
-	    emptyMsg.textContent = "搜索失败，请重试";
+	    emptyMsg.innerHTML = '搜索失败 · 按 <kbd>Enter</kbd> 或修改查询词重试';
 	    resultsContainer.appendChild(emptyMsg);
+	    // Enter 键重试（在 input 外也能触发）
+	    const lastQuery = searchInput ? String(searchInput.value || '').trim() : '';
+	    const retryHandler = (ev) => {
+	      if (ev.key !== 'Enter') return;
+	      if (!searchInput || !lastQuery) return;
+	      document.removeEventListener('keydown', retryHandler, true);
+	      searchBookmarksInBackground(lastQuery);
+	    };
+	    document.addEventListener('keydown', retryHandler, true);
+	    // 查询词变更或 overlay 关闭时自动清理监听
+	    const cleanup = () => document.removeEventListener('keydown', retryHandler, true);
+	    setTimeout(cleanup, 10000);
 	  }
 	}
 
@@ -1708,25 +1826,139 @@ async function searchBookmarksInBackground(query) {
 	  // Invalidate any in-flight background search for previous queries.
 	  backgroundSearchToken++;
 	  const rawQuery = String(query || '').trim();
-	  
+
 	  if (!rawQuery) {
-	    filteredResults = [];
-	    resultsContainer.innerHTML = "";
-	    cachedResultItems = null;
-	    selectedIndex = -1;
-	    prevSelectedIndex = -1;
-	    if (searchInput) {
-	      searchInput.setAttribute('aria-expanded', 'false');
-	      searchInput.setAttribute('aria-activedescendant', '');
-	    }
+	    currentQueryTokens = [];
+	    setProgressVisible(false);
+	    showRecentOpenedAsEmpty();
 	    return;
 	  }
 
+	  currentQueryTokens = rawQuery.split(/\s+/).filter(Boolean);
 	  searchBookmarksInBackground(rawQuery);
 }
 
+	function showRecentOpenedAsEmpty() {
+	  if (!resultsContainer) return;
+	  const token = ++recentLoadToken;
+	  filteredResults = [];
+	  resultsContainer.innerHTML = "";
+	  cachedResultItems = null;
+	  selectedIndex = -1;
+	  prevSelectedIndex = -1;
+	  if (searchInput) {
+	    searchInput.setAttribute('aria-expanded', 'false');
+	    searchInput.setAttribute('aria-activedescendant', '');
+	  }
+
+	  sendMessagePromise({ action: MESSAGE_ACTIONS.GET_RECENT_OPENED, limit: 10 })
+	    .then((response) => {
+	      if (token !== recentLoadToken) return;
+	      if (!response || response.success === false) return;
+	      const items = Array.isArray(response.items) ? response.items : [];
+	      if (items.length === 0) {
+	        renderOnboardingEmpty();
+	        return;
+	      }
+	      filteredResults = items.slice(0, 10);
+	      selectedIndex = 0;
+	      displayResults(filteredResults, { isRecent: true });
+	    })
+	    .catch(() => {
+	      if (token !== recentLoadToken) return;
+	      renderOnboardingEmpty();
+	    });
+}
+
+	function renderOnboardingEmpty() {
+	  if (!resultsContainer) return;
+	  resultsContainer.innerHTML = '';
+	  const wrap = document.createElement('div');
+	  wrap.className = 'bookmark-onboard';
+	  wrap.innerHTML = `
+	    <div class="bookmark-onboard-title">开始搜索书签</div>
+	    <div class="bookmark-onboard-body">
+	      <div class="bookmark-onboard-row">
+	        <span class="bookmark-onboard-label">直接输入</span>
+	        <span class="bookmark-onboard-value">title / URL / 文件夹路径 中的关键词</span>
+	      </div>
+	      <div class="bookmark-onboard-row">
+	        <span class="bookmark-onboard-label">多词搜索</span>
+	        <span class="bookmark-onboard-value">用空格分隔，所有词都要命中</span>
+	      </div>
+	      <div class="bookmark-onboard-row">
+	        <span class="bookmark-onboard-label">快速打开</span>
+	        <span class="bookmark-onboard-value">结果出现后按数字键直达前 9 条</span>
+	      </div>
+	    </div>
+	  `;
+	  resultsContainer.appendChild(wrap);
+	}
+
+function escapeRegExp(source) {
+  return String(source || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// 将 text 中命中 currentQueryTokens 的片段包裹成 <mark>，其余用 text 节点
+function renderHighlightedText(text) {
+  const safeText = String(text == null ? '' : text);
+  const tokens = Array.isArray(currentQueryTokens) ? currentQueryTokens.filter(Boolean) : [];
+  const frag = document.createDocumentFragment();
+  if (!safeText) return frag;
+  if (tokens.length === 0) {
+    frag.appendChild(document.createTextNode(safeText));
+    return frag;
+  }
+  const pattern = new RegExp('(' + tokens.map(escapeRegExp).join('|') + ')', 'gi');
+  let lastIdx = 0;
+  let match;
+  pattern.lastIndex = 0;
+  while ((match = pattern.exec(safeText)) !== null) {
+    if (match.index > lastIdx) {
+      frag.appendChild(document.createTextNode(safeText.slice(lastIdx, match.index)));
+    }
+    const mark = document.createElement('mark');
+    mark.className = 'bs-mark';
+    mark.textContent = match[0];
+    frag.appendChild(mark);
+    lastIdx = pattern.lastIndex;
+    // 避免零宽匹配导致死循环
+    if (match.index === pattern.lastIndex) pattern.lastIndex++;
+  }
+  if (lastIdx < safeText.length) {
+    frag.appendChild(document.createTextNode(safeText.slice(lastIdx)));
+  }
+  return frag;
+}
+
+function renderPathBreadcrumb(container, pathValue) {
+  container.textContent = '';
+  const raw = typeof pathValue === 'string' ? pathValue : '';
+  if (!raw) return;
+  const parts = raw.split(' > ').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    container.appendChild(renderHighlightedText(raw));
+    return;
+  }
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'bookmark-path-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '›';
+      container.appendChild(sep);
+    }
+    const seg = document.createElement('span');
+    seg.className = 'bookmark-path-seg';
+    seg.appendChild(renderHighlightedText(parts[i]));
+    container.appendChild(seg);
+  }
+}
+
 // 显示搜索结果
-function displayResults(results) {
+function displayResults(results, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const isRecent = !!opts.isRecent;
   resultsContainer.innerHTML = "";
   cachedResultItems = null;
   prevSelectedIndex = -1;
@@ -1745,6 +1977,13 @@ function displayResults(results) {
     return;
   }
 
+  if (isRecent) {
+    const hint = document.createElement('div');
+    hint.className = 'bookmark-section-hint';
+    hint.textContent = '最近打开';
+    resultsContainer.appendChild(hint);
+  }
+
   // 使用 DocumentFragment 批量插入，减少重排次数
   const fragment = document.createDocumentFragment();
 
@@ -1758,12 +1997,27 @@ function displayResults(results) {
       item.classList.add("selected");
       searchInput.setAttribute('aria-activedescendant', item.id);
     }
+    // 给前 9 条加一个 index badge，提示可用 Cmd/Ctrl+数字直达
+    if (index < 9) {
+      const badge = document.createElement('span');
+      badge.className = 'bookmark-index-badge';
+      badge.setAttribute('aria-hidden', 'true');
+      badge.textContent = String(index + 1);
+      item.appendChild(badge);
+    }
 
     const favicon = document.createElement("img");
     favicon.className = "bookmark-favicon";
     favicon.addEventListener('error', handleRenderedFaviconError);
     resetFaviconImageErrorState(favicon, defaultIcon, token);
     favicon.src = defaultIcon;
+    // 标记 loading 骨架；一旦拿到真实 src 就清掉
+    favicon.dataset.bsLoading = 'true';
+    favicon.addEventListener('load', function() {
+      if (favicon.src && favicon.src !== defaultIcon) {
+        delete favicon.dataset.bsLoading;
+      }
+    });
     let parsedUrl = null;
     try { parsedUrl = new URL(bookmark.url); } catch (e) {}
     if (parsedUrl && parsedUrl.hostname) {
@@ -1776,6 +2030,7 @@ function displayResults(results) {
       if (cachedSrc) {
         resetFaviconImageErrorState(favicon, cachedSrc, token);
         favicon.src = cachedSrc;
+        delete favicon.dataset.bsLoading;
       } else {
         if (!domainToImages[key]) domainToImages[key] = [];
         domainToImages[key].push(favicon);
@@ -1784,6 +2039,9 @@ function displayResults(results) {
           domainToPageUrl[key] = resolvedPageUrl;
         }
       }
+    } else {
+      // 无有效 URL 场景：不会有真实 favicon，尽快去除骨架
+      delete favicon.dataset.bsLoading;
     }
 
     const textContainer = document.createElement("div");
@@ -1791,19 +2049,20 @@ function displayResults(results) {
 
     const title = document.createElement("div");
     title.className = "bookmark-title";
-    title.textContent = bookmark.title;
+    title.appendChild(renderHighlightedText(bookmark.title || ''));
     textContainer.appendChild(title);
 
     if (bookmark.path) {
       const pathEl = document.createElement("div");
       pathEl.className = "bookmark-path";
-      pathEl.textContent = bookmark.path;
+      renderPathBreadcrumb(pathEl, bookmark.path);
       textContainer.appendChild(pathEl);
     }
 
     const url = document.createElement("div");
     url.className = "bookmark-url";
-    url.textContent = bookmark.url;
+    url.setAttribute('title', bookmark.url || '');
+    url.appendChild(renderHighlightedText(bookmark.url || ''));
     textContainer.appendChild(url);
 
     item.appendChild(favicon);
@@ -1817,6 +2076,10 @@ function displayResults(results) {
 
   // 缓存结果项 DOM 引用，供 updateSelection 使用（避免重复 querySelectorAll）
   cachedResultItems = resultsContainer.querySelectorAll(".bookmark-item");
+
+  // 同步 prevSelectedIndex 到当前 selectedIndex，避免后续上下键/hover 时 updateSelection
+  // 因 prevSelectedIndex 仍是 -1 而跳过清除分支，导致第一条持续高亮。
+  prevSelectedIndex = (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) ? selectedIndex : -1;
 
   const domainsToHydrate = Object.keys(domainToImages);
   if (domainsToHydrate.length > 0) {
@@ -1832,6 +2095,20 @@ function displayResults(results) {
   function canUseExternalFavicons() {
     var now = Date.now();
     return now >= externalFaviconCircuitUntil;
+  }
+
+  function buildExtensionFaviconUrl(pageUrl, size) {
+    try {
+      if (!chrome || !chrome.runtime || typeof chrome.runtime.getURL !== 'function') return '';
+      var safePage = typeof pageUrl === 'string' && pageUrl ? pageUrl : '';
+      if (!safePage) return '';
+      var base = chrome.runtime.getURL('_favicon/');
+      if (!base || base.indexOf('chrome-extension://') !== 0) return '';
+      var sz = (typeof size === 'number' && size > 0) ? Math.floor(size) : 32;
+      return base + '?pageUrl=' + encodeURIComponent(safePage) + '&size=' + sz;
+    } catch (e) {
+      return '';
+    }
   }
 
   function recordExternalFaviconFailure() {
@@ -1931,22 +2208,12 @@ function displayResults(results) {
   }
 
   if (allowExternal && !isPrivateHost) {
-    // DDG
-    appendUniqueCandidate(sources, "https://icons.duckduckgo.com/ip3/" + domain + ".ico");
+    // 优先使用 chrome-extension://_favicon/?pageUrl=...&size=32
+    // 走浏览器原生 favicon 服务，避免走 DDG/Google 等第三方（含隐私泄露、断网不可用问题）
+    var pageUrlForFavicon = safePageUrl || ("https://" + domain + "/");
+    appendUniqueCandidate(sources, buildExtensionFaviconUrl(pageUrlForFavicon, 32));
     if (allowRootDomainExternalFallback) {
-      appendUniqueCandidate(sources, "https://icons.duckduckgo.com/ip3/" + rootDomain + ".ico");
-    }
-
-    // Google
-    appendUniqueCandidate(sources, "https://www.google.com/s2/favicons?domain=" + domain + "&sz=32");
-    if (allowRootDomainExternalFallback) {
-      appendUniqueCandidate(sources, "https://www.google.com/s2/favicons?domain=" + rootDomain + "&sz=32");
-    }
-
-    // Faviconkit
-    appendUniqueCandidate(sources, "https://api.faviconkit.com/" + domain + "/32");
-    if (allowRootDomainExternalFallback) {
-      appendUniqueCandidate(sources, "https://api.faviconkit.com/" + rootDomain + "/32");
+      appendUniqueCandidate(sources, buildExtensionFaviconUrl("https://" + rootDomain + "/", 32));
     }
   }
 
@@ -1959,8 +2226,13 @@ function displayResults(results) {
       return;
     }
     var url = sources[idx];
-    var isDDG = url.indexOf("duckduckgo.com") !== -1;
-    var isThirdParty = isDDG || url.indexOf("google.com/s2/favicons") !== -1 || url.indexOf("api.faviconkit.com") !== -1;
+    var isExtensionFavicon = url.indexOf("chrome-extension://") === 0 && url.indexOf("/_favicon/") !== -1;
+    var isThirdParty = !isExtensionFavicon && (
+      url.indexOf("duckduckgo.com") !== -1 ||
+      url.indexOf("google.com/s2/favicons") !== -1 ||
+      url.indexOf("api.faviconkit.com") !== -1
+    );
+    // _favicon 走浏览器内置服务，不受外部熔断限制；DDG/Google 保留熔断
     if (isThirdParty && (!allowExternal || !canUseExternalFavicons())) {
       faviconDebugLog('skip third-party (circuit/open/disabled)', { domain: domain, url: url, allowExternal: allowExternal });
       tryLoad(idx + 1);

@@ -1,7 +1,6 @@
 import { formatRelativeTime, formatFutureTime, SPECIAL_PROTOCOLS } from './utils.js';
-import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
+import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
-import { getStorageOrThrow, getValueOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 // 常量定义
 const BUTTON_RESET_DELAY_MS = 1500;  // 按钮状态恢复延时
@@ -105,14 +104,11 @@ async function init() {
     await Promise.all([
       checkCurrentPageStatus(),
       loadShortcutInfo(isMac),
-      loadPopupStorageData()
+      loadPopupStatus()
     ]);
 
     // 绑定事件
     bindEvents();
-
-    // 监听 storage 变化，保持展示信息最新
-    setupStorageListener();
 
     console.log("[Popup] 初始化完成");
   } catch (error) {
@@ -120,18 +116,17 @@ async function init() {
   }
 }
 
-// 单次批量读取 popup 所需的全部 storage 数据
-async function loadPopupStorageData() {
+// 通过 sendMessage 从 background 拉取 popup 所需数据（取代 storage.onChanged 订阅）
+async function loadPopupStatus() {
   try {
-    const result = await getStorageOrThrow([
-      STORAGE_KEYS.BOOKMARK_COUNT,
-      STORAGE_KEYS.LAST_SYNC_TIME,
-      STORAGE_KEYS.SYNC_INTERVAL
-    ]);
-    applyBookmarkCount(result[STORAGE_KEYS.BOOKMARK_COUNT]);
-    await applySyncTimes(result[STORAGE_KEYS.LAST_SYNC_TIME], result[STORAGE_KEYS.SYNC_INTERVAL]);
+    const response = assertSuccessfulMessageResponse(
+      await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.GET_POPUP_STATUS }),
+      '加载状态失败'
+    );
+    applyBookmarkCount(response.bookmarkCount);
+    applySyncTimes(response.lastSyncTime, response.syncInterval, response.nextSyncScheduledTime);
   } catch (error) {
-    console.error("[Popup] 加载 storage 数据失败:", error);
+    console.error("[Popup] 加载 popup 状态失败:", error);
     const countEl = document.getElementById('bookmarkCount');
     if (countEl) countEl.textContent = '!';
     const lastEl = document.getElementById('lastSyncTime');
@@ -149,7 +144,7 @@ function applyBookmarkCount(countValue) {
   console.log("[Popup] 书签数量:", count);
 }
 
-async function applySyncTimes(lastSyncTime, syncInterval) {
+function applySyncTimes(lastSyncTime, syncInterval, nextSyncScheduledTime) {
   const lastSyncElement = document.getElementById('lastSyncTime');
   const nextSyncElement = document.getElementById('nextSyncTime');
   if (!lastSyncElement || !nextSyncElement) return;
@@ -167,39 +162,10 @@ async function applySyncTimes(lastSyncTime, syncInterval) {
     const nextSyncTime = lastSyncTime + (syncInterval * 60 * 1000);
     nextSyncElement.textContent = formatFutureTime(nextSyncTime);
     console.log("[Popup] 下次同步:", new Date(nextSyncTime).toLocaleString());
+  } else if (nextSyncScheduledTime) {
+    nextSyncElement.textContent = formatFutureTime(nextSyncScheduledTime);
   } else {
-    const alarms = await chrome.alarms.getAll();
-    const syncAlarm = alarms.find(alarm => alarm.name === ALARM_NAMES.SYNC_BOOKMARKS);
-    if (syncAlarm && syncAlarm.scheduledTime) {
-      nextSyncElement.textContent = formatFutureTime(syncAlarm.scheduledTime);
-    } else {
-      nextSyncElement.textContent = '未设置';
-    }
-  }
-}
-
-// 按需刷新：仅重新读取书签数量或同步时间
-async function loadBookmarkCount() {
-  try {
-    const countValue = await getValueOrThrow(STORAGE_KEYS.BOOKMARK_COUNT);
-    applyBookmarkCount(countValue);
-  } catch (error) {
-    console.error("[Popup] 加载书签数量失败:", error);
-    const el = document.getElementById('bookmarkCount');
-    if (el) el.textContent = '!';
-  }
-}
-
-async function loadSyncTimes() {
-  try {
-    const result = await getStorageOrThrow([STORAGE_KEYS.LAST_SYNC_TIME, STORAGE_KEYS.SYNC_INTERVAL]);
-    await applySyncTimes(result[STORAGE_KEYS.LAST_SYNC_TIME], result[STORAGE_KEYS.SYNC_INTERVAL]);
-  } catch (error) {
-    console.error("[Popup] 加载同步时间失败:", error);
-    const lastEl = document.getElementById('lastSyncTime');
-    if (lastEl) lastEl.textContent = '错误';
-    const nextEl = document.getElementById('nextSyncTime');
-    if (nextEl) nextEl.textContent = '错误';
+    nextSyncElement.textContent = '未设置';
   }
 }
 
@@ -229,8 +195,8 @@ function bindEvents() {
         { allowSkipped: true }
       );
 
-      // 并行重新加载书签数量和同步时间
-      await Promise.all([loadBookmarkCount(), loadSyncTimes()]);
+      // 刷新完成后一次性拉取所有状态
+      await loadPopupStatus();
 
       if (label) label.textContent = result && result.skipped ? '已排队' : '刷新成功';
       setTimeout(() => {
@@ -245,15 +211,6 @@ function bindEvents() {
         btn.disabled = false;
       }, BUTTON_RESET_DELAY_MS);
     }
-  });
-}
-
-// 监听存储变化（当 popup 打开时自动刷新显示）
-function setupStorageListener() {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
-    if (changes.bookmarkCount || changes.bookmarksMeta) loadBookmarkCount();
-    if (changes.lastSyncTime || changes.syncInterval) loadSyncTimes();
   });
 }
 

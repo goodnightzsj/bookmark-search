@@ -1,57 +1,12 @@
-import { applyBookmarkEvents, loadInitialData, refreshBookmarks, updateRuntimeCacheTtlMinutes } from './background-data.js';
-import { handleSyncAlarm, initSyncSettings } from './background-sync.js';
-import { handleMessage, setEnsureInit } from './background-messages.js';
-import { ensureSchemaReady } from './migration-service.js';
+import { applyBookmarkEvents, updateRuntimeCacheTtlMinutes } from './background-data.js';
+import { handleSyncAlarm } from './background-sync.js';
+import { handleMessage } from './background-messages.js';
 import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
-import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
+import { idbGet, idbSet } from './idb-service.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
+import { ensureInit } from './lifecycle.js';
 
 console.log("[Background] Service Worker 启动");
-
-let initPromise = null;
-
-// 初始化
-async function init() {
-  console.log("[Background] 初始化开始");
-
-  const schemaResult = await ensureSchemaReady();
-  const rebuildPending = !!(schemaResult && schemaResult.needsRebuild);
-  if (schemaResult && schemaResult.migrated) {
-    console.log('[Background] 数据迁移完成', {
-      schemaVersion: schemaResult.schemaVersion,
-      needsRebuild: rebuildPending
-    });
-  }
-
-  // 并行加载数据和初始化同步设置（互不依赖）
-  await Promise.all([
-    loadInitialData({ skipInitialRefresh: rebuildPending }),
-    initSyncSettings()
-  ]);
-
-  if (rebuildPending) {
-    console.log('[Background] 迁移后触发全量重建');
-    const rebuildResult = await refreshBookmarks();
-    if (rebuildResult && rebuildResult.success) {
-      await setStorageOrThrow({ [STORAGE_KEYS.NEEDS_REBUILD]: false });
-      console.log('[Background] 迁移后的重建完成，已清除 needsRebuild');
-    } else {
-      console.warn('[Background] 迁移后的重建未成功，保留 needsRebuild 以便后续重试', rebuildResult);
-    }
-  }
-
-  console.log("[Background] 初始化完成");
-}
-
-function ensureInit() {
-  if (initPromise) return initPromise;
-  initPromise = init().catch((error) => {
-    console.error("[Background] 初始化失败:", error);
-    initPromise = null;
-    throw error;
-  });
-  return initPromise;
-}
 
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -65,16 +20,81 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // 监听书签变化事件（浏览器原生书签变化时自动触发同步）
-// 使用 setTimeout 防抖（chrome.alarms 最短延迟约 30s，不适合短间隔防抖）
+// 使用 setTimeout 防抖（chrome.alarms 最短延迟约 30s，不适合短间隔防抖）。
+// 事件同时持久化到 IDB，并预约 alarm 作为 SW 挂起的兜底，避免掉事件。
 const DEBOUNCE_DELAY_MS = 500;
+const IDB_KEY_PENDING_BOOKMARK_EVENTS = 'pending-bookmark-events:v1';
+const PENDING_EVENT_QUEUE_MAX = 2000;
+const PENDING_FLUSH_ALARM_DELAY_MINUTES = 1;
 
 let debounceBookmarkEvents = [];
 let importInProgress = false;
 let debounceTimer = null;
+let pendingPersistChain = Promise.resolve();
+let pendingRehydrated = false;
 
 function scheduleBookmarkDebounce() {
   if (debounceTimer !== null) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(flushBookmarkDebounce, DEBOUNCE_DELAY_MS);
+  // alarm 兜底：即使 SW 挂起，1 分钟后也会被唤起 flush。
+  try {
+    chrome.alarms.create(ALARM_NAMES.FLUSH_PENDING_EVENTS, { delayInMinutes: PENDING_FLUSH_ALARM_DELAY_MINUTES });
+  } catch (e) {}
+}
+
+function sanitizePendingEventsForPersistence(events) {
+  const list = Array.isArray(events) ? events : [];
+  const safe = [];
+  for (let i = 0; i < list.length && safe.length < PENDING_EVENT_QUEUE_MAX; i++) {
+    const evt = list[i];
+    if (!evt || typeof evt !== 'object' || !evt.type) continue;
+    // 剥离可能不可结构化克隆的循环引用字段；只保留基础类型
+    try {
+      safe.push(JSON.parse(JSON.stringify(evt)));
+    } catch (e) {}
+  }
+  return safe;
+}
+
+function persistPendingEventsSnapshot() {
+  const snapshot = sanitizePendingEventsForPersistence(debounceBookmarkEvents);
+  pendingPersistChain = pendingPersistChain
+    .catch(() => {})
+    .then(() => idbSet(IDB_KEY_PENDING_BOOKMARK_EVENTS, snapshot))
+    .catch((error) => {
+      console.warn('[Background][Observe] pending_events_persist_failed', {
+        message: error && error.message ? error.message : String(error)
+      });
+    });
+  return pendingPersistChain;
+}
+
+async function clearPendingEventsFromIdb() {
+  pendingPersistChain = pendingPersistChain
+    .catch(() => {})
+    .then(() => idbSet(IDB_KEY_PENDING_BOOKMARK_EVENTS, []))
+    .catch(() => {});
+  return pendingPersistChain;
+}
+
+async function rehydratePendingEventsOnce() {
+  if (pendingRehydrated) return;
+  pendingRehydrated = true;
+  try {
+    const raw = await idbGet(IDB_KEY_PENDING_BOOKMARK_EVENTS);
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    console.log('[Background] 从 IDB 恢复 pending bookmark events: %d 条', raw.length);
+    // 合并到内存队列并安排 flush；不立即写 IDB（flush 时会统一清理）
+    for (let i = 0; i < raw.length && debounceBookmarkEvents.length < PENDING_EVENT_QUEUE_MAX; i++) {
+      const evt = raw[i];
+      if (evt && typeof evt === 'object' && evt.type) debounceBookmarkEvents.push(evt);
+    }
+    if (debounceBookmarkEvents.length > 0) scheduleBookmarkDebounce();
+  } catch (error) {
+    console.warn('[Background][Observe] pending_events_rehydrate_failed', {
+      message: error && error.message ? error.message : String(error)
+    });
+  }
 }
 
 async function flushBookmarkDebounce() {
@@ -84,20 +104,49 @@ async function flushBookmarkDebounce() {
 
   console.log("[Background] 防抖触发，开始同步（事件数=%d）", Array.isArray(events) ? events.length : 0);
   await ensureInit();
-  if (importInProgress) return;
-
-  if (!Array.isArray(events) || events.length === 0) {
-    console.log("[Background] 防抖触发但事件队列为空，跳过");
+  if (importInProgress) {
+    // Import 期间直接放弃（稍后的 importEnded 会触发全量刷新）
+    await clearPendingEventsFromIdb();
+    try { await chrome.alarms.clear(ALARM_NAMES.FLUSH_PENDING_EVENTS); } catch (e) {}
     return;
   }
 
-  await applyBookmarkEvents(events);
+  if (!Array.isArray(events) || events.length === 0) {
+    console.log("[Background] 防抖触发但事件队列为空，跳过");
+    await clearPendingEventsFromIdb();
+    try { await chrome.alarms.clear(ALARM_NAMES.FLUSH_PENDING_EVENTS); } catch (e) {}
+    return;
+  }
+
+  try {
+    const result = await applyBookmarkEvents(events);
+    // 被上层认为成功或尚未调度的：清空持久化；失败则重新持久化
+    if (!result || result.success !== false || result.skipped || result.fallback) {
+      await clearPendingEventsFromIdb();
+      try { await chrome.alarms.clear(ALARM_NAMES.FLUSH_PENDING_EVENTS); } catch (e) {}
+    } else {
+      // 处理失败，重新入队等待下一轮 flush
+      debounceBookmarkEvents = events.concat(debounceBookmarkEvents);
+      persistPendingEventsSnapshot();
+      scheduleBookmarkDebounce();
+    }
+  } catch (error) {
+    console.warn('[Background] applyBookmarkEvents 抛错，保留队列:', error);
+    debounceBookmarkEvents = events.concat(debounceBookmarkEvents);
+    persistPendingEventsSnapshot();
+    scheduleBookmarkDebounce();
+  }
 }
 
 function enqueueBookmarkEvent(evt) {
   if (importInProgress) return;
   if (!evt || typeof evt !== 'object') return;
+  if (debounceBookmarkEvents.length >= PENDING_EVENT_QUEUE_MAX) {
+    console.warn('[Background] pending event queue full，丢弃旧事件');
+    debounceBookmarkEvents.splice(0, Math.max(1, PENDING_EVENT_QUEUE_MAX - debounceBookmarkEvents.length + 1));
+  }
   debounceBookmarkEvents.push(evt);
+  persistPendingEventsSnapshot();
   scheduleBookmarkDebounce();
 }
 
@@ -167,11 +216,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAMES.SYNC_BOOKMARKS) {
     await ensureInit();
     await handleSyncAlarm(alarm);
+    return;
+  }
+
+  if (alarm.name === ALARM_NAMES.FLUSH_PENDING_EVENTS) {
+    // SW 从挂起中被唤醒：补偿 flush 残留队列
+    await ensureInit();
+    await rehydratePendingEventsOnce();
+    if (debounceBookmarkEvents.length > 0) {
+      if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
+      await flushBookmarkDebounce();
+    }
+    return;
   }
 });
-
-// 注入 ensureInit 供消息处理器使用（避免循环导入）
-setEnsureInit(ensureInit);
 
 // 监听消息
 chrome.runtime.onMessage.addListener(handleMessage);
@@ -240,5 +298,5 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-// 启动初始化
-ensureInit();
+// 启动初始化 + 恢复 IDB 中残留的 pending events
+ensureInit().then(() => rehydratePendingEventsOnce()).catch(() => {});

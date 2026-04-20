@@ -34,6 +34,12 @@
     "128": "icon128.png"
   },
   "options_page": "settings.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["_favicon/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "commands": {
     "toggle-overlay": {
       "suggested_key": {

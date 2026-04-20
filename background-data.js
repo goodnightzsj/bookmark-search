@@ -1,6 +1,6 @@
 import { getStorageWithStatus, setStorage, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
-import { HISTORY_ACTIONS, PATH_SEPARATOR } from './constants.js';
+import { HISTORY_ACTIONS, PATH_SEPARATOR, WARMUP_CONFIG } from './constants.js';
 import { idbGet, idbGetAllDocuments, idbPatchDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
 import { buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
 
@@ -79,12 +79,12 @@ let clearHistoryWaiters = [];
 // 最近在搜索结果中实际打开过的 favicon key（用于 favicon 预热优先级）
 // key: faviconKey -> { count, lastAt, sampleUrl }
 const recentOpenedRootMap = new Map();
-const RECENT_OPEN_ROOT_MAX = 200;
-const RECENT_OPEN_ROOT_WINDOW_MS = 60 * 60 * 1000; // 1 小时窗口
+const RECENT_OPEN_ROOT_MAX = WARMUP_CONFIG.RECENT_OPEN_ROOT_MAX;
+const RECENT_OPEN_ROOT_WINDOW_MS = WARMUP_CONFIG.RECENT_OPEN_ROOT_WINDOW_MS;
 // 最近已用于 favicon 预热的 favicon key，避免多 tab 重复 warmup
 // key: faviconKey -> lastWarmupAt
 const recentWarmupDomains = new Map();
-const RECENT_WARMUP_WINDOW_MS = 30 * 60 * 1000; // 30 分钟窗口
+const RECENT_WARMUP_WINDOW_MS = WARMUP_CONFIG.RECENT_WARMUP_WINDOW_MS;
 
 // 持久化：最近打开过的 favicon key（防 MV3 SW 重启/休眠丢失 warmup 优先级）
 let recentOpenedRootsPersistChain = Promise.resolve();
@@ -434,6 +434,77 @@ function getWarmupFallbackSampleUrl(root) {
   return (isLikelyPrivateHost(safeRoot) ? 'http://' : 'https://') + safeRoot;
 }
 
+/**
+ * Return recent opened bookmarks (for empty-state UI in the overlay).
+ * Prefers bookmarks matched against recentOpenedRootMap; falls back to last-edited
+ * items from bookmarkHistory when the map is empty.
+ */
+export async function getRecentOpenedBookmarks({ limit = 10 } = {}) {
+  await loadCacheFromStorage();
+
+  const max = (typeof limit === 'number' && Number.isFinite(limit) && limit > 0)
+    ? Math.min(Math.floor(limit), 20)
+    : 10;
+
+  const documents = await ensureRuntimeDocumentsAvailable();
+  const nowTs = Date.now();
+  const cutoff = nowTs - RECENT_OPEN_ROOT_WINDOW_MS;
+
+  const openedEntries = Array.from(recentOpenedRootMap.entries())
+    .filter(([, info]) => info && typeof info.lastAt === 'number' && info.lastAt >= cutoff)
+    .sort((a, b) => (b[1].lastAt || 0) - (a[1].lastAt || 0));
+
+  const pickedIds = new Set();
+  const results = [];
+
+  // 1) 按最近打开的 favicon key 反查一条匹配书签
+  for (let i = 0; i < openedEntries.length && results.length < max; i++) {
+    const [root, info] = openedEntries[i];
+    const sampleUrl = info && typeof info.sampleUrl === 'string' ? info.sampleUrl : '';
+    let match = null;
+    if (sampleUrl) {
+      for (let j = 0; j < documents.length; j++) {
+        const doc = documents[j];
+        if (!doc || !doc.url) continue;
+        if (doc.url === sampleUrl) { match = doc; break; }
+      }
+    }
+    if (!match) {
+      for (let j = 0; j < documents.length; j++) {
+        const doc = documents[j];
+        if (!doc || !doc.url) continue;
+        const key = getWarmupDomainKeyFromUrl(doc.url);
+        if (key === root) { match = doc; break; }
+      }
+    }
+    if (!match) continue;
+    const bookmark = mapSearchDocumentToBookmark(match);
+    if (!bookmark || pickedIds.has(bookmark.id)) continue;
+    pickedIds.add(bookmark.id);
+    results.push(bookmark);
+  }
+
+  // 2) 兜底：从历史记录里按最近 action 取
+  if (results.length < max && Array.isArray(bookmarkHistory) && bookmarkHistory.length > 0) {
+    const seenUrls = new Set(results.map((r) => r.url));
+    for (let i = 0; i < bookmarkHistory.length && results.length < max; i++) {
+      const item = bookmarkHistory[i];
+      if (!item || typeof item.url !== 'string' || !item.url) continue;
+      if (seenUrls.has(item.url)) continue;
+      // 从 documents 中查出完整 bookmark，保留 id/path 等字段
+      const doc = documents.find((d) => d && d.url === item.url);
+      if (!doc) continue;
+      const bookmark = mapSearchDocumentToBookmark(doc);
+      if (!bookmark || pickedIds.has(bookmark.id)) continue;
+      pickedIds.add(bookmark.id);
+      seenUrls.add(item.url);
+      results.push(bookmark);
+    }
+  }
+
+  return results;
+}
+
 export async function recordBookmarkOpen(url) {
   const safeUrl = typeof url === 'string' ? url.trim() : '';
   if (!safeUrl) return;
@@ -498,8 +569,20 @@ async function runUpdateLoop() {
 
       if (pendingRefresh) {
         pendingRefresh = false;
+        // 先保留本轮 refresh 开始时已积攒的增量事件，失败则重新入队，避免 refresh 异常丢事件。
+        const stashedEvents = pendingBookmarkEvents;
         pendingBookmarkEvents = [];
         lastResult = await refreshBookmarksOnce();
+        const refreshFailed = !lastResult || lastResult.success === false;
+        if (refreshFailed && Array.isArray(stashedEvents) && stashedEvents.length > 0) {
+          // 本轮新到事件排在旧事件之后，保持先到先处理
+          pendingBookmarkEvents = stashedEvents.concat(pendingBookmarkEvents);
+          console.warn('[Background][Observe] refresh_failed_requeue_events', {
+            requeued: stashedEvents.length,
+            next: pendingBookmarkEvents.length,
+            error: lastResult && lastResult.error ? lastResult.error : 'unknown'
+          });
+        }
         continue;
       }
 

@@ -1,4 +1,4 @@
-import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme } from './theme-service.js';
+import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme, resolveActiveTheme } from './theme-service.js';
 
 // 重新导出 getCurrentTheme 供外部使用
 export { getCurrentTheme };
@@ -8,6 +8,10 @@ let themeLoadToken = 0;
 let lastAppliedBySetTheme = '';
 // 缓存 theme selector DOM 引用，避免重复查询
 let cachedThemeOptions = null;
+// 当前用户选择的原始主题名（含 'auto'）。auto 下根据 prefers-color-scheme 解析
+let currentRawTheme = DEFAULT_THEME;
+let autoMediaQuery = null;
+let autoMediaListenerBound = false;
 
 function getThemeOptions() {
   if (!cachedThemeOptions) {
@@ -20,6 +24,8 @@ function getThemeOptions() {
 export async function setTheme(themeName) {
   if (!THEMES[themeName]) themeName = DEFAULT_THEME;
   lastAppliedBySetTheme = themeName;
+  currentRawTheme = themeName;
+  ensureAutoMediaListener();
   // 保存设置（委托给 theme-service）
   try {
     await saveTheme(themeName);
@@ -32,10 +38,31 @@ export async function setTheme(themeName) {
   applyTheme(themeName);
 }
 
+function ensureAutoMediaListener() {
+  if (autoMediaListenerBound) return;
+  if (typeof matchMedia !== 'function') return;
+  try {
+    autoMediaQuery = matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => {
+      if (currentRawTheme === 'auto') applyTheme('auto');
+    };
+    if (typeof autoMediaQuery.addEventListener === 'function') {
+      autoMediaQuery.addEventListener('change', handler);
+    } else if (typeof autoMediaQuery.addListener === 'function') {
+      autoMediaQuery.addListener(handler);
+    }
+    autoMediaListenerBound = true;
+  } catch (e) {}
+}
+
 // 应用主题（加载对应的CSS文件）
 function applyTheme(themeName) {
+  currentRawTheme = THEMES[themeName] ? themeName : DEFAULT_THEME;
+  const prefersDark = !!(autoMediaQuery && autoMediaQuery.matches)
+    || !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const resolved = resolveActiveTheme(currentRawTheme, prefersDark);
   const page = document.body.dataset.page || 'popup';
-  const expectedHref = `themes/${page}-${themeName}.css`;
+  const expectedHref = `themes/${page}-${resolved}.css`;
 
   const currentLink = document.getElementById('theme-css');
   const token = ++themeLoadToken;
@@ -90,10 +117,15 @@ function updateThemeSelector(themeName) {
 // 初始化主题（从 storage 同步到 localStorage）
 async function initTheme() {
   const theme = await getCurrentTheme();
-  // 检查当前加载的 CSS 是否正确
+  currentRawTheme = theme;
+  ensureAutoMediaListener();
+  // 根据 auto 解析后的目标 CSS 来判定是否需要重新加载
+  const prefersDark = !!(autoMediaQuery && autoMediaQuery.matches)
+    || !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const resolved = resolveActiveTheme(theme, prefersDark);
   const currentLink = document.getElementById('theme-css');
   const page = document.body.dataset.page || 'popup';
-  const expectedHref = `themes/${page}-${theme}.css`;
+  const expectedHref = `themes/${page}-${resolved}.css`;
 
   if (!currentLink || !currentLink.href.endsWith(expectedHref)) {
     applyTheme(theme);

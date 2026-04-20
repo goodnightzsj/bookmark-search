@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/postbuild-check.mjs",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "postbuild-check": "node scripts/postbuild-check.mjs"
   },
   "devDependencies": {
     "terser": "^5.44.1",
