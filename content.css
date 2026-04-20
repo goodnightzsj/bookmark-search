@@ -214,6 +214,49 @@
   background: var(--overlay-scroll-thumb-hover);
 }
 
+/* 最近搜索 chips（空查询态可见） */
+.bookmark-recent-searches {
+  padding: 6px clamp(16px, 4vw, 24px) 8px;
+}
+.bookmark-recent-searches-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.bookmark-recent-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--overlay-shortcuts-border);
+  background: var(--overlay-shortcuts-bg);
+  color: var(--overlay-title);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: clamp(11px, 1.8vw, 12px);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms linear, border-color 120ms linear;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmark-recent-chip:hover {
+  background: var(--overlay-item-hover);
+  border-color: var(--overlay-border-focus);
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-recent-chip {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 600;
+  border-color: #0a0a0a;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-recent-chip:hover {
+  background: #0a0a0a;
+  color: #ffffff;
+}
+
 /* 首次/空态 onboarding（搜索框聚焦但还没输入 + 无最近打开记录） */
 .bookmark-onboard {
   padding: clamp(20px, 4vh, 28px) clamp(20px, 4vw, 28px);
@@ -442,6 +485,96 @@
   margin: 0 auto 16px;
   background: var(--overlay-empty-icon) no-repeat center / contain;
   opacity: 0.3;
+}
+
+/* Action menu（Alt+Enter 或右键呼出） */
+.bookmark-action-menu {
+  position: absolute;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--overlay-panel-bg);
+  border: 1px solid var(--overlay-panel-border);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 10px 28px rgba(15, 23, 42, 0.2);
+  z-index: 10;
+  animation: bs-item-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bookmark-action-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--overlay-title);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms linear;
+}
+
+.bookmark-action-menu-item:hover,
+.bookmark-action-menu-item.is-active {
+  background: var(--overlay-item-hover);
+}
+
+.bookmark-action-menu-item.is-danger {
+  color: #dc2626;
+}
+
+.bookmark-action-menu-item.is-danger:hover,
+.bookmark-action-menu-item.is-danger.is-active {
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.bookmark-action-menu-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookmark-action-menu-hint {
+  padding: 1px 6px;
+  border: 1px solid var(--overlay-kbd-border);
+  border-radius: 4px;
+  background: var(--overlay-kbd-bg);
+  color: var(--overlay-kbd-color);
+  font-family: var(--bs-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* minimal 主题下 action menu 也走 Swiss */
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-action-menu {
+  border-radius: 0;
+  border: 1.5px solid #0a0a0a;
+  padding: 0;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-action-menu-item {
+  border-radius: 0;
+  border-bottom: 1px solid rgba(10, 10, 10, 0.1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-action-menu-item:last-child {
+  border-bottom: none;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-action-menu-item.is-active {
+  background: #0a0a0a;
+  color: #ffffff;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-action-menu-item.is-danger.is-active {
+  background: #d64545;
+  color: #ffffff;
 }
 
 /* 快捷键提示 */
@@ -827,6 +960,12 @@
   background-size: 120px 100%;
   background-repeat: no-repeat;
   animation: bs-skeleton 1100ms linear infinite;
+  /* 载入态隐藏 defaultIcon SVG 像素，只让 CSS 骨架可见 */
+  color: transparent;
+}
+.bookmark-favicon[data-bs-loading="true"][src$="8 0z%3E%3C/svg%3E"] {
+  /* 只对 defaultIcon 隐藏其像素（避免真实 favicon 已设但还在 loading 标记时误伤） */
+  filter: opacity(0);
 }
 
 @media (prefers-reduced-motion: reduce) {

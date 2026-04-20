@@ -216,7 +216,26 @@ body::before {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* 工作站风：stats 拼成一张仪表面板，列间 1px 分隔 */
+.stats-grid .stat-card {
+  border: none;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+}
+.stats-grid .stat-card:first-child { border-left: none; }
+
+.stats-grid .stat-value {
+  font-family: var(--bs-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 .stat-card {

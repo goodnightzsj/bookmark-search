@@ -22,6 +22,45 @@
 	  let backgroundSearchToken = 0;
 	  let currentQueryTokens = [];
 	  let recentLoadToken = 0;
+	  // 最近搜索词（本地持久化）
+	  const RECENT_SEARCHES_KEY = 'recentSearches';
+	  const RECENT_SEARCHES_MAX = 20;
+	  let recentSearches = [];
+	  let recentSearchesLoaded = false;
+	  function loadRecentSearches() {
+	    if (recentSearchesLoaded) return Promise.resolve(recentSearches);
+	    return new Promise((resolve) => {
+	      try {
+	        chrome.storage.local.get(RECENT_SEARCHES_KEY, (result) => {
+	          const list = result && Array.isArray(result[RECENT_SEARCHES_KEY]) ? result[RECENT_SEARCHES_KEY] : [];
+	          recentSearches = list
+	            .filter((item) => item && typeof item.query === 'string' && item.query)
+	            .slice(0, RECENT_SEARCHES_MAX);
+	          recentSearchesLoaded = true;
+	          resolve(recentSearches);
+	        });
+	      } catch (e) {
+	        recentSearchesLoaded = true;
+	        resolve(recentSearches);
+	      }
+	    });
+	  }
+	  function recordRecentSearch(query) {
+	    const safe = String(query || '').trim();
+	    if (!safe) return;
+	    if (safe.length < 2) return; // 单字符不记录
+	    loadRecentSearches().then(() => {
+	      // 去重 + 提到队首
+	      recentSearches = recentSearches.filter((item) => item.query !== safe);
+	      recentSearches.unshift({ query: safe, at: Date.now() });
+	      if (recentSearches.length > RECENT_SEARCHES_MAX) {
+	        recentSearches.length = RECENT_SEARCHES_MAX;
+	      }
+	      try {
+	        chrome.storage.local.set({ [RECENT_SEARCHES_KEY]: recentSearches });
+	      } catch (e) {}
+	    });
+	  }
 	  let imeComposing = false;
 	  let imeEnterDuringComposition = false;
 	  // Suppress stray/synthetic Enter events right after IME composition ends (esp. macOS built-in IME).
@@ -70,7 +109,10 @@
 	    GET_RECENT_OPENED: 'getRecentOpened',
 	    TRACK_BOOKMARK_OPEN: 'trackBookmarkOpen',
 	    TOGGLE_SEARCH: 'toggleSearch',
-	    CLEAR_FAVICON_CACHE: 'clearFaviconCache'
+	    CLEAR_FAVICON_CACHE: 'clearFaviconCache',
+	    DELETE_BOOKMARK: 'deleteBookmark',
+	    OPEN_BOOKMARK_IN_WINDOW: 'openBookmarkInWindow',
+	    REVEAL_BOOKMARK: 'revealBookmark'
 	  };
 	  const REQUIRED_MESSAGE_ACTIONS = {
 	    SEARCH_BOOKMARKS: true,
@@ -456,6 +498,19 @@ function createSearchUI() {
     openBookmark(filteredResults[index], !(e.ctrlKey || e.metaKey));
   });
 
+  // 右键 → action menu（对应结果行）
+  resultsContainer.addEventListener('contextmenu', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.bookmark-item') : null;
+    if (!item) return;
+    const index = Array.prototype.indexOf.call(item.parentNode.children, item);
+    if (index < 0 || index >= filteredResults.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectedIndex = index;
+    updateSelection({ scroll: false });
+    showActionMenu(index);
+  });
+
   // 创建搜索进度条（防抖期间可见）
   const progressBar = document.createElement("div");
   progressBar.className = "bookmark-progress";
@@ -591,12 +646,13 @@ function showSearch() {
 // 隐藏搜索界面
 function hideSearch() {
   console.log("[Content] hideSearch 被调用");
-  
+
   if (!searchOverlay) {
     console.log("[Content] searchOverlay 不存在，退出");
     return;
   }
 
+  hideActionMenu();
   stopFocusEnforcer();
   disableFocusTrap();
   disableGlobalKeydownTrap();
@@ -838,8 +894,19 @@ function toggleSearch() {
 
 // 处理键盘导航
 function handleKeydown(e) {
+  // 若 action menu 打开，全部键盘事件优先交给它
+  if (actionMenuEl && handleActionMenuKeydown(e)) return;
+
   // Prefer our own composition state over legacy keyCode=229 (macOS IME can keep 229 briefly after commit).
   const composing = !!(imeComposing || (e && e.isComposing));
+
+  // Alt+Enter 在选中书签上打开 action menu
+  if (!composing && e.altKey && e.key === 'Enter' && selectedIndex >= 0 && filteredResults[selectedIndex]) {
+    e.preventDefault();
+    e.stopPropagation();
+    showActionMenu(selectedIndex);
+    return;
+  }
 
   // Cmd/Ctrl + 1~9 直达对应搜索结果（覆盖浏览器默认的切换 tab）
   if (!composing && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey
@@ -1332,8 +1399,12 @@ function shouldRetryAfterBrowserResult(result) {
 	  if (lastErrorSrc && lastErrorSrc === failingSrc) return;
 
 	  img.dataset[FAVICON_IMG_DATASET.ERROR_SRC] = failingSrc;
-	  resetFaviconImageErrorState(img, defaultIcon, safeToken);
-	  if (img.src !== defaultIcon) img.src = defaultIcon;
+	  // 失败回退：显示 monogram（首字母 + 主题色圆），而不是灰色默认圆
+	  const monogram = buildMonogramDataUrl(safeDomain);
+	  resetFaviconImageErrorState(img, monogram, safeToken);
+	  if (img.src !== monogram) img.src = monogram;
+	  // 确保骨架 shimmer 关闭
+	  if (img.dataset) delete img.dataset.bsLoading;
 
 	  if (faviconRenderFailureDomains[safeDomain] === safeToken) return;
 	  faviconRenderFailureDomains[safeDomain] = safeToken;
@@ -1791,6 +1862,8 @@ async function searchBookmarksInBackground(query) {
 	    filteredResults = results.slice(0, 10);
 	    selectedIndex = filteredResults.length > 0 ? 0 : -1;
 	    displayResults(filteredResults);
+	    // 记录查询词到最近搜索（仅当查询实际产出结果）
+	    if (filteredResults.length > 0) recordRecentSearch(query);
 	  } catch (error) {
 	    if (token !== backgroundSearchToken) return;
 	    setProgressVisible(false);
@@ -1851,23 +1924,80 @@ async function searchBookmarksInBackground(query) {
 	    searchInput.setAttribute('aria-activedescendant', '');
 	  }
 
-	  sendMessagePromise({ action: MESSAGE_ACTIONS.GET_RECENT_OPENED, limit: 10 })
-	    .then((response) => {
-	      if (token !== recentLoadToken) return;
-	      if (!response || response.success === false) return;
-	      const items = Array.isArray(response.items) ? response.items : [];
-	      if (items.length === 0) {
-	        renderOnboardingEmpty();
-	        return;
-	      }
+	  // 并行加载最近搜索和最近打开
+	  Promise.all([
+	    loadRecentSearches(),
+	    sendMessagePromise({ action: MESSAGE_ACTIONS.GET_RECENT_OPENED, limit: 10 }).catch(() => null)
+	  ]).then(([searches, response]) => {
+	    if (token !== recentLoadToken) return;
+	    const items = (response && response.success !== false && Array.isArray(response.items)) ? response.items : [];
+
+	    const hasSearches = Array.isArray(searches) && searches.length > 0;
+	    const hasItems = items.length > 0;
+
+	    if (hasSearches) {
+	      renderRecentSearchChips(searches.slice(0, 8));
+	    }
+	    if (hasItems) {
 	      filteredResults = items.slice(0, 10);
 	      selectedIndex = 0;
-	      displayResults(filteredResults, { isRecent: true });
-	    })
-	    .catch(() => {
-	      if (token !== recentLoadToken) return;
+	      // 若前面已有 chips，不 clear container；追加 items
+	      appendRecentItems(filteredResults);
+	    } else if (!hasSearches) {
 	      renderOnboardingEmpty();
-	    });
+	    }
+	  });
+}
+
+function renderRecentSearchChips(searches) {
+  if (!resultsContainer) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'bookmark-recent-searches';
+  const hint = document.createElement('div');
+  hint.className = 'bookmark-section-hint';
+  hint.textContent = '最近搜索';
+  wrap.appendChild(hint);
+  const chips = document.createElement('div');
+  chips.className = 'bookmark-recent-searches-chips';
+  for (let i = 0; i < searches.length; i++) {
+    const item = searches[i];
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'bookmark-recent-chip';
+    chip.textContent = item.query;
+    chip.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (!searchInput) return;
+      searchInput.value = item.query;
+      searchInput.focus();
+      handleSearchDebounced({ target: searchInput });
+    });
+    chips.appendChild(chip);
+  }
+  wrap.appendChild(chips);
+  resultsContainer.appendChild(wrap);
+}
+
+function appendRecentItems(results) {
+  // displayResults 会 clear container；为保留已 append 的 chips，这里包一个子容器
+  // 简化做法：重建 + 先渲 chips 再渲 items
+  const existingChips = resultsContainer.querySelector('.bookmark-recent-searches');
+  const chipsMarkup = existingChips ? existingChips.outerHTML : '';
+  displayResults(results, { isRecent: true });
+  if (chipsMarkup) {
+    resultsContainer.insertAdjacentHTML('afterbegin', chipsMarkup);
+    // 重新绑定 chip 点击（insertAdjacentHTML 丢失事件）
+    const chips = resultsContainer.querySelectorAll('.bookmark-recent-chip');
+    chips.forEach((chip) => {
+      chip.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        if (!searchInput) return;
+        searchInput.value = chip.textContent;
+        searchInput.focus();
+        handleSearchDebounced({ target: searchInput });
+      });
+    });
+  }
 }
 
 	function renderOnboardingEmpty() {
@@ -2089,6 +2219,60 @@ function displayResults(results, options) {
 
 // 加载 Favicon
 	var defaultIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23999' d='M8 0a8 8 0 100 16A8 8 0 008 0z'/%3E%3C/svg%3E";
+
+	// Monogram fallback: favicon 加载失败时显示 "首字母 + 哈希主题色" 圆形
+	var monogramCache = Object.create(null);
+	function hashDomainHue(seed) {
+	  const s = String(seed || '').trim().toLowerCase();
+	  if (!s) return 200;
+	  let h = 0;
+	  for (let i = 0; i < s.length; i++) {
+	    h = ((h << 5) - h) + s.charCodeAt(i);
+	    h |= 0;
+	  }
+	  return Math.abs(h) % 360;
+	}
+	function monogramLetter(seed) {
+	  const s = String(seed || '').trim().toLowerCase();
+	  if (!s) return '?';
+	  // 剥掉 www.
+	  const cleaned = s.indexOf('www.') === 0 ? s.slice(4) : s;
+	  const first = cleaned.charAt(0);
+	  if (!first) return '?';
+	  // 若首字符为 ASCII 字母/数字取大写；否则原样返回
+	  if (/[a-z0-9]/i.test(first)) return first.toUpperCase();
+	  return first;
+	}
+	function buildMonogramDataUrl(seed) {
+	  const key = String(seed || '').trim().toLowerCase();
+	  if (monogramCache[key]) return monogramCache[key];
+	  const letter = monogramLetter(key);
+	  const hue = hashDomainHue(key);
+	  const bg = 'hsl(' + hue + ',58%,48%)';
+	  const bgDark = 'hsl(' + hue + ',58%,36%)';
+	  const fontSize = letter.length > 1 ? 8 : 10;
+	  // 用 svg+xml 构造 data URL；对 # 做最小转义
+	  const svg =
+	    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+	    + '<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">'
+	    + '<stop offset="0" stop-color="' + bg + '"/>'
+	    + '<stop offset="1" stop-color="' + bgDark + '"/>'
+	    + '</linearGradient></defs>'
+	    + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
+	    + '<text x="8" y="11.5" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="' + fontSize + '" font-weight="700" fill="#ffffff">' + escapeSvgText(letter) + '</text>'
+	    + '</svg>';
+	  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+	  monogramCache[key] = url;
+	  return url;
+	}
+	function escapeSvgText(text) {
+	  return String(text || '')
+	    .replace(/&/g, '&amp;')
+	    .replace(/</g, '&lt;')
+	    .replace(/>/g, '&gt;')
+	    .replace(/"/g, '&quot;')
+	    .replace(/'/g, '&#39;');
+	}
   var externalFaviconFailTimestamps = [];
   var externalFaviconCircuitUntil = 0;
 
@@ -2307,6 +2491,208 @@ function displayResults(results, options) {
   }
 
   tryLoad(0);
+}
+
+// ============ Action menu（右键/Alt+Enter 呼出） ============
+let actionMenuEl = null;
+let actionMenuTargetIndex = -1;
+let actionMenuSelectedIndex = 0;
+
+function getActionMenuItems(bookmark) {
+  const items = [
+    { key: 'copy',    label: '复制链接',       hint: 'C',      action: () => copyBookmarkUrl(bookmark) },
+    { key: 'window',  label: '在新窗口打开',   hint: 'W',      action: () => openBookmarkInNewWindow(bookmark) },
+    { key: 'reveal',  label: '在书签管理器中显示', hint: 'F', action: () => revealBookmarkInManager(bookmark) },
+    { key: 'delete',  label: '删除此书签',     hint: 'Del',    action: () => deleteBookmarkWithConfirm(bookmark), danger: true }
+  ];
+  return items;
+}
+
+function showActionMenu(index) {
+  hideActionMenu();
+  if (!resultsContainer) return;
+  if (index < 0 || index >= filteredResults.length) return;
+  const bookmark = filteredResults[index];
+  if (!bookmark) return;
+  actionMenuTargetIndex = index;
+  actionMenuSelectedIndex = 0;
+
+  const items = getActionMenuItems(bookmark);
+  const menu = document.createElement('div');
+  menu.className = 'bookmark-action-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', '书签操作菜单');
+
+  items.forEach((item, i) => {
+    const mi = document.createElement('div');
+    mi.className = 'bookmark-action-menu-item';
+    if (item.danger) mi.classList.add('is-danger');
+    if (i === 0) mi.classList.add('is-active');
+    mi.setAttribute('role', 'menuitem');
+    mi.tabIndex = -1;
+    mi.dataset.action = item.key;
+    const label = document.createElement('span');
+    label.className = 'bookmark-action-menu-label';
+    label.textContent = item.label;
+    const hint = document.createElement('kbd');
+    hint.className = 'bookmark-action-menu-hint';
+    hint.textContent = item.hint;
+    mi.appendChild(label);
+    mi.appendChild(hint);
+    mi.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      invokeActionMenuItem(i);
+    });
+    menu.appendChild(mi);
+  });
+
+  // 位置：依附于当前选中的结果项
+  const anchor = cachedResultItems && cachedResultItems[index];
+  if (anchor && searchContainer) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const containerRect = searchContainer.getBoundingClientRect();
+    // 绝对定位到 searchContainer 内部
+    menu.style.top = (anchorRect.bottom - containerRect.top + 4) + 'px';
+    menu.style.right = '16px';
+  }
+
+  searchContainer.appendChild(menu);
+  actionMenuEl = menu;
+}
+
+function hideActionMenu() {
+  if (actionMenuEl) {
+    try { actionMenuEl.parentNode.removeChild(actionMenuEl); } catch (e) {}
+  }
+  actionMenuEl = null;
+  actionMenuTargetIndex = -1;
+  actionMenuSelectedIndex = 0;
+}
+
+function updateActionMenuSelection() {
+  if (!actionMenuEl) return;
+  const items = actionMenuEl.querySelectorAll('.bookmark-action-menu-item');
+  items.forEach((el, i) => el.classList.toggle('is-active', i === actionMenuSelectedIndex));
+}
+
+function invokeActionMenuItem(index) {
+  if (!actionMenuEl) return;
+  if (actionMenuTargetIndex < 0) { hideActionMenu(); return; }
+  const bookmark = filteredResults[actionMenuTargetIndex];
+  if (!bookmark) { hideActionMenu(); return; }
+  const items = getActionMenuItems(bookmark);
+  const item = items[index];
+  if (!item) { hideActionMenu(); return; }
+  try {
+    item.action();
+  } catch (e) {
+    console.warn('[Content] action menu execute failed:', e);
+  }
+  hideActionMenu();
+}
+
+function handleActionMenuKeydown(e) {
+  if (!actionMenuEl) return false;
+  const items = getActionMenuItems(filteredResults[actionMenuTargetIndex] || {});
+  const count = items.length;
+  switch (e.key) {
+    case 'Escape':
+      e.preventDefault(); e.stopPropagation();
+      hideActionMenu();
+      return true;
+    case 'ArrowDown':
+      e.preventDefault(); e.stopPropagation();
+      actionMenuSelectedIndex = (actionMenuSelectedIndex + 1) % count;
+      updateActionMenuSelection();
+      return true;
+    case 'ArrowUp':
+      e.preventDefault(); e.stopPropagation();
+      actionMenuSelectedIndex = (actionMenuSelectedIndex - 1 + count) % count;
+      updateActionMenuSelection();
+      return true;
+    case 'Enter':
+      e.preventDefault(); e.stopPropagation();
+      invokeActionMenuItem(actionMenuSelectedIndex);
+      return true;
+    case 'c': case 'C':
+      e.preventDefault(); e.stopPropagation();
+      invokeActionMenuItem(0);
+      return true;
+    case 'w': case 'W':
+      e.preventDefault(); e.stopPropagation();
+      invokeActionMenuItem(1);
+      return true;
+    case 'f': case 'F':
+      e.preventDefault(); e.stopPropagation();
+      invokeActionMenuItem(2);
+      return true;
+    case 'Delete': case 'Backspace':
+      e.preventDefault(); e.stopPropagation();
+      invokeActionMenuItem(3);
+      return true;
+  }
+  return false;
+}
+
+function copyBookmarkUrl(bookmark) {
+  const url = bookmark && bookmark.url ? String(bookmark.url) : '';
+  if (!url) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).catch(() => legacyCopy(url));
+    } else {
+      legacyCopy(url);
+    }
+  } catch (e) {
+    legacyCopy(url);
+  }
+}
+
+function legacyCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch (e) {}
+}
+
+function openBookmarkInNewWindow(bookmark) {
+  const url = bookmark && bookmark.url ? String(bookmark.url) : '';
+  if (!url) return;
+  sendMessagePromise({ action: MESSAGE_ACTIONS.OPEN_BOOKMARK_IN_WINDOW, url }).catch(() => {
+    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) {}
+  });
+  hideSearch();
+}
+
+function revealBookmarkInManager(bookmark) {
+  const id = bookmark && bookmark.id ? String(bookmark.id) : '';
+  sendMessagePromise({ action: MESSAGE_ACTIONS.REVEAL_BOOKMARK, id }).catch(() => {});
+  hideSearch();
+}
+
+function deleteBookmarkWithConfirm(bookmark) {
+  const id = bookmark && bookmark.id ? String(bookmark.id) : '';
+  const title = bookmark && bookmark.title ? String(bookmark.title) : '';
+  if (!id) return;
+  const ok = window.confirm('确定删除「' + (title || bookmark.url) + '」？此操作会在浏览器书签中删除该条目。');
+  if (!ok) return;
+  sendMessagePromise({ action: MESSAGE_ACTIONS.DELETE_BOOKMARK, id })
+    .then(() => {
+      // 从当前结果中移除该项并重渲
+      filteredResults = filteredResults.filter((b) => String(b.id) !== id);
+      if (selectedIndex >= filteredResults.length) selectedIndex = filteredResults.length - 1;
+      displayResults(filteredResults);
+    })
+    .catch((e) => {
+      console.warn('[Content] delete bookmark failed:', e);
+    });
 }
 
 // 打开书签

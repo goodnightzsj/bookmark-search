@@ -765,6 +765,51 @@ export function handleMessage(request, sender, sendResponse) {
           })
       );
 
+    case MESSAGE_ACTIONS.DELETE_BOOKMARK: {
+      const id = String((request && request.id) || '').trim();
+      if (!id) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'bookmark id required');
+        return false;
+      }
+      return initThen(async () => {
+        try {
+          await chrome.bookmarks.remove(id);
+          sendOkResponse(sendResponse, { id });
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+    }
+
+    case MESSAGE_ACTIONS.OPEN_BOOKMARK_IN_WINDOW: {
+      const url = String((request && request.url) || '').trim();
+      if (!url) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'url required');
+        return false;
+      }
+      return initThen(async () => {
+        try {
+          await chrome.windows.create({ url, focused: true });
+          sendOkResponse(sendResponse, { url });
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+    }
+
+    case MESSAGE_ACTIONS.REVEAL_BOOKMARK: {
+      const id = String((request && request.id) || '').trim();
+      return initThen(async () => {
+        try {
+          const url = id ? ('chrome://bookmarks/?id=' + encodeURIComponent(id)) : 'chrome://bookmarks/';
+          await chrome.tabs.create({ url });
+          sendOkResponse(sendResponse, { id });
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+    }
+
     default:
       sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_ACTION, 'Unknown action');
       return false;

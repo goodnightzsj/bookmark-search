@@ -1,3 +1,8 @@
+/**
+ * @file 跨模块共享常量。所有 MESSAGE_ACTIONS 值会在构建期被 vite plugin 注入到 content.js。
+ */
+
+/** @type {string} */
 export const PATH_SEPARATOR = ' > ';
 
 export const ALARM_NAMES = {
@@ -27,7 +32,10 @@ export const MESSAGE_ACTIONS = {
   GET_MIGRATION_STATUS: 'getMigrationStatus',
   TOGGLE_SEARCH: 'toggleSearch',
   CLEAR_FAVICON_CACHE: 'clearFaviconCache',
-  CLEAR_HISTORY: 'clearHistory'
+  CLEAR_HISTORY: 'clearHistory',
+  DELETE_BOOKMARK: 'deleteBookmark',
+  OPEN_BOOKMARK_IN_WINDOW: 'openBookmarkInWindow',
+  REVEAL_BOOKMARK: 'revealBookmark'
 };
 
 export const MESSAGE_ACTION_VALUES = Object.freeze(Object.values(MESSAGE_ACTIONS));

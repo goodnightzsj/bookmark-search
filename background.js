@@ -5,8 +5,10 @@ import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { idbGet, idbSet } from './idb-service.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 import { ensureInit } from './lifecycle.js';
+import { createLogger } from './logger.js';
 
-console.log("[Background] Service Worker 启动");
+const log = createLogger('Background');
+log.info('Service Worker 启动');
 
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -62,7 +64,7 @@ function persistPendingEventsSnapshot() {
     .catch(() => {})
     .then(() => idbSet(IDB_KEY_PENDING_BOOKMARK_EVENTS, snapshot))
     .catch((error) => {
-      console.warn('[Background][Observe] pending_events_persist_failed', {
+      log.warn('pending_events_persist_failed', {
         message: error && error.message ? error.message : String(error)
       });
     });
@@ -83,7 +85,7 @@ async function rehydratePendingEventsOnce() {
   try {
     const raw = await idbGet(IDB_KEY_PENDING_BOOKMARK_EVENTS);
     if (!Array.isArray(raw) || raw.length === 0) return;
-    console.log('[Background] 从 IDB 恢复 pending bookmark events: %d 条', raw.length);
+    log.info('从 IDB 恢复 pending bookmark events: %d 条', raw.length);
     // 合并到内存队列并安排 flush；不立即写 IDB（flush 时会统一清理）
     for (let i = 0; i < raw.length && debounceBookmarkEvents.length < PENDING_EVENT_QUEUE_MAX; i++) {
       const evt = raw[i];
@@ -91,7 +93,7 @@ async function rehydratePendingEventsOnce() {
     }
     if (debounceBookmarkEvents.length > 0) scheduleBookmarkDebounce();
   } catch (error) {
-    console.warn('[Background][Observe] pending_events_rehydrate_failed', {
+    log.warn('pending_events_rehydrate_failed', {
       message: error && error.message ? error.message : String(error)
     });
   }
@@ -203,7 +205,7 @@ function handleStorageChanged(changes, area) {
   if (changes.bookmarkCacheTtlMinutes) {
     const nextValue = changes.bookmarkCacheTtlMinutes.newValue;
     updateRuntimeCacheTtlMinutes(nextValue);
-    console.log('[Background][Observe] ttl_runtime_updated', { value: nextValue });
+    log.observe('ttl_runtime_updated', { value: nextValue });
   }
 }
 

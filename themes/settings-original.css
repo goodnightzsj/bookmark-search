@@ -85,6 +85,30 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+/* 鼠标进入时 card-title 右侧细 indigo 条作为 brand continuity（signature 延伸到每张卡片） */
+.card {
+  position: relative;
+}
+.card::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 2px 0 0 2px;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.card:hover::after {
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .card-title {
   font-size: 15px;
   font-weight: 600;
