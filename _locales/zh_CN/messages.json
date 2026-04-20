@@ -4,7 +4,7 @@
     "description": "扩展名称"
   },
   "appDesc": {
-    "message": "极速搜索与管理书签，支持同步、历史与导出",
+    "message": "按 Ctrl/Cmd+Space 在当前页直接呼出搜索框，多词匹配标题、URL 和文件夹路径，按数字键直达前 9 条；右键或 Alt+Enter 唤起操作菜单（复制链接、在新窗口打开、删除）。4 套可切换主题，书签与浏览器实时同步。",
     "description": "扩展描述"
   },
   "commandToggleOverlay": {

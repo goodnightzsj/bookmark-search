@@ -1,27 +1,53 @@
-# 书签搜索 - 极速收藏夹管理与查找工具 (Bookmark Search - Lightning-fast bookmark manager & finder)
+# 书签搜索 · Bookmark Search
 
-一个现代化的浏览器书签搜索扩展，提供极速的收藏夹管理与查找体验，支持快捷键快速搜索和打开书签。
+按 `Ctrl/Cmd+Space` 在当前页直接呼出搜索框。多词匹配标题、URL、文件夹路径；按数字键直达前 9 条；右键或 `Alt+Enter` 呼出操作菜单（复制链接 / 在新窗口打开 / 在书签管理器显示 / 删除）。书签与浏览器自动保持同步，离线也能用。
 
-当前版本：`v1.9.0`
+当前版本：`v2.0.0`
+
+## 🧭 一句话介绍
+
+不离开当前标签页就能打开收藏夹里某一条书签。极简白、液态玻璃、深色工作站、Linear 风经典 4 套主题任选，支持跟随系统深浅。
 
 ## ✨ 功能特性
 
-- 🔍 **快速搜索**：支持多关键词实时检索书签标题、URL 与文件夹路径
-- ⌨️ **键盘导航**：完整的键盘操作支持
-- 🎨 **主题切换**：提供 original / minimal / glass / dark 四套主题
-- 📱 **响应式设计**：自适应各种屏幕尺寸
-- 🌏 **输入法兼容**：优化 IME 输入场景，避免中文/日文输入时误触发打开
-- ⚡ **性能优化**：防抖搜索、后台检索、favicon 缓存与预热
-- 📊 **实时同步**：自动监听书签变化并进行增量同步
-- ⏰ **定时轮询**：支持自定义同步间隔（5分钟～24小时）与手动同步
-- 📍 **位置追踪**：记录每个书签的完整文件夹路径
-- 📝 **详细历史**：跟踪书签的新增、删除、编辑和移动操作，清晰展示源位置和目的位置
-- 🔔 **同步提示**：显示最后同步时间和下次同步时间
-- 🔄 **智能对比同步**：全量同步时对比新旧数据，记录本地与远程变更
-- 🗃️ **双层存储**：使用 `chrome.storage.local` 保存元数据，使用 IndexedDB 保存主书签文档
-- 🖼️ **图标缓存维护**：支持 favicon 持久化缓存、预热和手动清理
-- 📂 **文件夹级联删除**：删除文件夹时自动记录所有子书签的删除历史
-- 📤 **书签导出**：支持多选导出历史记录中的书签，保留选中的重复历史项，兼容主流浏览器格式
+### 搜索 & 键盘
+- 🔍 **多词模糊**：title / URL / folder 路径同时匹配，空格分词 AND
+- 🎯 **查询词高亮**：命中片段 `<mark>` 高亮
+- 🧭 **面包屑路径**：`a › b › c` 分隔；URL 默认折叠，hover/选中才展开
+- ⚡ **数字直达**：`Cmd/Ctrl+1~9` 直接打开前 9 条结果
+- ⌨️ **`/` 聚焦**：失焦时用 `/` 重新抓回输入框
+- 🛠️ **Action menu**：`Alt+Enter` 或右键呼出：复制链接 / 在新窗口打开 / 在书签管理器中显示 / 删除（带确认）
+- 💭 **搜索历史**：记录最近 20 条成功查询，空输入时作为 chips 一键回填
+- 📇 **空态最近打开**：没输入时优先展示你最近实际打开过的书签
+- 🌏 **IME 友好**：中文/日文输入时不会误确认
+
+### 视觉 & 主题
+- 🎨 **4 套主题**：经典 Linear-light / Swiss Grid 极简白 / Liquid-Glass 液态玻璃 / 夜间工作站深色
+- 🌓 **跟随系统**：新增 `auto` 主题，根据 `prefers-color-scheme` 切换深浅
+- 🔤 **各主题专属字体栈**：SF Pro Text / Helvetica Neue / SF Pro Rounded / Mono
+- 🖼️ **Monogram favicon 回退**：图标加载失败时显示"首字母 + 域名哈希色"，不是灰色默认圆
+- 🎛️ **原生控件全改写**：select / checkbox / input / scrollbar 按主题重绘，无 browser chrome
+
+### 存储 & 同步
+- 📊 **IDB documents store + chrome.storage 元数据**：主书签走 IndexedDB，元数据/历史/设置走 `chrome.storage.local`
+- 🔄 **增量实时同步**：监听 `chrome.bookmarks.*` 事件，防抖 500ms 合并
+- ⏰ **定时轮询**：5 分钟 ~ 24 小时可选，30 分钟推荐
+- 💾 **SW 挂起兜底**：事件队列持久化到 IDB + alarm 唤醒 flush，Service Worker 休眠也不丢事件
+- 📝 **100 条变更历史**：新增/删除/编辑/移动，源位置 + 目标位置
+- 📤 **Netscape 格式导出**：多选历史项批量导出，兼容 Chrome/Edge/Firefox
+
+### 性能 & 可靠性
+- 🚀 **Favicon 多级缓存**：内存 LRU → IDB 持久化 → `chrome-extension://_favicon` 浏览器内置服务（替代 DDG/Google/Faviconkit，无隐私泄露）
+- ⚙️ **构建期常量注入**：`MESSAGE_ACTIONS` 通过 vite plugin 注入 content.js，消除两份手写常量
+- 🧪 **postbuild smoke check**：自动校验 `dist/background.js` 仍是 ESM + 注入成功
+- 🎯 **29 个单元测试**：`node --test` 内置 runner，覆盖 bookmark-logic、background-data、storage-service 等核心模块
+- 🏗 **GitHub Actions CI**：build + test + postbuild smoke + dist artifact
+
+### 可访问性
+- ♿ **`prefers-reduced-motion`**：关闭 stagger / pulse / spring
+- ♿ **`prefers-reduced-transparency`**：glass 主题自动回退到实色
+- 🎯 **`:focus-visible`**：所有交互元素可见焦点环
+- 🏷️ **ARIA 完整**：role=dialog / combobox / listbox / option / menu
 
 ## 🚀 使用方法
 
@@ -115,31 +141,107 @@ Popup页面会显示最后同步时间和下次同步时间，让用户随时了
 
 ## 🛠️ 技术栈
 
-- Manifest V3
-- Vanilla JavaScript
-- Vite 5 + Terser
-- CSS3 (Animations, Gradients, Clamp)
-- `chrome.storage.local` + IndexedDB
-- Chrome Extension i18n
-- Chrome Extension APIs
+- **Manifest V3** Chrome extension
+- **Vanilla ES modules**（无框架、无运行时依赖）
+- **Vite 5** + Terser 构建；内置 `bs-inject-message-actions` plugin 构建期注入常量
+- **CSS3**：CSS vars + `backdrop-filter` + `@supports` + `prefers-*` 媒体查询
+- **Storage**：`chrome.storage.local`（配置/元数据/历史）+ IndexedDB（主书签文档 + 事件队列）
+- **Service Worker** + `chrome.alarms` + `chrome.scripting`
+- **Chrome Extension i18n**（`_locales/zh_CN` + `_locales/en`）
+- **GitHub Actions CI** + `node --test` 单元测试
 
-## 📂 相关文件
+## 📂 项目结构
 
-- `background.js` - 后台服务，处理书签获取和监听
-- `background-data.js` - 书签文档缓存、搜索与历史记录逻辑
-- `background-messages.js` - 运行时消息路由与 favicon 缓存读写
-- `content.js` - 内容脚本，提供搜索界面与结果交互
-- `idb-service.js` - IndexedDB 读写封装
-- `popup.html/js` - 扩展弹窗，显示状态和快捷操作
-- `settings.html/js` - 设置页面，管理配置和查看历史
-- `content.css` - 样式文件，现代化UI设计
+**Service Worker 侧**
+- `background.js` - SW 入口：事件监听 + 防抖队列 + alarm 兜底
+- `lifecycle.js` - `ensureInit()` 单例初始化（破解循环依赖）
+- `background-data.js` - 书签文档缓存、增量/全量 refresh、搜索评分、历史
+- `background-messages.js` - 消息路由（SEARCH_BOOKMARKS / GET_RECENT_OPENED / DELETE_BOOKMARK 等）
+- `background-sync.js` - 定时同步 alarm 配置
+- `idb-service.js` - IndexedDB kv / documents / meta 三个 store 的读写封装
+- `storage-service.js` - `chrome.storage.local` 带状态封装
+- `migration-service.js` - schema v1 → v2 迁移
+- `logger.js` - 统一 logger（level + namespace + 运行时 debug flag）
+
+**Content / UI 侧**
+- `content.js` - Overlay 搜索界面（2150+ 行）：IIFE + 键盘导航 + IME + favicon 渲染
+- `content.css` - Overlay 样式 + 主题 CSS vars 注入
+- `popup.html/js` - 扩展 popup（状态 + 快捷操作）
+- `settings.html/js` - 设置页（主题 / 同步 / 历史 / 导出 / 关于）
+- `settings-theme.js` / `settings-sync.js` / `settings-history.js` / `settings-shortcuts.js` - 设置页子模块
+- `theme-loader.js` / `theme-service.js` - 主题加载与持久化
+
+**主题**
+- `themes/_tokens.css` - 跨主题共享：design tokens + 原生控件重写 + scrollbar + help-tip + toast
+- `themes/popup-{original,minimal,glass,dark}.css` - 4 套 popup 主题
+- `themes/settings-{original,minimal,glass,dark}.css` - 4 套 settings 主题
+
+**构建 / CI**
+- `vite.config.js` - 多入口打包 + MESSAGE_ACTIONS 构建期注入插件
+- `scripts/postbuild-check.mjs` - 构建后冒烟校验（ESM / 注入 / manifest）
+- `.github/workflows/ci.yml` - CI：build + test + postbuild smoke + artifact
 
 ## TODO List
 
-- [ ] 美化浏览器首页，让首页支持自定义
-- [ ] 搜索框除了检索书签之外，还可以调用搜索引擎搜索输入内容
+- [ ] fuzzy 模糊匹配（FlexSearch / Fuse）代替 indexOf 字面匹配
+- [ ] `folder:work X` / `is:recent` 等 scope filter 查询语法
+- [ ] popup 内嵌搜索框（目前必须用快捷键呼出）
+- [ ] shortcut 设置原地可编辑，不需要跳 `chrome://extensions/shortcuts`
+- [ ] 首次安装的欢迎流 / shortcut 提示 overlay
+- [ ] 书签导入（目前只能导出）
+- [ ] TypeScript 全量迁移（目前仅 tsconfig scaffold + JSDoc）
+- [ ] 使用统计面板（搜索次数 / 命中率 / 最常搜词）
 
 ## 📝 更新日志
+
+### v2.0.0 - Overlay 重写 + 主题系统全量重设计
+
+**产品功能**
+- 🎯 `Cmd/Ctrl+1~9` 直达前 9 条结果；`/` 键重新聚焦输入框
+- 🛠 `Alt+Enter` / 右键呼出 action menu：复制链接 / 在新窗口打开 / 在书签管理器中显示 / 删除（带确认）
+- 🎨 查询词在 title / path / URL 中 `<mark>` 高亮
+- 🧭 面包屑 path（`›` 分隔），URL 只在 hover / 选中时展开
+- 💭 最近 20 条成功查询记忆，空态以 chips 形式展示并一键回填
+- 📇 空态"最近打开"列表；无历史时展示快捷键 onboarding 卡片
+- 📊 搜索防抖期间顶部 2 px 进度条
+- 🖼️ Favicon 失败时回退到"首字母 + 域名哈希 HSL 色"Monogram，替代灰色默认圆
+- 🧪 结果进场 stagger + favicon skeleton shimmer（主题感知：minimal 保持 Swiss 纪律不做动画）
+
+**主题系统重设计**
+- 🔵 **经典（Linear-light）**：干掉 `#667eea → #764ba2` AI 紫蓝渐变；page-header 改为 indigo 渐变卡片 + dot pattern signature；stat-card-primary 为 indigo hero tile；body 叠加 20 px pitch 的 indigo dot-grid
+- ⚫ **极简白（Swiss Grid）**：Helvetica 字体栈 + 1.5 px 规则线 + uppercase tracking + 无圆角 + 反色选中块 + 8 px baseline rhythm
+- 🌫️ **毛玻璃（Liquid-Glass）**：顶缘镜面高光 + 多层阴影 + spring 缓动 + blob 背景 + 选中 specular 光斑；换掉马卡龙 AI 配色为青绿 ↔ 珊瑚
+- 🌑 **深色（夜间工作站）**：去掉 glowing + pulse + hero metric + 蓝色 radial；warm-black `#121418` + 柔和 `#82aaff`；SVG 噪点 + stats-grid 融合为一张仪表面板
+- 🌓 **Auto 主题**：跟随 `prefers-color-scheme` 自动切换深浅
+- 🔤 四主题专属字体栈（SF Pro Text / Helvetica Neue / SF Pro Rounded / system + mono）
+
+**原生控件改写**
+- 🎛 `<select>` 去掉 browser chrome，自绘 SVG chevron，每主题 accent 色
+- ☑️ `<input type=checkbox>` 自定义方块 + 勾号 SVG（minimal 直角黑 / 其他圆角 accent）
+- 📝 `<input type=text>` readonly shortcut 改用 mono 字体 + tabular 字距
+- 📜 `::-webkit-scrollbar` 全主题 token 化（`--scrollbar-thumb`）
+
+**架构 & 工程**
+- 🏗 抽离 `lifecycle.js`，破解 background ↔ background-messages 的 `setEnsureInit` 循环依赖
+- 💾 SW 书签事件防抖队列持久化到 IDB，alarm 1 分钟兜底唤醒，refresh 失败事件不丢重入队
+- 🔌 Vite plugin 构建期注入 `MESSAGE_ACTIONS` 到 content.js，消除两份手写常量
+- 🖼️ Favicon 从 DDG/Google/Faviconkit 切到 `chrome-extension://_favicon` 内置服务（无隐私泄露、断网可用）
+- 📖 新增 `logger.js`：level (debug/info/observe/warn/error) + namespace + 运行时 debug 开关
+- 🧪 新增 `scripts/postbuild-check.mjs`：校验 dist/background.js 仍是 ESM + MESSAGE_ACTIONS 注入成功
+- 🏗 新增 `.github/workflows/ci.yml`：build + test + postbuild smoke + dist artifact
+- 📋 新增 `tsconfig.json` scaffold（`checkJs: true` + `noEmit`）；用户本地 `npm i -D typescript @types/chrome` 后即可 `npm run type-check`
+
+**UX & 可访问性**
+- 📋 设置页 Inline tooltip（ⓘ）for syncInterval / bookmarkCacheTtl
+- 🔔 Toast 反馈系统（主题切换 / 同步间隔变更 / 清除缓存反馈）
+- ⚠️ 清除 favicon 缓存改为二次确认
+- ↩️ Overlay 搜索失败支持 Enter 重试
+- ♿ 完整 `prefers-reduced-motion` / `prefers-reduced-transparency` 降级
+- 🐛 修复 overlay 上下键选中时首行 `.selected` class 不清除的问题（`prevSelectedIndex` 与 `selectedIndex` 同步）
+
+**破坏性变更**
+- ⚠️ manifest 新增 `web_accessible_resources = _favicon/*` 权限项（MV3 需要）
+- ⚠️ 主题 `original` 和 `dark` 的调色板完全变更，之前截图/视频可能需要更新
 
 ### v1.9.0 - 存储与搜索体验强化
 - 🗃️ **数据层升级**：主书签数据以 IndexedDB 文档存储为主，`chrome.storage.local` 继续承担元数据与设置存储

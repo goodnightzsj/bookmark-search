@@ -1,6 +1,6 @@
 {
   "name": "bookmark-search",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "Lightning-fast bookmark manager and search tool for Chrome",
   "type": "module",
   "scripts": {
