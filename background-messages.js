@@ -9,71 +9,9 @@ import { ensureInit } from './lifecycle.js';
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
-// Browser favicon cache (derived from chrome.favicon.getFaviconUrl).
-// We keep a small in-memory LRU so repeated searches across tabs/pages don't re-fetch + re-base64 the same icon.
-// Entries stay in memory until evicted by LRU or the service worker restarts.
-const BROWSER_FAVICON_CACHE_MAX_SIZE = FAVICON_CONFIG.BROWSER_CACHE_MAX_SIZE;
-const BROWSER_FAVICON_FETCH_TIMEOUT_MS = FAVICON_CONFIG.FETCH_TIMEOUT_MS;
-const BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS = FAVICON_CONFIG.FETCH_TIMEOUT_PRIVATE_MS;
 const PERSISTED_FAVICON_FAILURE_TTL_MS = FAVICON_CONFIG.FAILURE_TTL_MS;
 const PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS = FAVICON_CONFIG.FAILURE_TTL_PRIVATE_MS;
 const PERSISTED_FAVICON_FAILURE_TTL_MAX_MS = FAVICON_CONFIG.FAILURE_TTL_MAX_MS;
-
-const browserFaviconCache = new Map(); // key -> { src, isPlaceholder }
-const browserFaviconInFlight = new Map(); // key -> Promise<{ src, isPlaceholder }>
-
-function decodeSvgDataUrlContent(src) {
-  const safeSrc = typeof src === 'string' ? src.trim() : '';
-  if (!safeSrc) return '';
-  const match = safeSrc.match(/^data:image\/svg\+xml(?:;charset=[^;,]+)?(?:;base64)?,(.*)$/i);
-  if (!match) return '';
-  const payload = match[1] || '';
-  try {
-    if (/;base64,/i.test(safeSrc.slice(0, safeSrc.indexOf(',') + 1))) {
-      return atob(payload);
-    }
-    return decodeURIComponent(payload);
-  } catch (error) {
-    return payload;
-  }
-}
-
-function getBrowserFaviconCacheKey(pageUrl) {
-  return buildFaviconServiceKey(pageUrl);
-}
-
-function getCachedBrowserFaviconSrc(key) {
-  if (!key) return undefined;
-  const entry = browserFaviconCache.get(key);
-  if (!entry || typeof entry !== 'object') return undefined;
-
-  // LRU bump
-  browserFaviconCache.delete(key);
-  browserFaviconCache.set(key, entry);
-
-  return {
-    src: typeof entry.src === 'string' ? entry.src : '',
-    isPlaceholder: !!entry.isPlaceholder
-  };
-}
-
-function setCachedBrowserFaviconSrc(key, src, isPlaceholder = false) {
-  if (!key) return;
-  const safeSrc = typeof src === 'string' ? src : '';
-
-  if (!safeSrc) {
-    browserFaviconCache.delete(key);
-    return;
-  }
-
-  browserFaviconCache.delete(key);
-  browserFaviconCache.set(key, { src: safeSrc, isPlaceholder: !!isPlaceholder });
-
-  while (browserFaviconCache.size > BROWSER_FAVICON_CACHE_MAX_SIZE) {
-    const oldestKey = browserFaviconCache.keys().next().value;
-    browserFaviconCache.delete(oldestKey);
-  }
-}
 
 function getPersistedFaviconFailureTtlMs(domain) {
   return isLikelyPrivateHost(domain) ? PERSISTED_FAVICON_FAILURE_TTL_PRIVATE_MS : PERSISTED_FAVICON_FAILURE_TTL_MS;
@@ -90,57 +28,53 @@ function clampRetryAt(retryAt, domain) {
   return raw;
 }
 
-function isTrustedPersistedFaviconSrc(src) {
-  const safe = typeof src === 'string' ? src.trim() : '';
+function isTrustedPersistedPageUrl(pageUrl) {
+  const safe = typeof pageUrl === 'string' ? pageUrl.trim() : '';
   return safe.startsWith('https://') || safe.startsWith('http://');
 }
 
-function buildLegacyPersistedFaviconMigration(entry, domain) {
-  if (!entry || typeof entry !== 'object') return null;
-  const src = typeof entry.src === 'string' ? entry.src.trim() : '';
-  if (!src) return null;
-  const hasExplicitState = typeof entry.state === 'string' && !!entry.state;
-  if (hasExplicitState) return null;
-
-  const updatedAt = typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt)
-    ? entry.updatedAt
-    : Date.now();
-
-  if (isTrustedPersistedFaviconSrc(src)) {
-    return {
-      state: 'success',
-      src,
-      updatedAt
-    };
-  }
-
-  return {
-    state: 'failure',
-    retryAt: Date.now(),
-    updatedAt: Date.now()
-  };
-}
-
+/**
+ * 解析 IDB favicon 条目，统一返回 success / failure / missing / staleFailure 语义。
+ * 新格式：{ state: 'success', pageUrl, updatedAt }
+ * 旧格式（兼容）：{ src: 'data:image/...' 或 'https://...' , updatedAt }
+ * 失败：{ state: 'failure', retryAt, updatedAt }
+ */
 function getPersistedFaviconEntryState(entry, domain) {
   if (!entry || typeof entry !== 'object') return { kind: 'missing' };
-  const src = typeof entry.src === 'string' ? entry.src.trim() : '';
-  const legacyMigration = buildLegacyPersistedFaviconMigration(entry, domain);
-  if (src) {
-    if (legacyMigration && legacyMigration.state === 'failure') {
-      return {
-        kind: 'staleFailure',
-        migration: legacyMigration
-      };
-    }
+
+  // 新格式优先：pageUrl 字段
+  const pageUrl = typeof entry.pageUrl === 'string' ? entry.pageUrl.trim() : '';
+  if (pageUrl && isTrustedPersistedPageUrl(pageUrl)) {
     return {
       kind: 'success',
       entry: {
         state: 'success',
-        src,
+        pageUrl,
         updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
-      },
-      migration: legacyMigration
+      }
     };
+  }
+
+  // 旧格式：src 字段（base64 data URL 或 http 链接），向后兼容
+  const src = typeof entry.src === 'string' ? entry.src.trim() : '';
+  if (src) {
+    // 如果 src 是 http(s) URL，直接当 pageUrl 用（早期实现）
+    // 如果 src 是 data:URL 或其他，我们仍当作有效 src 返回，content 会优先用它
+    const explicitState = typeof entry.state === 'string' ? entry.state : '';
+    if (explicitState === 'failure') {
+      // failure 不该有 src，降级为 staleFailure
+      return { kind: 'staleFailure' };
+    }
+    const legacyEntry = {
+      state: 'success',
+      src,
+      updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
+    };
+    // 尝试从 src 里推断 pageUrl（http[s] 才可）；否则留空让 content 直接用 src
+    if (isTrustedPersistedPageUrl(src)) {
+      legacyEntry.pageUrl = src;
+    }
+    return { kind: 'success', entry: legacyEntry };
   }
 
   const state = typeof entry.state === 'string' ? entry.state : '';
@@ -157,116 +91,6 @@ function getPersistedFaviconEntryState(entry, domain) {
   }
 
   return { kind: 'staleFailure' };
-}
-
-function isPersistedFaviconFailureActive(entry) {
-  return getPersistedFaviconEntryState(entry).kind === 'failure';
-}
-
-async function fetchBrowserFaviconDataUrl(pageUrl, options = {}) {
-  const debug = !!(options && options.debug);
-  let host = '';
-  try {
-    host = new URL(pageUrl).hostname || '';
-  } catch (e) {
-    host = '';
-  }
-  const timeoutMs = isLikelyPrivateHost(host) ? BROWSER_FAVICON_FETCH_TIMEOUT_PRIVATE_MS : BROWSER_FAVICON_FETCH_TIMEOUT_MS;
-  let faviconUrl = '';
-  try {
-    if (chrome.favicon && typeof chrome.favicon.getFaviconUrl === 'function') {
-      faviconUrl = chrome.favicon.getFaviconUrl(pageUrl);
-    }
-  } catch (error) {
-    faviconUrl = '';
-  }
-
-  if (!faviconUrl) {
-    if (debug) console.log('[Background][Favicon] getFaviconUrl empty', { pageUrl, host });
-    return '';
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const startedAt = Date.now();
-  try {
-    const res = await fetch(faviconUrl, { signal: controller.signal });
-    if (!res || !res.ok) {
-      if (debug) console.log('[Background][Favicon] fetch faviconUrl not ok', { pageUrl, host, faviconUrl, status: res && res.status });
-      return '';
-    }
-    const contentType = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
-    const buf = await res.arrayBuffer();
-    const base64 = arrayBufferToBase64(buf);
-    const mime = contentType ? String(contentType).split(';')[0].trim() : 'image/png';
-    const src = 'data:' + (mime || 'image/png') + ';base64,' + base64;
-    if (debug) console.log('[Background][Favicon] fetch ok', { pageUrl, host, bytes: buf && buf.byteLength, ms: Date.now() - startedAt });
-    return src;
-  } catch (error) {
-    if (debug) {
-      console.log('[Background][Favicon] fetch error', {
-        pageUrl,
-        host,
-        faviconUrl,
-        ms: Date.now() - startedAt,
-        aborted: controller.signal.aborted,
-        error: (error && error.name) ? error.name : String(error)
-      });
-    }
-    return '';
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function isBrowserFaviconPlaceholder(src, pageUrl) {
-  const safeSrc = typeof src === 'string' ? src.trim() : '';
-  if (!safeSrc) return false;
-  const lower = safeSrc.toLowerCase();
-  if (lower.indexOf('data:image/svg+xml') !== 0) return false;
-
-  const decodedSvg = decodeSvgDataUrlContent(safeSrc).toLowerCase();
-  const placeholderByColor = lower.indexOf('%23999') !== -1 || lower.indexOf("fill='%23999'") !== -1 || lower.indexOf('fill="%23999"') !== -1;
-  const hasTextTag = decodedSvg.indexOf('<text') !== -1;
-  const hasMonogramText = decodedSvg.indexOf('text-anchor') !== -1 || decodedSvg.indexOf('font-size') !== -1 || decodedSvg.indexOf('dominant-baseline') !== -1;
-  const hasShapeAndText = (decodedSvg.indexOf('<circle') !== -1 || decodedSvg.indexOf('<rect') !== -1) && hasTextTag;
-  const host = getBrowserFaviconCacheKey(pageUrl);
-  const privateHost = isLikelyPrivateHost(host);
-
-  if (placeholderByColor) return true;
-  if (privateHost && hasTextTag && (hasMonogramText || hasShapeAndText)) return true;
-  return false;
-}
-
-function buildBrowserFaviconResult(pageUrl, src, debug) {
-  const safeSrc = typeof src === 'string' ? src : '';
-  const host = getBrowserFaviconCacheKey(pageUrl);
-  const isPlaceholder = isBrowserFaviconPlaceholder(safeSrc, pageUrl);
-  if (debug) {
-    console.log('[Background][Favicon] browser result', {
-      host,
-      hasSrc: !!safeSrc,
-      isPlaceholder
-    });
-  }
-  return {
-    src: safeSrc,
-    isPlaceholder,
-    source: 'browser-cache',
-    host,
-    debug: !!debug
-  };
-}
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode.apply(null, chunk);
-  }
-  return btoa(binary);
 }
 
 async function loadFaviconsForResults(results) {
@@ -350,9 +174,7 @@ async function broadcastFaviconCacheCleared() {
 }
 
 async function clearFaviconCache() {
-  browserFaviconCache.clear();
-  browserFaviconInFlight.clear();
-
+  // browserFaviconCache 已废弃（v2.x），只清 IDB
   const deletedCount = await idbDeleteByPrefix(IDB_KEY_PREFIX_FAVICON);
   broadcastFaviconCacheCleared().catch(() => 0);
 
@@ -521,114 +343,9 @@ export function handleMessage(request, sender, sendResponse) {
       );
     }
 
-    case MESSAGE_ACTIONS.GET_BROWSER_FAVICON: {
-      const pageUrl = String((request && request.pageUrl) || '').trim();
-      const debug = !!(request && request.debug);
-      if (!pageUrl) {
-        sendOkResponse(sendResponse, { src: '', isPlaceholder: false });
-        return false;
-      }
-
-      const key = getBrowserFaviconCacheKey(pageUrl);
-      if (key) {
-        const cached = getCachedBrowserFaviconSrc(key);
-        if (cached !== undefined) {
-          if (debug) console.log('[Background][Favicon] cache hit', { key, hasSrc: !!cached.src, isPlaceholder: !!cached.isPlaceholder });
-          sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, cached.src, debug), isPlaceholder: !!cached.isPlaceholder });
-          return false;
-        }
-
-        const inFlight = browserFaviconInFlight.get(key);
-        if (inFlight) {
-          if (debug) console.log('[Background][Favicon] inFlight reuse', { key });
-          inFlight
-            .then((result) => sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
-            .catch(() => sendOkResponse(sendResponse, buildBrowserFaviconResult(pageUrl, '', debug)));
-          return true;
-        }
-
-        const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
-          .then((src) => {
-            const result = buildBrowserFaviconResult(pageUrl, src, debug);
-            setCachedBrowserFaviconSrc(key, result.src, result.isPlaceholder);
-            return result;
-          })
-          .finally(() => {
-            browserFaviconInFlight.delete(key);
-          });
-
-        browserFaviconInFlight.set(key, promise);
-
-        promise
-          .then((result) => sendOkResponse(sendResponse, { ...buildBrowserFaviconResult(pageUrl, result && result.src, debug), isPlaceholder: !!(result && result.isPlaceholder) }))
-          .catch(() => sendOkResponse(sendResponse, buildBrowserFaviconResult(pageUrl, '', debug)));
-        return true;
-      }
-
-      sendOkResponse(sendResponse, { src: '', isPlaceholder: false });
-      return false;
-    }
-
-    case MESSAGE_ACTIONS.GET_BROWSER_FAVICONS_BATCH: {
-      const itemsRaw = request && request.items;
-      const debug = !!(request && request.debug);
-      const items = Array.isArray(itemsRaw)
-        ? itemsRaw.filter((it) => it && typeof it.domain === 'string' && typeof it.pageUrl === 'string').slice(0, 50)
-        : [];
-
-      if (items.length === 0) {
-        sendOkResponse(sendResponse, { favicons: {} });
-        return false;
-      }
-
-      const promises = items.map((it) => {
-        const domain = it.domain.trim();
-        const pageUrl = it.pageUrl.trim();
-        if (!pageUrl) return Promise.resolve({ domain, src: '', isPlaceholder: false });
-
-        const key = getBrowserFaviconCacheKey(pageUrl);
-        if (!key) return Promise.resolve({ domain, src: '', isPlaceholder: false });
-
-        const cached = getCachedBrowserFaviconSrc(key);
-        if (cached !== undefined) return Promise.resolve({ domain, src: cached.src, isPlaceholder: !!cached.isPlaceholder });
-
-        const inFlight = browserFaviconInFlight.get(key);
-        if (inFlight) {
-          return inFlight
-            .then((result) => ({ domain, src: (result && typeof result.src === 'string') ? result.src : '', isPlaceholder: !!(result && result.isPlaceholder) }))
-            .catch(() => ({ domain, src: '', isPlaceholder: false }));
-        }
-
-        const promise = fetchBrowserFaviconDataUrl(pageUrl, { debug })
-          .then((src) => {
-            const result = buildBrowserFaviconResult(pageUrl, src, debug);
-            setCachedBrowserFaviconSrc(key, result.src, result.isPlaceholder);
-            return result;
-          })
-          .finally(() => { browserFaviconInFlight.delete(key); });
-
-        browserFaviconInFlight.set(key, promise);
-
-        return promise
-          .then((result) => ({ domain, src: (result && typeof result.src === 'string') ? result.src : '', isPlaceholder: !!(result && result.isPlaceholder) }))
-          .catch(() => ({ domain, src: '', isPlaceholder: false }));
-      });
-
-      Promise.all(promises)
-        .then((results) => {
-          const favicons = {};
-          for (const r of results) {
-            favicons[r.domain] = {
-              src: r.src,
-              isPlaceholder: !!r.isPlaceholder
-            };
-          }
-          sendOkResponse(sendResponse, { favicons });
-        })
-        .catch(() => sendOkResponse(sendResponse, { favicons: {} }));
-
-      return true;
-    }
+    // GET_BROWSER_FAVICON / GET_BROWSER_FAVICONS_BATCH 已废弃（v2.x）：
+    // content script 直接用 chrome-extension://_favicon/?pageUrl= 构造 URL，
+    // 不需要 background 在 fetch + base64 中转。保留 action 常量只为老版本 content 兼容。
 
     case MESSAGE_ACTIONS.GET_FAVICONS: {
       const domainsRaw = request && request.domains;
@@ -681,7 +398,6 @@ export function handleMessage(request, sender, sendResponse) {
       const entries = Array.isArray(entriesRaw) ? entriesRaw : [];
       const now = Date.now();
 
-      const FAVICON_SRC_MAX_LEN = 102400; // 100KB
       const deduped = new Map();
       for (const entry of entries) {
         if (!entry || typeof entry !== 'object') continue;
@@ -689,11 +405,18 @@ export function handleMessage(request, sender, sendResponse) {
         if (!domain) continue;
 
         const updatedAt = typeof entry.updatedAt === 'number' && Number.isFinite(entry.updatedAt) ? entry.updatedAt : now;
+        // 新格式优先：pageUrl（~100 bytes），而不是 base64 data URL
+        const pageUrl = typeof entry.pageUrl === 'string' ? entry.pageUrl.trim() : '';
+        if (pageUrl) {
+          if (!pageUrl.startsWith('https://') && !pageUrl.startsWith('http://')) continue;
+          if (pageUrl.length > 2048) continue;
+          deduped.set(domain, { state: 'success', pageUrl, updatedAt });
+          continue;
+        }
+        // 兼容旧调用：只传 src（http/https URL，非 data:）仍当作 pageUrl 处理
         const src = typeof entry.src === 'string' ? entry.src.trim() : '';
-        if (src) {
-          if (src.length > FAVICON_SRC_MAX_LEN) continue;
-          if (!src.startsWith('https://') && !src.startsWith('http://')) continue;
-          deduped.set(domain, { state: 'success', src, updatedAt });
+        if (src && (src.startsWith('https://') || src.startsWith('http://')) && src.length <= 2048) {
+          deduped.set(domain, { state: 'success', pageUrl: src, updatedAt });
           continue;
         }
 

@@ -347,14 +347,19 @@
 	    }
 	  }
 
-	  function setFaviconCache(domain, src) {
+	  // placeholder TTL：浏览器 _favicon 返回的"首字母灰方块"保守重试间隔
+	  const FAVICON_PLACEHOLDER_TTL_MS = 30 * 60 * 1000;
+
+	  function setFaviconCache(domain, src, options) {
 	    if (!domain || typeof src !== 'string') return;
 	    const safeDomain = String(domain).trim().toLowerCase();
 	    if (!safeDomain) return;
+	    const isPlaceholder = !!(options && options.isPlaceholder);
+	    const entry = { src, isPlaceholder, ts: Date.now() };
 	    if (faviconCache.has(safeDomain)) {
 	      faviconCache.delete(safeDomain);
 	    }
-	    faviconCache.set(safeDomain, src);
+	    faviconCache.set(safeDomain, entry);
 	    // LRU 淘汰（Map 迭代顺序即插入顺序，第一个是最旧的）
 	    while (faviconCache.size > FAVICON_CACHE_MAX_SIZE) {
 	      const oldest = faviconCache.keys().next().value;
@@ -1124,24 +1129,11 @@ function updateSelection(options) {
 	  return safe.indexOf('http://') === 0 || safe.indexOf('https://') === 0;
 	}
 
-	function isBrowserFaviconPlaceholderResult(result) {
-	  if (!result || typeof result !== 'object') return false;
-	  return !!result.isPlaceholder;
-	}
-
 	function isSuccessfulFaviconResult(result) {
   if (!result || typeof result !== 'object') return false;
   const src = typeof result.src === 'string' ? result.src.trim() : '';
   if (!src || !isLoadableIconSrc(src)) return false;
   return result.state !== 'failure';
-}
-
-function shouldRetryAfterBrowserResult(result) {
-  if (!result || typeof result !== 'object') return true;
-  if (result.isPlaceholder) return true;
-  const src = typeof result.src === 'string' ? result.src.trim() : '';
-  if (!src || !isLoadableIconSrc(src)) return true;
-  return !isTrustedPersistableFaviconSrc(src);
 }
 
 	function collectDeclaredFaviconCandidates(pageUrl) {
@@ -1322,7 +1314,8 @@ function shouldRetryAfterBrowserResult(result) {
 	    if (!Object.prototype.hasOwnProperty.call(faviconPersistQueue, domain)) continue;
 	    const entry = faviconPersistQueue[domain];
 	    if (!entry || !entry.domain) continue;
-	    if (entry.src || entry.state === 'failure') entries.push(entry);
+	    // 新格式 {pageUrl} 或历史调用 {src}；失败态 {state: 'failure'}
+	    if (entry.pageUrl || entry.src || entry.state === 'failure') entries.push(entry);
 	  }
 
 	  faviconPersistQueue = Object.create(null);
@@ -1339,18 +1332,24 @@ function shouldRetryAfterBrowserResult(result) {
 	  return faviconPersistFlushPromise;
 	}
 
-	function queuePersistFavicon(domain, src) {
+	/**
+	 * 把 pageUrl 加入 persist queue（不再存 base64 src）
+	 * 历史兼容：旧代码调用 queuePersistFavicon(domain, src) 时，若 src 是 http(s) URL 等价于 pageUrl，
+	 * 若 src 是 data: URL 直接忽略不存（避免 IDB 膨胀）。
+	 */
+	function queuePersistFavicon(domain, pageUrlOrSrc) {
 	  const safeDomain = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
-	  const safeSrc = typeof src === 'string' ? src.trim() : '';
-	  if (!safeDomain || !safeSrc) return;
-	  if (!isTrustedPersistableFaviconSrc(safeSrc)) return;
+	  const safe = typeof pageUrlOrSrc === 'string' ? pageUrlOrSrc.trim() : '';
+	  if (!safeDomain || !safe) return;
+	  // 只持久化 http(s) URL（做 pageUrl 用）；data:URL 不持久化
+	  if (!isTrustedPersistableFaviconSrc(safe)) return;
 
-		  const key = normalizeFaviconDomain(safeDomain) || safeDomain;
+	  const key = normalizeFaviconDomain(safeDomain) || safeDomain;
 	  const existed = !!faviconPersistQueue[key];
-	  faviconPersistQueue[key] = { domain: key, src: safeSrc, updatedAt: Date.now() };
+	  faviconPersistQueue[key] = { domain: key, pageUrl: safe, updatedAt: Date.now() };
 	  if (!existed) faviconPersistQueueSize++;
 
-	  faviconDebugLog('persist success queued', { domain: key, src: safeSrc });
+	  faviconDebugLog('persist pageUrl queued', { domain: key, pageUrl: safe });
 
 	  if (faviconPersistQueueSize >= 50) {
 	    flushFaviconPersistQueue();
@@ -1478,34 +1477,26 @@ function shouldRetryAfterBrowserResult(result) {
 	  }
 	}
 
-	function fetchBrowserFaviconForPageUrl(pageUrl) {
-	  const safePageUrl = pageUrl ? String(pageUrl).trim() : '';
-	  if (!safePageUrl) return Promise.resolve({ src: '', isPlaceholder: false });
-
-	  return sendMessagePromise({ action: MESSAGE_ACTIONS.GET_BROWSER_FAVICON, pageUrl: safePageUrl, debug: isFaviconDebugEnabled() })
-	    .then((response) => {
-	      if (!response || response.success === false) return { src: '', isPlaceholder: false };
-	      const src = response && typeof response.src === 'string' ? response.src : '';
-	      const isPlaceholder = isBrowserFaviconPlaceholderResult(response);
-	      if (!src) return { src: '', isPlaceholder };
-	      if (!isLoadableIconSrc(src)) return { src: '', isPlaceholder };
-	      return { src, isPlaceholder };
-	    })
-	    .catch(() => ({ src: '', isPlaceholder: false }));
-	}
-
 	function getCachedFaviconForDomain(domain) {
 	  const raw = typeof domain === 'string' ? domain.trim() : '';
 	  if (!raw) return '';
 
 	  const candidates = buildFaviconLookupKeys(raw.toLowerCase());
+	  const now = Date.now();
 
 	  for (let i = 0; i < candidates.length; i++) {
 	    const key = candidates[i];
 	    if (!key) continue;
-	    const src = faviconCache.get(key);
+	    const entry = faviconCache.get(key);
+	    if (!entry) continue;
+	    // 兼容旧 Map 直接存 string 的历史数据：upgrade on read
+	    const src = typeof entry === 'string' ? entry : entry.src;
 	    if (typeof src !== 'string' || !src) continue;
 	    if (!isLoadableIconSrc(src)) continue;
+	    // placeholder 超过 TTL 允许重新获取（返回空字符串让 caller 走 hydrate 路径）
+	    if (entry && entry.isPlaceholder && typeof entry.ts === 'number' && (now - entry.ts) > FAVICON_PLACEHOLDER_TTL_MS) {
+	      continue;
+	    }
 	    return src;
 	  }
 
@@ -1546,19 +1537,19 @@ function shouldRetryAfterBrowserResult(result) {
 	}
 
 	async function doAsyncHydration(domains, domainToImages, domainToPageUrl, token) {
-	  // 2a) Batch IDB load
+	  // Phase 2a: 批量读 IDB，命中的条目用其 pageUrl 构造 _favicon URL
 	  const requestDomains = [];
 	  const reqSeen = Object.create(null);
 	  for (let i = 0; i < domains.length; i++) {
 	    const domain = domains[i];
-		    const candidates = buildFaviconLookupKeys(domain);
-		    for (let j = 0; j < candidates.length; j++) {
-		      const candidate = candidates[j];
-		      if (reqSeen[candidate]) continue;
-		      reqSeen[candidate] = true;
-		      requestDomains.push(candidate);
-		    }
-		  }
+	    const candidates = buildFaviconLookupKeys(domain);
+	    for (let j = 0; j < candidates.length; j++) {
+	      const candidate = candidates[j];
+	      if (reqSeen[candidate]) continue;
+	      reqSeen[candidate] = true;
+	      requestDomains.push(candidate);
+	    }
+	  }
 
 	  let persisted = {};
 	  try {
@@ -1568,16 +1559,21 @@ function shouldRetryAfterBrowserResult(result) {
 	      if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
 	      const entry = map[key];
 	      if (!entry || typeof entry !== 'object') continue;
-	      if (typeof entry.src !== 'string' || !entry.src) continue;
-	      if (!isLoadableIconSrc(entry.src)) continue;
-	      setFaviconCache(key, entry.src);
+	      // 新格式：pageUrl；老格式：src（可能是 http URL 或 data:URL）
+	      let usableSrc = '';
+	      if (typeof entry.pageUrl === 'string' && entry.pageUrl) {
+	        usableSrc = buildExtensionFaviconUrl(entry.pageUrl, 32);
+	      } else if (typeof entry.src === 'string' && entry.src && isLoadableIconSrc(entry.src)) {
+	        usableSrc = entry.src;
+	      }
+	      if (usableSrc && isLoadableIconSrc(usableSrc)) setFaviconCache(key, usableSrc);
 	    }
 	  } catch (e) { /* proceed with remaining sources */ }
 
 	  if (token !== faviconRenderToken) return;
 
-	  // Apply IDB hits and collect still-missing domains
-	  const afterIdb = [];
+	  // 应用 IDB 命中 + 收集仍未命中的 domain
+	  const missing = [];
 	  const failureCooldownDomains = Object.create(null);
 	  for (let i = 0; i < domains.length; i++) {
 	    const domain = domains[i];
@@ -1592,58 +1588,35 @@ function shouldRetryAfterBrowserResult(result) {
 	      faviconDebugLog('failure cooldown hit', { domain: domain, retryAt: persistedEntry.retryAt });
 	      continue;
 	    }
-	    afterIdb.push(domain);
+	    missing.push(domain);
 	  }
-	  if (afterIdb.length === 0) return;
+	  if (missing.length === 0) return;
 
-	  // 2b) Batch browser favicon request (single message round-trip for all remaining domains)
-	  try {
-	    const items = afterIdb.map((domain) => ({
-	      domain,
-	      pageUrl: domainToPageUrl[domain] || ("https://" + domain)
-	    }));
-	    const response = await sendMessagePromise({
-	      action: MESSAGE_ACTIONS.GET_BROWSER_FAVICONS_BATCH,
-	      items,
-	      debug: isFaviconDebugEnabled()
-	    });
-	    if (token !== faviconRenderToken) return;
-	    const favicons = (response && response.favicons && typeof response.favicons === 'object') ? response.favicons : {};
-	    for (const domain in favicons) {
-	      if (!Object.prototype.hasOwnProperty.call(favicons, domain)) continue;
-	      const entry = favicons[domain];
-	      const src = entry && typeof entry === 'object'
-	        ? (typeof entry.src === 'string' ? entry.src : '')
-	        : (typeof entry === 'string' ? entry : '');
-	      const isPlaceholder = entry && typeof entry === 'object' && !!entry.isPlaceholder;
-	      if (!src || !isLoadableIconSrc(src) || isPlaceholder) {
-	        if (isPlaceholder) faviconDebugLog('browser batch placeholder rejected', { domain: domain, pageUrl: domainToPageUrl[domain] || '' });
-	        continue;
-	      }
-	      setFaviconCache(domain, src);
-	      applyFaviconToImages(domainToImages[domain], src, token);
-	    }
-	  } catch (e) { /* proceed to external */ }
+	  // Phase 2b: 对未命中的 domain 直接用 chrome-extension://_favicon 构造 URL
+	  // 浏览器内置 favicon 服务本地同步返回，不需要 fetch/base64/消息往返
+	  for (let i = 0; i < missing.length; i++) {
+	    const domain = missing[i];
+	    const pageUrl = domainToPageUrl[domain] || ("https://" + domain);
+	    const extUrl = buildExtensionFaviconUrl(pageUrl, 32);
+	    if (!extUrl) continue;
+	    setFaviconCache(domain, extUrl);
+	    applyFaviconToImages(domainToImages[domain], extUrl, token);
+	    // 持久化 pageUrl（不持久化 extUrl，因为里面含扩展 ID 不稳定）
+	    queuePersistFavicon(domain, pageUrl);
+	  }
 
+	  // Phase 2c: 对私有主机 + declared link 的本地候选走 loadFavicon（仍保留兜底）
 	  if (token !== faviconRenderToken) return;
+	  const privateMissing = missing.filter((d) => isLikelyPrivateHost(d) && !failureCooldownDomains[d]);
+	  if (privateMissing.length === 0) return;
 
-	  // 2c) External sources for still-missing domains (DDG/Google/Faviconkit)
-	  const afterBrowser = [];
-	  for (let i = 0; i < afterIdb.length; i++) {
-	    const domain = afterIdb[i];
-	    if (failureCooldownDomains[domain]) continue;
-	    if (!getCachedFaviconForDomain(domain)) afterBrowser.push(domain);
-	  }
-	  if (afterBrowser.length === 0) return;
-
-	  const concurrency = Math.min(4, afterBrowser.length);
+	  const concurrency = Math.min(3, privateMissing.length);
 	  let nextIndex = 0;
-
 	  async function worker() {
-	    while (nextIndex < afterBrowser.length) {
+	    while (nextIndex < privateMissing.length) {
 	      if (token !== faviconRenderToken) return;
 	      const idx = nextIndex++;
-	      const domain = afterBrowser[idx];
+	      const domain = privateMissing[idx];
 	      const pageUrl = domainToPageUrl[domain] || ("https://" + domain);
 	      await new Promise((resolve) => {
 	        loadFavicon(domain, pageUrl, function(result) {
@@ -1652,10 +1625,13 @@ function shouldRetryAfterBrowserResult(result) {
 	          if (safeUrl && isLoadableIconSrc(safeUrl)) {
 	            setFaviconCache(domain, safeUrl);
 	            applyFaviconToImages(domainToImages[domain], safeUrl, token);
-	            queuePersistFavicon(domain, safeUrl);
+	            // 私有主机本地命中的 URL（可能是 http://192.168...）也持久化
+	            if (safeUrl.startsWith('http://') || safeUrl.startsWith('https://')) {
+	              queuePersistFavicon(domain, safeUrl);
+	            }
 	          }
 	          resolve();
-	        }, { allowBrowserCache: false, allowExternal: true, allowLocal: isLikelyPrivateHost(domain) });
+	        }, { allowBrowserCache: false, allowExternal: false, allowLocal: true });
 	      });
 	    }
 	  }
@@ -1729,9 +1705,15 @@ function shouldRetryAfterBrowserResult(result) {
 	        if (!Object.prototype.hasOwnProperty.call(persisted, key)) continue;
 	        const entry = persisted[key];
 	        if (!entry || typeof entry !== 'object') continue;
-	        if (typeof entry.src !== 'string' || !entry.src) continue;
-	        if (!isLoadableIconSrc(entry.src)) continue;
-	        setFaviconCache(key, entry.src);
+	        let src = '';
+	        if (typeof entry.pageUrl === 'string' && entry.pageUrl) {
+	          src = buildExtensionFaviconUrl(entry.pageUrl, 32);
+	        }
+	        if (!src && typeof entry.src === 'string' && entry.src) {
+	          src = entry.src;
+	        }
+	        if (!src || !isLoadableIconSrc(src)) continue;
+	        setFaviconCache(key, src);
 	      }
 	    }
 	    faviconDebugLog('idb prefetch done', { loaded: faviconCache.size });
@@ -1848,9 +1830,15 @@ function shouldRetryAfterBrowserResult(result) {
 	      if (!Object.prototype.hasOwnProperty.call(persisted, key)) continue;
 	      const entry = persisted[key];
 	      if (!entry || typeof entry !== 'object') continue;
-	      if (typeof entry.src !== 'string' || !entry.src) continue;
-	      if (!isLoadableIconSrc(entry.src)) continue;
-	      setFaviconCache(key, entry.src);
+	      let src = '';
+	      if (typeof entry.pageUrl === 'string' && entry.pageUrl) {
+	        src = buildExtensionFaviconUrl(entry.pageUrl, 32);
+	      }
+	      if (!src && typeof entry.src === 'string' && entry.src) {
+	        src = entry.src;
+	      }
+	      if (!src || !isLoadableIconSrc(src)) continue;
+	      setFaviconCache(key, src);
 	    }
 
 	    const missing = [];
@@ -1899,9 +1887,15 @@ async function searchBookmarksInBackground(query) {
 	        if (!Object.prototype.hasOwnProperty.call(favicons, domain)) continue;
 	        const entry = favicons[domain];
 	        if (!entry || typeof entry !== 'object') continue;
-	        const src = typeof entry.src === 'string' ? entry.src : '';
-	        if (!src) continue;
-	        if (!isLoadableIconSrc(src)) continue;
+	        // 新格式 {pageUrl} 优先：构造 _favicon URL；旧格式 {src} 向后兼容
+	        let src = '';
+	        if (typeof entry.pageUrl === 'string' && entry.pageUrl) {
+	          src = buildExtensionFaviconUrl(entry.pageUrl, 32);
+	        }
+	        if (!src && typeof entry.src === 'string' && entry.src) {
+	          src = entry.src;
+	        }
+	        if (!src || !isLoadableIconSrc(src)) continue;
 	        setFaviconCache(domain, src);
 	      }
 	    }
@@ -2300,21 +2294,64 @@ function displayResults(results, options) {
 	function buildMonogramDataUrl(seed) {
 	  const key = String(seed || '').trim().toLowerCase();
 	  if (monogramCache[key]) return monogramCache[key];
-	  const letter = monogramLetter(key);
-	  const hue = hashDomainHue(key);
-	  const bg = 'hsl(' + hue + ',58%,48%)';
-	  const bgDark = 'hsl(' + hue + ',58%,36%)';
-	  const fontSize = letter.length > 1 ? 8 : 10;
-	  // 用 svg+xml 构造 data URL；对 # 做最小转义
-	  const svg =
-	    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
-	    + '<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">'
-	    + '<stop offset="0" stop-color="' + bg + '"/>'
-	    + '<stop offset="1" stop-color="' + bgDark + '"/>'
-	    + '</linearGradient></defs>'
-	    + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
-	    + '<text x="8" y="11.5" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="' + fontSize + '" font-weight="700" fill="#ffffff">' + escapeSvgText(letter) + '</text>'
-	    + '</svg>';
+
+	  // IP / localhost 用专用图标，而不是"首字母方块"
+	  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(key);
+	  const isLocalhost = key === 'localhost' || key.endsWith('.local') || key.endsWith('.lan');
+	  let svg;
+	  if (isIp || isLocalhost) {
+	    const hue = hashDomainHue(key);
+	    const bg = 'hsl(' + hue + ',42%,44%)';
+	    const bgDark = 'hsl(' + hue + ',42%,32%)';
+	    if (isIp) {
+	      // 地球图标：IP 通常是服务器/内网设备
+	      svg =
+	        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+	        + '<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">'
+	        + '<stop offset="0" stop-color="' + bg + '"/>'
+	        + '<stop offset="1" stop-color="' + bgDark + '"/>'
+	        + '</linearGradient></defs>'
+	        + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
+	        + '<g stroke="#ffffff" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.9">'
+	        + '<circle cx="8" cy="8" r="4.2"/>'
+	        + '<ellipse cx="8" cy="8" rx="2" ry="4.2"/>'
+	        + '<line x1="3.8" y1="8" x2="12.2" y2="8"/>'
+	        + '</g>'
+	        + '</svg>';
+	    } else {
+	      // 服务器机架图标：localhost / *.local
+	      svg =
+	        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+	        + '<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">'
+	        + '<stop offset="0" stop-color="' + bg + '"/>'
+	        + '<stop offset="1" stop-color="' + bgDark + '"/>'
+	        + '</linearGradient></defs>'
+	        + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
+	        + '<g stroke="#ffffff" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.9">'
+	        + '<rect x="4" y="4" width="8" height="3" rx="0.5"/>'
+	        + '<rect x="4" y="9" width="8" height="3" rx="0.5"/>'
+	        + '<circle cx="6" cy="5.5" r="0.5" fill="#ffffff" stroke="none"/>'
+	        + '<circle cx="6" cy="10.5" r="0.5" fill="#ffffff" stroke="none"/>'
+	        + '</g>'
+	        + '</svg>';
+	    }
+	  } else {
+	    // 普通域名：首字母 hash 色方块
+	    const letter = monogramLetter(key);
+	    const hue = hashDomainHue(key);
+	    const bg = 'hsl(' + hue + ',58%,48%)';
+	    const bgDark = 'hsl(' + hue + ',58%,36%)';
+	    const fontSize = letter.length > 1 ? 8 : 10;
+	    svg =
+	      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+	      + '<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">'
+	      + '<stop offset="0" stop-color="' + bg + '"/>'
+	      + '<stop offset="1" stop-color="' + bgDark + '"/>'
+	      + '</linearGradient></defs>'
+	      + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
+	      + '<text x="8" y="11.5" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="' + fontSize + '" font-weight="700" fill="#ffffff">' + escapeSvgText(letter) + '</text>'
+	      + '</svg>';
+	  }
 	  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 	  monogramCache[key] = url;
 	  return url;
@@ -2327,14 +2364,6 @@ function displayResults(results, options) {
 	    .replace(/"/g, '&quot;')
 	    .replace(/'/g, '&#39;');
 	}
-  var externalFaviconFailTimestamps = [];
-  var externalFaviconCircuitUntil = 0;
-
-  function canUseExternalFavicons() {
-    var now = Date.now();
-    return now >= externalFaviconCircuitUntil;
-  }
-
   function buildExtensionFaviconUrl(pageUrl, size) {
     try {
       if (!chrome || !chrome.runtime || typeof chrome.runtime.getURL !== 'function') return '';
@@ -2346,22 +2375,6 @@ function displayResults(results, options) {
       return base + '?pageUrl=' + encodeURIComponent(safePage) + '&size=' + sz;
     } catch (e) {
       return '';
-    }
-  }
-
-  function recordExternalFaviconFailure() {
-    var now = Date.now();
-    externalFaviconFailTimestamps.push(now);
-    // 只保留最近 10 秒的失败记录
-    var windowMs = 10000;
-    var cutoff = now - windowMs;
-    externalFaviconFailTimestamps = externalFaviconFailTimestamps.filter(function (ts) {
-      return typeof ts === 'number' && ts >= cutoff;
-    });
-    if (externalFaviconFailTimestamps.length >= 20 && now >= externalFaviconCircuitUntil) {
-      // 10 秒内失败 >= 20 次，30 秒内不再请求外部 favicon
-      externalFaviconCircuitUntil = now + 30000;
-      externalFaviconFailTimestamps = []; // 重置计数，避免恢复后残留旧记录干扰
     }
   }
 
@@ -2465,79 +2478,41 @@ function displayResults(results, options) {
     }
     var url = sources[idx];
     var isExtensionFavicon = url.indexOf("chrome-extension://") === 0 && url.indexOf("/_favicon/") !== -1;
-    var isThirdParty = !isExtensionFavicon && (
-      url.indexOf("duckduckgo.com") !== -1 ||
-      url.indexOf("google.com/s2/favicons") !== -1 ||
-      url.indexOf("api.faviconkit.com") !== -1
-    );
-    // _favicon 走浏览器内置服务，不受外部熔断限制；DDG/Google 保留熔断
-    if (isThirdParty && (!allowExternal || !canUseExternalFavicons())) {
-      faviconDebugLog('skip third-party (circuit/open/disabled)', { domain: domain, url: url, allowExternal: allowExternal });
+
+    var settled = false;
+    // _favicon 走浏览器内置同步服务；本地 link/origin 候选给 3s；私有主机 allowLocal 时给 1.2s
+    var timeoutMs = isExtensionFavicon ? 2000 : ((isPrivateHost && allowLocal) ? 1200 : 3000);
+    faviconDebugLog('try', { domain: domain, idx: idx, url: url, isExtensionFavicon: isExtensionFavicon, timeoutMs: timeoutMs });
+    var img = new Image();
+    var timer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      img.onload = null;
+      img.onerror = null;
+      img.src = ''; // 中止正在进行的网络请求
+      faviconDebugLog('timeout', { domain: domain, url: url, idx: idx, timeoutMs: timeoutMs });
       tryLoad(idx + 1);
-      return;
-    }
+    }, timeoutMs);
 
-    function startImageLoad() {
-      if (done) return;
-      var settled = false;
-      var timeoutMs = (isPrivateHost && allowLocal && !isThirdParty) ? 1200 : 3000;
-      faviconDebugLog('try', { domain: domain, idx: idx, url: url, isThirdParty: isThirdParty, timeoutMs: timeoutMs });
-      try {
-        if (!isThirdParty && typeof window !== 'undefined' && window.location && window.location.protocol === 'https:' && url.indexOf('http://') === 0) {
-          faviconDebugLog('possible mixed-content local favicon', { domain: domain, pageUrl: safePageUrl, currentPageProtocol: window.location.protocol, url: url });
-        }
-      } catch (e) {}
-      var img = new Image();
-      var timer = setTimeout(function() {
-        if (settled) return;
-        settled = true;
-        img.onload = null;
-        img.onerror = null;
-        img.src = ''; // 中止正在进行的网络请求
-        faviconDebugLog('timeout', { domain: domain, url: url, idx: idx, timeoutMs: timeoutMs });
-        tryLoad(idx + 1);
-      }, timeoutMs);
-
-      img.onload = function() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        faviconDebugLog('loaded', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight, source: isThirdParty ? 'external' : 'local' });
-        finishSuccess(url, isThirdParty ? 'external' : 'local');
-      };
-      img.onerror = function() {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        img.src = ''; // 确保浏览器不会继续重试
-        if (isThirdParty) recordExternalFaviconFailure();
-        faviconDebugLog('error', { domain: domain, url: url, idx: idx, isThirdParty: isThirdParty });
-        tryLoad(idx + 1);
-      };
-      img.src = url;
-    }
-
-	    startImageLoad();
-	  }
-
-  if (allowBrowserCache && safePageUrl) {
-    fetchBrowserFaviconForPageUrl(safePageUrl)
-      .then((result) => {
-        if (isSuccessfulFaviconResult(result) && !shouldRetryAfterBrowserResult(result)) {
-          finishSuccess(result.src, 'browser-cache', { isPlaceholder: result.isPlaceholder });
-          return;
-        }
-        if (result && result.isPlaceholder) {
-          faviconDebugLog('browser placeholder rejected', { domain: domain, pageUrl: safePageUrl });
-        }
-        tryLoad(0);
-      })
-      .catch(() => {
-        tryLoad(0);
-      });
-    return;
+    img.onload = function() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      faviconDebugLog('loaded', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight, source: isExtensionFavicon ? '_favicon' : 'local' });
+      finishSuccess(url, isExtensionFavicon ? '_favicon' : 'local');
+    };
+    img.onerror = function() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      img.src = '';
+      faviconDebugLog('error', { domain: domain, url: url, idx: idx });
+      tryLoad(idx + 1);
+    };
+    img.src = url;
   }
 
+  // allowBrowserCache 已退役（v2.x）：_favicon 已直接通过 URL 使用，sources 里包含
   tryLoad(0);
 }
 
