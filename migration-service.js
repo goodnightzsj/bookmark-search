@@ -1,5 +1,8 @@
 import { idbDeleteByPrefix, idbGet, idbGetAllDocuments, idbReplaceDocuments, idbSetMeta } from './idb-service.js';
 import { getStorageWithStatus, setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('Migration');
 
 const CURRENT_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 1;
@@ -141,14 +144,14 @@ async function clearLegacyCaches() {
   try {
     faviconDeletedCount = await idbDeleteByPrefix(IDB_KEY_PREFIX_FAVICON);
   } catch (error) {
-    console.warn('[Migration] favicon cache clear failed:', error);
+    log.warn('favicon cache clear failed:', error);
   }
 
   try {
     await idbDeleteByPrefix(IDB_KEY_RECENT_OPENED_ROOTS);
     warmupDeleted = true;
   } catch (error) {
-    console.warn('[Migration] warmup snapshot clear failed:', error);
+    log.warn('warmup snapshot clear failed:', error);
   }
 
   return { faviconDeletedCount, warmupDeleted };
@@ -172,7 +175,7 @@ async function migrateV1ToV2() {
   try {
     cachedBookmarks = normalizeBookmarks(await idbGet(IDB_CACHE_KEY_BOOKMARKS));
   } catch (error) {
-    console.warn('[Migration] cachedBookmarks read failed:', error);
+    log.warn('cachedBookmarks read failed:', error);
   }
 
   const normalizedBookmarks = normalizeBookmarks(data[STORAGE_KEYS.BOOKMARKS]);
@@ -228,13 +231,13 @@ async function migrateV2ToV3() {
   try {
     await idbDeleteByPrefix(IDB_CACHE_KEY_BOOKMARKS);
   } catch (error) {
-    console.warn('[Migration] legacy cachedBookmarks clear failed:', error);
+    log.warn('legacy cachedBookmarks clear failed:', error);
   }
 
   try {
     await idbDeleteByPrefix('cachedBookmarksTime');
   } catch (error) {
-    console.warn('[Migration] legacy cachedBookmarksTime clear failed:', error);
+    log.warn('legacy cachedBookmarksTime clear failed:', error);
   }
 
   return {
@@ -323,7 +326,7 @@ export async function ensureSchemaReady() {
     });
     await idbSetMeta(IDB_META_KEY_SCHEMA_VERSION, migrationResult.version).catch(() => {});
 
-    console.log('[Migration] schema ready', {
+    log.info('schema ready', {
       fromVersion: effectiveFromVersion,
       toVersion: migrationResult.version,
       steps: migrationResult.results.length
@@ -341,7 +344,7 @@ export async function ensureSchemaReady() {
       [STORAGE_KEYS.MIGRATION_STATE]: MIGRATION_STATES.FAILED,
       [STORAGE_KEYS.LAST_MIGRATION_ERROR]: message
     });
-    console.error('[Migration] schema migration failed:', error);
+    log.error('schema migration failed:', error);
     throw error;
   }
 }

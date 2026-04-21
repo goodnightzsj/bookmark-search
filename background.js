@@ -16,7 +16,7 @@ installBadgeListeners();
 
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log("[Background] 扩展已安装/更新:", details.reason);
+  log.info("扩展已安装/更新:", details.reason);
   await ensureInit();
 });
 
@@ -108,7 +108,7 @@ async function flushBookmarkDebounce() {
   const events = debounceBookmarkEvents;
   debounceBookmarkEvents = [];
 
-  console.log("[Background] 防抖触发，开始同步（事件数=%d）", Array.isArray(events) ? events.length : 0);
+  log.info("防抖触发，开始同步（事件数=%d）", Array.isArray(events) ? events.length : 0);
   await ensureInit();
   if (importInProgress) {
     // Import 期间直接放弃（稍后的 importEnded 会触发全量刷新）
@@ -118,7 +118,7 @@ async function flushBookmarkDebounce() {
   }
 
   if (!Array.isArray(events) || events.length === 0) {
-    console.log("[Background] 防抖触发但事件队列为空，跳过");
+    log.info("防抖触发但事件队列为空，跳过");
     await clearPendingEventsFromIdb();
     try { await chrome.alarms.clear(ALARM_NAMES.FLUSH_PENDING_EVENTS); } catch (e) {}
     return;
@@ -137,7 +137,7 @@ async function flushBookmarkDebounce() {
       scheduleBookmarkDebounce();
     }
   } catch (error) {
-    console.warn('[Background] applyBookmarkEvents 抛错，保留队列:', error);
+    log.warn('applyBookmarkEvents 抛错，保留队列:', error);
     debounceBookmarkEvents = events.concat(debounceBookmarkEvents);
     persistPendingEventsSnapshot();
     scheduleBookmarkDebounce();
@@ -148,7 +148,7 @@ function enqueueBookmarkEvent(evt) {
   if (importInProgress) return;
   if (!evt || typeof evt !== 'object') return;
   if (debounceBookmarkEvents.length >= PENDING_EVENT_QUEUE_MAX) {
-    console.warn('[Background] pending event queue full，丢弃旧事件');
+    log.warn('pending event queue full，丢弃旧事件');
     debounceBookmarkEvents.splice(0, Math.max(1, PENDING_EVENT_QUEUE_MAX - debounceBookmarkEvents.length + 1));
   }
   debounceBookmarkEvents.push(evt);
@@ -158,28 +158,28 @@ function enqueueBookmarkEvent(evt) {
 
 if (chrome.bookmarks && chrome.bookmarks.onCreated) {
   chrome.bookmarks.onCreated.addListener((id, bookmark) => {
-    console.log("[Background] 原生书签创建，等待防抖...");
+    log.info("原生书签创建，等待防抖...");
     enqueueBookmarkEvent({ type: 'created', id, bookmark });
   });
 }
 
 if (chrome.bookmarks && chrome.bookmarks.onRemoved) {
   chrome.bookmarks.onRemoved.addListener((id, removeInfo) => {
-    console.log("[Background] 原生书签删除，等待防抖...");
+    log.info("原生书签删除，等待防抖...");
     enqueueBookmarkEvent({ type: 'removed', id, removeInfo });
   });
 }
 
 if (chrome.bookmarks && chrome.bookmarks.onChanged) {
   chrome.bookmarks.onChanged.addListener((id, changeInfo) => {
-    console.log("[Background] 原生书签变更，等待防抖...");
+    log.info("原生书签变更，等待防抖...");
     enqueueBookmarkEvent({ type: 'changed', id, changeInfo });
   });
 }
 
 if (chrome.bookmarks && chrome.bookmarks.onMoved) {
   chrome.bookmarks.onMoved.addListener((id, moveInfo) => {
-    console.log("[Background] 原生书签移动，等待防抖...");
+    log.info("原生书签移动，等待防抖...");
     enqueueBookmarkEvent({ type: 'moved', id, moveInfo });
   });
 }
@@ -188,7 +188,7 @@ if (chrome.bookmarks && chrome.bookmarks.onMoved) {
 
 if (chrome.bookmarks && chrome.bookmarks.onImportBegan) {
   chrome.bookmarks.onImportBegan.addListener(() => {
-    console.log("[Background] 书签导入开始，暂停增量并等待结束后全量刷新");
+    log.info("书签导入开始，暂停增量并等待结束后全量刷新");
     importInProgress = true;
     debounceBookmarkEvents = [];
     if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
@@ -197,7 +197,7 @@ if (chrome.bookmarks && chrome.bookmarks.onImportBegan) {
 
 if (chrome.bookmarks && chrome.bookmarks.onImportEnded) {
   chrome.bookmarks.onImportEnded.addListener(() => {
-    console.log("[Background] 书签导入结束，触发全量刷新（防抖）");
+    log.info("书签导入结束，触发全量刷新（防抖）");
     importInProgress = false;
     enqueueBookmarkEvent({ type: 'forceRefresh' });
   });
@@ -247,7 +247,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     try {
       tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     } catch (error) {
-      console.error("[Background] 获取当前标签页失败:", error);
+      log.error("获取当前标签页失败:", error);
       return;
     }
 
@@ -289,7 +289,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       });
     } catch (error) {
       // CSS may fail on some pages; still try to inject the script.
-      console.warn("[Background] 注入 CSS 失败:", error);
+      log.warn("注入 CSS 失败:", error);
     }
 
     try {
@@ -299,7 +299,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       });
       await chrome.tabs.sendMessage(tab.id, { action: MESSAGE_ACTIONS.TOGGLE_SEARCH });
     } catch (error) {
-      console.error("[Background] 注入/唤起搜索失败:", error);
+      log.error("注入/唤起搜索失败:", error);
     }
   }
 });

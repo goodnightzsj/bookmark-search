@@ -1,13 +1,16 @@
 import { refreshBookmarks } from './background-data.js';
 import { ALARM_NAMES } from './constants.js';
 import { getStorageWithStatus, STORAGE_KEYS } from './storage-service.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('Sync');
 
 /**
  * 设置自动同步
  * @param {number} intervalMinutes - 同步间隔（分钟），0表示禁用
  */
 export async function setupAutoSync(intervalMinutes) {
-  console.log("[Background] 设置自动同步间隔: %d 分钟", intervalMinutes);
+  log.info("设置自动同步间隔: %d 分钟", intervalMinutes);
   
   // 清除旧的alarm
   await chrome.alarms.clear(ALARM_NAMES.SYNC_BOOKMARKS);
@@ -16,9 +19,9 @@ export async function setupAutoSync(intervalMinutes) {
     chrome.alarms.create(ALARM_NAMES.SYNC_BOOKMARKS, {
       periodInMinutes: intervalMinutes
     });
-    console.log("[Background] 定时任务已启动");
+    log.info("定时任务已启动");
   } else {
-    console.log("[Background] 自动同步已禁用");
+    log.info("自动同步已禁用");
   }
 }
 
@@ -27,7 +30,7 @@ export async function setupAutoSync(intervalMinutes) {
  */
 export async function handleSyncAlarm(alarm) {
   if (alarm && alarm.name === ALARM_NAMES.SYNC_BOOKMARKS) {
-    console.log("[Background] 定时任务触发: 同步书签");
+    log.info("定时任务触发: 同步书签");
     await refreshBookmarks();
   }
 }
@@ -38,7 +41,7 @@ export async function handleSyncAlarm(alarm) {
 export async function initSyncSettings() {
   const read = await getStorageWithStatus(STORAGE_KEYS.SYNC_INTERVAL);
   if (!read.success && read.state && read.state[STORAGE_KEYS.SYNC_INTERVAL] === 'failed') {
-    console.warn('[Background][Observe] sync_interval_read_failed_use_default', { error: read.error || 'unknown' });
+    log.warn('sync_interval_read_failed_use_default', { error: read.error || 'unknown' });
   }
 
   const intervalRaw = read.data ? read.data[STORAGE_KEYS.SYNC_INTERVAL] : null;
