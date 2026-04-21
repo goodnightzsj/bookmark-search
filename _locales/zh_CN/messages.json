@@ -4,7 +4,7 @@
     "description": "扩展名称"
   },
   "appDesc": {
-    "message": "Chrome/Edge 书签搜索扩展。按 Ctrl/Cmd+Space 在当前页呼出搜索框，多词匹配标题、URL、文件夹路径，数字键直达前 9 条，Alt+Enter 或右键呼出操作菜单。4 套主题，书签实时同步。",
+    "message": "按 Ctrl+Space 在任意网页搜索浏览器书签",
     "description": "扩展描述"
   },
   "commandToggleOverlay": {

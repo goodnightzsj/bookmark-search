@@ -4,7 +4,7 @@
     "description": "Extension name"
   },
   "appDesc": {
-    "message": "Bookmark search for Chrome/Edge. Ctrl/Cmd+Space pops up a search box on any page — match titles, URLs, folder paths; press 1–9 to jump; Alt+Enter for actions. 4 themes, auto sync.",
+    "message": "Search your bookmarks on any page with Ctrl+Space",
     "description": "Extension description"
   },
   "commandToggleOverlay": {
