@@ -663,7 +663,7 @@ function showSearch() {
 
   console.log("[Content] 显示搜索框");
   searchOverlay.style.display = "flex";
-  // 尝试把窗口焦点拉到页面；对于"用户焦点在地址栏时按快捷键"的场景很关键，
+  // 尝试把窗口焦点拉到页面；对于"用户焦点在地址栏/DevTools/其它窗口时按快捷键"很关键，
   // 否则后续 searchInput.focus() 可能被浏览器 chrome 拦截（页面未激活）。
   try { window.focus(); } catch (e) {}
   enableFocusTrap();
@@ -686,8 +686,42 @@ function showSearch() {
     if (!searchOverlay || searchOverlay.style.display === "none") return;
     if (document.activeElement !== searchInput) focusSearchInput();
   }, 30);
+
+  // 页面当前未获焦（在 DevTools / 其它窗口 / iframe / 地址栏）：
+  // 订阅一次 window focus / visibilitychange，页面回焦时立即补一次 focus
+  scheduleFocusOnWindowRegain();
+
   startFocusEnforcer();
   console.log("[Content] 搜索框已显示并聚焦");
+}
+
+// 一次性窗口获焦监听：覆盖"页面当前没焦点"场景（DevTools/地址栏/其它窗口）
+function scheduleFocusOnWindowRegain() {
+  try {
+    if (document.hasFocus()) return;
+  } catch (e) {}
+
+  let done = false;
+  const onRegain = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('focus', onRegain);
+    document.removeEventListener('visibilitychange', onVis);
+    if (!searchOverlay || searchOverlay.style.display === 'none') return;
+    if (document.activeElement !== searchInput) focusSearchInput();
+  };
+  const onVis = () => {
+    if (document.visibilityState === 'visible') onRegain();
+  };
+  window.addEventListener('focus', onRegain, { once: true });
+  document.addEventListener('visibilitychange', onVis);
+  // 3s 安全超时，避免残留监听
+  setTimeout(() => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('focus', onRegain);
+    document.removeEventListener('visibilitychange', onVis);
+  }, 3000);
 }
 
 // 隐藏搜索界面
@@ -764,8 +798,18 @@ function resetSearchUiState() {
 
 function focusSearchInput() {
   if (!searchInput) return;
+  // 中转策略：先 focus body（确保 document 有焦点），再 focus input。
+  // 覆盖"页面整体未 foreground，浏览器拒绝直接把焦点落到深层 input"的场景。
   try {
-    // preventScroll is supported in modern Chromium; fall back if unavailable.
+    if (document.body && !document.body.hasAttribute('tabindex')) {
+      document.body.setAttribute('tabindex', '-1');
+    }
+    if (document.body && document.activeElement !== searchInput && !document.hasFocus()) {
+      try { document.body.focus({ preventScroll: true }); } catch (e) {}
+    }
+  } catch (e) {}
+
+  try {
     searchInput.focus({ preventScroll: true });
   } catch (e) {
     try { searchInput.focus(); } catch (e2) {}
@@ -899,8 +943,8 @@ function disableGlobalKeydownTrap() {
 function startFocusEnforcer() {
   stopFocusEnforcer();
   const startedAt = Date.now();
-  let switched = false;
-  focusEnforcerTimer = setInterval(() => {
+  let phase = 0; // 0: 16ms (0-500ms), 1: 100ms (500ms-2s), 2: 500ms (>2s)
+  const tick = () => {
     if (!searchOverlay || searchOverlay.style.display === "none") {
       stopFocusEnforcer();
       return;
@@ -908,20 +952,24 @@ function startFocusEnforcer() {
     if (!searchInput) return;
     if (document.activeElement === searchInput) return;
     focusSearchInput();
-    // 初始高频期（2s）过后切换到低频，降低持续开销
-    if (!switched && Date.now() - startedAt > 2000) {
-      switched = true;
+  };
+  focusEnforcerTimer = setInterval(() => {
+    tick();
+    const elapsed = Date.now() - startedAt;
+    // 阶段 0 → 1：前 500ms 高频（16ms，约一帧），用于地址栏/弹窗短暂抢焦点场景
+    if (phase === 0 && elapsed > 500) {
+      phase = 1;
       clearInterval(focusEnforcerTimer);
       focusEnforcerTimer = setInterval(() => {
-        if (!searchOverlay || searchOverlay.style.display === "none") {
-          stopFocusEnforcer();
-          return;
+        tick();
+        if (phase === 1 && Date.now() - startedAt > 2000) {
+          phase = 2;
+          clearInterval(focusEnforcerTimer);
+          focusEnforcerTimer = setInterval(tick, 500);
         }
-        if (!searchInput || document.activeElement === searchInput) return;
-        focusSearchInput();
-      }, 500);
+      }, 100);
     }
-  }, 100);
+  }, 16);
 }
 
 function stopFocusEnforcer() {
