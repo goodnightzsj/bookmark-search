@@ -175,9 +175,11 @@ function updateSelectedCount(bodyEl, actionsEl) {
   countEl.textContent = `已选 ${selected} 条`;
 }
 
-function wireActions(bodyEl, actionsEl) {
+// bodyEl 的 click/keydown 委托只绑一次，防止多次 render 堆叠 listener 导致点击互相抵消
+function ensureBodyDelegation(bodyEl, actionsEl) {
+  if (bodyEl.dataset.bsDelegated === '1') return;
+  bodyEl.dataset.bsDelegated = '1';
   bodyEl.addEventListener('click', (e) => {
-    // 打开按钮：用 JS 跳转而不是 <a href>，避免 Chrome 推测预加载触发扩展页 CSP 拦截
     const openBtn = e.target.closest('.duplicates-open-link');
     if (openBtn) {
       e.stopPropagation();
@@ -206,6 +208,10 @@ function wireActions(bodyEl, actionsEl) {
     setRowSelected(row, row.dataset.selected !== '1');
     updateSelectedCount(bodyEl, actionsEl);
   });
+}
+
+function wireActions(bodyEl, actionsEl) {
+  ensureBodyDelegation(bodyEl, actionsEl);
 
   const selectAllOlder = actionsEl.querySelector('#dupSelectAllOlder');
   if (selectAllOlder) {

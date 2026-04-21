@@ -13,7 +13,8 @@ import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
 import { formatRelativeTime } from './utils.js';
 
-const CONCURRENCY = 3;
+// SW 侧 fetch 放开并发瓶颈后提速；zigzag 按 host 分散保证单站仍温和
+const CONCURRENCY = 8;
 const TIMEOUT_MS = 8000;
 
 const CACHE_KEY = 'settings.deadlinksCache.v1';
@@ -271,9 +272,12 @@ function openBookmarkUrl(url) {
   try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) {}
 }
 
-function wireDeadlinkActions(bodyEl, actionsEl) {
+// bodyEl 的 click/keydown 委托只绑一次，防止 cache 命中 + 重新检测造成
+// 同一 listener 被重复注册，点击时互相抵消导致"点不动"
+function ensureBodyDelegation(bodyEl, actionsEl) {
+  if (bodyEl.dataset.bsDelegated === '1') return;
+  bodyEl.dataset.bsDelegated = '1';
   bodyEl.addEventListener('click', (e) => {
-    // 打开按钮用 JS 跳转，避免 <a href> 被 Chrome 推测预加载触发 CSP 拦截
     const openBtn = e.target.closest('.duplicates-open-link');
     if (openBtn) {
       e.stopPropagation();
@@ -302,6 +306,11 @@ function wireDeadlinkActions(bodyEl, actionsEl) {
     setDlRowSelected(row, row.dataset.selected !== '1');
     updateDlCount(bodyEl, actionsEl);
   });
+}
+
+function wireDeadlinkActions(bodyEl, actionsEl) {
+  ensureBodyDelegation(bodyEl, actionsEl);
+  // actionsEl.innerHTML 每次渲染被替换，里面的按钮每次都要重新绑定
   const btnDead = actionsEl.querySelector('#dlSelectDead');
   if (btnDead) btnDead.addEventListener('click', () => {
     getDlRows(bodyEl).forEach((row) => setDlRowSelected(row, row.dataset.level === 'dead'));
