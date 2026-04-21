@@ -11,7 +11,7 @@ const log = createLogger('Background');
 // 书签数据管理模块
 
 // 常量定义
-const MAX_HISTORY_ITEMS = 100;  // 历史记录最大条数
+const MAX_HISTORY_ITEMS = 1000;  // 历史记录最大条数（~300KB/1000 条，chrome.storage.local 足够）
 const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';  // 最近打开过的根域名快照（用于 warmup 优先级，防 SW 重启丢失）
 const DOCUMENT_SOURCE_TYPE = 'bookmark';
 const BOOKMARK_CACHE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 默认主缓存 TTL：30 分钟
