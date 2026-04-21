@@ -22,6 +22,8 @@
 	  let backgroundSearchToken = 0;
 	  let currentQueryTokens = [];
 	  let recentLoadToken = 0;
+	  // 多选：存储被多选的 bookmark.id；独立于 selectedIndex（光标所在）
+	  let multiSelectedIds = new Set();
 	  // 最近搜索词（本地持久化）
 	  const RECENT_SEARCHES_KEY = 'recentSearches';
 	  const RECENT_SEARCHES_MAX = 20;
@@ -495,6 +497,18 @@ function createSearchUI() {
     if (!item) return;
     const index = Array.prototype.indexOf.call(item.parentNode.children, item);
     if (index < 0 || index >= filteredResults.length) return;
+    // Shift+click 切换多选，不打开
+    if (e.shiftKey) {
+      e.preventDefault();
+      toggleMultiSelect(index);
+      return;
+    }
+    // 普通 click：如果已有多选，也不触发单条打开（避免误操作）
+    if (multiSelectedIds.size > 0) {
+      e.preventDefault();
+      toggleMultiSelect(index);
+      return;
+    }
     openBookmark(filteredResults[index], !(e.ctrlKey || e.metaKey));
   });
 
@@ -653,6 +667,7 @@ function hideSearch() {
   }
 
   hideActionMenu();
+  clearMultiSelect();
   stopFocusEnforcer();
   disableFocusTrap();
   disableGlobalKeydownTrap();
@@ -899,6 +914,39 @@ function handleKeydown(e) {
 
   // Prefer our own composition state over legacy keyCode=229 (macOS IME can keep 229 briefly after commit).
   const composing = !!(imeComposing || (e && e.isComposing));
+
+  // 多选态下的键盘：Enter 全部打开 / Delete 全部删除 / Esc 清空
+  if (!composing && multiSelectedIds.size > 0) {
+    if (e.key === 'Enter' && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      openAllMultiSelected();
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Backspace 在 input 里是退字符，只拦 Delete
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteAllMultiSelected();
+        return;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      clearMultiSelect();
+      return;
+    }
+  }
+
+  // Shift+Space 切换当前项的多选
+  if (!composing && e.shiftKey && e.key === ' ' && selectedIndex >= 0) {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMultiSelect(selectedIndex);
+    return;
+  }
 
   // Alt+Enter 在选中书签上打开 action menu
   if (!composing && e.altKey && e.key === 'Enter' && selectedIndex >= 0 && filteredResults[selectedIndex]) {
@@ -2211,6 +2259,12 @@ function displayResults(results, options) {
   // 因 prevSelectedIndex 仍是 -1 而跳过清除分支，导致第一条持续高亮。
   prevSelectedIndex = (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) ? selectedIndex : -1;
 
+  // 多选态跨搜索保留：重绘命中项的 is-multi-selected class
+  if (multiSelectedIds.size > 0) {
+    repaintMultiSelectState();
+    updateMultiSelectBar();
+  }
+
   const domainsToHydrate = Object.keys(domainToImages);
   if (domainsToHydrate.length > 0) {
     hydrateFaviconsForDomains(domainsToHydrate, domainToImages, domainToPageUrl, token);
@@ -2485,6 +2539,105 @@ function displayResults(results, options) {
   }
 
   tryLoad(0);
+}
+
+// ============ 多选（Shift+Click / Shift+Space） ============
+function toggleMultiSelect(index) {
+  if (index < 0 || index >= filteredResults.length) return;
+  const bm = filteredResults[index];
+  if (!bm || !bm.id) return;
+  const id = String(bm.id);
+  if (multiSelectedIds.has(id)) {
+    multiSelectedIds.delete(id);
+  } else {
+    multiSelectedIds.add(id);
+  }
+  repaintMultiSelectState();
+  updateMultiSelectBar();
+}
+
+function clearMultiSelect() {
+  if (multiSelectedIds.size === 0) return;
+  multiSelectedIds.clear();
+  repaintMultiSelectState();
+  updateMultiSelectBar();
+}
+
+function repaintMultiSelectState() {
+  if (!cachedResultItems) return;
+  for (let i = 0; i < cachedResultItems.length; i++) {
+    const item = cachedResultItems[i];
+    const bm = filteredResults[i];
+    if (!item || !bm) continue;
+    const isSel = multiSelectedIds.has(String(bm.id));
+    item.classList.toggle('is-multi-selected', isSel);
+  }
+}
+
+function updateMultiSelectBar() {
+  if (!searchContainer) return;
+  let bar = searchContainer.querySelector('.bookmark-multi-bar');
+  const count = multiSelectedIds.size;
+  if (count === 0) {
+    if (bar) bar.parentNode.removeChild(bar);
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'bookmark-multi-bar';
+    bar.innerHTML = `
+      <span class="bookmark-multi-count"></span>
+      <span class="bookmark-multi-hint">Enter 全部打开 · Del 删除 · Esc 取消</span>
+      <button type="button" class="bookmark-multi-action" data-act="open">打开 (Enter)</button>
+      <button type="button" class="bookmark-multi-action is-danger" data-act="delete">删除 (Del)</button>
+    `;
+    const shortcutsEl = searchContainer.querySelector('.bookmark-shortcuts');
+    if (shortcutsEl) {
+      searchContainer.insertBefore(bar, shortcutsEl);
+    } else {
+      searchContainer.appendChild(bar);
+    }
+    bar.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('.bookmark-multi-action') : null;
+      if (!btn) return;
+      e.preventDefault();
+      const act = btn.dataset.act;
+      if (act === 'open') openAllMultiSelected();
+      else if (act === 'delete') deleteAllMultiSelected();
+    });
+  }
+  const countEl = bar.querySelector('.bookmark-multi-count');
+  if (countEl) countEl.textContent = `已选 ${count} 条`;
+}
+
+function openAllMultiSelected() {
+  if (multiSelectedIds.size === 0) return;
+  const toOpen = filteredResults.filter((bm) => bm && multiSelectedIds.has(String(bm.id)));
+  const ids = Array.from(multiSelectedIds);
+  multiSelectedIds.clear();
+  toOpen.forEach((bm) => {
+    try {
+      const opened = window.open(bm.url, '_blank', 'noopener,noreferrer');
+      if (opened) opened.opener = null;
+      sendMessagePromise({ action: MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN, url: bm.url }).catch(() => {});
+    } catch (e) {}
+  });
+  hideSearch();
+}
+
+function deleteAllMultiSelected() {
+  if (multiSelectedIds.size === 0) return;
+  const ids = Array.from(multiSelectedIds);
+  if (!window.confirm(`确定删除选中的 ${ids.length} 条书签？此操作会同步删除浏览器书签。`)) return;
+  sendMessagePromise({ action: MESSAGE_ACTIONS.DELETE_BOOKMARKS_BATCH, ids })
+    .then(() => {
+      // 从当前结果中移除
+      filteredResults = filteredResults.filter((bm) => !multiSelectedIds.has(String(bm.id)));
+      multiSelectedIds.clear();
+      if (selectedIndex >= filteredResults.length) selectedIndex = filteredResults.length - 1;
+      displayResults(filteredResults);
+    })
+    .catch((e) => console.warn('[Content] batch delete failed:', e));
 }
 
 // ============ Action menu（右键/Alt+Enter 呼出） ============

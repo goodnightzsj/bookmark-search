@@ -1,4 +1,4 @@
-import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks } from './background-data.js';
+import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks, findDuplicateBookmarks } from './background-data.js';
 import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES, FAVICON_CONFIG } from './constants.js';
@@ -796,6 +796,39 @@ export function handleMessage(request, sender, sendResponse) {
         }
       });
     }
+
+    case MESSAGE_ACTIONS.DELETE_BOOKMARKS_BATCH: {
+      const idsRaw = request && request.ids;
+      const ids = Array.isArray(idsRaw)
+        ? idsRaw.map((i) => String(i || '').trim()).filter(Boolean)
+        : [];
+      if (ids.length === 0) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'ids required');
+        return false;
+      }
+      return initThen(async () => {
+        const failed = [];
+        let removed = 0;
+        for (const id of ids) {
+          try {
+            await chrome.bookmarks.remove(id);
+            removed++;
+          } catch (e) {
+            failed.push({ id, error: e && e.message ? e.message : String(e) });
+          }
+        }
+        sendOkResponse(sendResponse, { removed, failed });
+      });
+    }
+
+    case MESSAGE_ACTIONS.FIND_DUPLICATE_BOOKMARKS:
+      return initThen(() =>
+        findDuplicateBookmarks()
+          .then((groups) => sendOkResponse(sendResponse, { groups: Array.isArray(groups) ? groups : [] }))
+          .catch((error) => {
+            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+          })
+      );
 
     case MESSAGE_ACTIONS.REVEAL_BOOKMARK: {
       const id = String((request && request.id) || '').trim();

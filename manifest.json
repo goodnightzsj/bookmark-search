@@ -34,6 +34,9 @@
     "128": "icon128.png"
   },
   "options_page": "settings.html",
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
   "web_accessible_resources": [
     {
       "resources": ["_favicon/*"],

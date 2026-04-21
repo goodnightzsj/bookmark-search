@@ -34,8 +34,10 @@ export const MESSAGE_ACTIONS = {
   CLEAR_FAVICON_CACHE: 'clearFaviconCache',
   CLEAR_HISTORY: 'clearHistory',
   DELETE_BOOKMARK: 'deleteBookmark',
+  DELETE_BOOKMARKS_BATCH: 'deleteBookmarksBatch',
   OPEN_BOOKMARK_IN_WINDOW: 'openBookmarkInWindow',
-  REVEAL_BOOKMARK: 'revealBookmark'
+  REVEAL_BOOKMARK: 'revealBookmark',
+  FIND_DUPLICATE_BOOKMARKS: 'findDuplicateBookmarks'
 };
 
 export const MESSAGE_ACTION_VALUES = Object.freeze(Object.values(MESSAGE_ACTIONS));

@@ -5,10 +5,14 @@ import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { idbGet, idbSet } from './idb-service.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 import { ensureInit } from './lifecycle.js';
+import { installBadgeListeners } from './background-badge.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('Background');
 log.info('Service Worker 启动');
+
+// 扩展图标 badge：当前页是否已收藏
+installBadgeListeners();
 
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {

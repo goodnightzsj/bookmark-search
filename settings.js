@@ -2,6 +2,8 @@ import { initThemeSelector } from './settings-theme.js';
 import { loadShortcutInfo, bindShortcutEvents } from './settings-shortcuts.js';
 import { loadSyncSettings, loadBookmarkStats, bindSyncEvents } from './settings-sync.js';
 import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpdateNotification } from './settings-history.js';
+import { bindDuplicatesEvents } from './settings-duplicates.js';
+import { bindDeadlinkEvents } from './settings-deadlinks.js';
 
 console.log("[Settings] settings.js 开始加载 (主入口)");
 
@@ -72,6 +74,8 @@ function bindAllEvents() {
   bindShortcutEvents();
   bindSyncEvents();
   bindHistoryEvents();
+  bindDuplicatesEvents();
+  bindDeadlinkEvents();
 }
 
 // 设置存储监听器，实现实时更新

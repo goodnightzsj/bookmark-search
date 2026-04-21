@@ -211,6 +211,34 @@
                 <span>只清除扩展自身的 icon / favicon 缓存，不会清除浏览器内置 favicon 缓存。</span>
               </p>
             </div>
+
+            <div class="action-card">
+              <div class="action-copy">
+                <h4 class="action-title">重复书签清理</h4>
+                <p class="action-description">扫描所有书签，按归一化 URL 分组，列出重复条目；可勾选后批量删除。</p>
+              </div>
+              <div class="action-buttons">
+                <button class="btn btn-secondary" id="findDuplicates" type="button">
+                  <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
+                  <span class="btn-text">查找重复</span>
+                </button>
+              </div>
+              <div id="duplicatesResult" class="duplicates-result" style="display: none;"></div>
+            </div>
+
+            <div class="action-card">
+              <div class="action-copy">
+                <h4 class="action-title">失效链接检测</h4>
+                <p class="action-description">按需检测所有 http/https 书签的可访问性。首次使用需授权"访问所有网站"权限，过程中会发起 HEAD 请求。误判率约 10%（某些站点反爬），删除前建议人工确认。</p>
+              </div>
+              <div class="action-buttons">
+                <button class="btn btn-secondary" id="checkDeadLinks" type="button">
+                  <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.07 0l1.41-1.41a5 5 0 00-7.07-7.07L10 5.93"/><path d="M14 11a5 5 0 00-7.07 0L5.52 12.41a5 5 0 007.07 7.07L14 18.07"/></svg></span>
+                  <span class="btn-text">检测失效链接</span>
+                </button>
+              </div>
+              <div id="deadlinksResult" class="duplicates-result" style="display: none;"></div>
+            </div>
           </div>
         </section>
       </div>

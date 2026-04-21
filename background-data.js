@@ -3,6 +3,7 @@ import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
 import { HISTORY_ACTIONS, PATH_SEPARATOR, WARMUP_CONFIG } from './constants.js';
 import { idbGet, idbGetAllDocuments, idbPatchDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
 import { buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
+import pinyin from 'tiny-pinyin';
 
 // 书签数据管理模块
 
@@ -59,6 +60,62 @@ const runtimeState = {
 
 // 运行时 documents fingerprint 缓存，避免 ensureCacheConsistency 每次重算
 let runtimeDocumentsFingerprint = '';
+
+// 倒排索引：bigram → Set<docIndex>，用于 searchDocuments 候选过滤（毫秒级缩圈）
+// 不直接存 docId，存 documents 数组中的 index 以降低内存
+let searchBigramIndex = null;
+
+function extractBigramsFromText(text) {
+  const safe = typeof text === 'string' ? text.toLowerCase() : '';
+  if (!safe || safe.length < 2) return null;
+  const out = new Set();
+  for (let i = 0; i + 1 < safe.length; i++) {
+    const c1 = safe.charCodeAt(i);
+    const c2 = safe.charCodeAt(i + 1);
+    // 跳过双空白：空白做分隔符，不参与索引
+    if (c1 === 32 && c2 === 32) continue;
+    out.add(safe.slice(i, i + 2));
+  }
+  return out;
+}
+
+function addBigramsForDoc(index, docIdx, text) {
+  const grams = extractBigramsFromText(text);
+  if (!grams) return;
+  for (const g of grams) {
+    let bucket = index.get(g);
+    if (!bucket) {
+      bucket = new Set();
+      index.set(g, bucket);
+    }
+    bucket.add(docIdx);
+  }
+}
+
+function buildSearchBigramIndex(documents) {
+  const idx = new Map();
+  const list = Array.isArray(documents) ? documents : [];
+  for (let i = 0; i < list.length; i++) {
+    const doc = list[i];
+    if (!doc) continue;
+    addBigramsForDoc(idx, i, doc.title);
+    addBigramsForDoc(idx, i, doc.subtitle);
+    addBigramsForDoc(idx, i, doc.url);
+    addBigramsForDoc(idx, i, doc.pinyinFull);
+    addBigramsForDoc(idx, i, doc.pinyinInitials);
+  }
+  return idx;
+}
+
+function ensureSearchBigramIndex(documents) {
+  if (searchBigramIndex) return searchBigramIndex;
+  searchBigramIndex = buildSearchBigramIndex(documents);
+  return searchBigramIndex;
+}
+
+function invalidateSearchIndex() {
+  searchBigramIndex = null;
+}
 
 // 书签变化历史
 let bookmarkHistory = [];
@@ -177,6 +234,36 @@ function rebuildBookmarkIndex() {
   runtimeState.bookmarkIndexById = next;
 }
 
+function computePinyinFields(text) {
+  const source = typeof text === 'string' ? text : '';
+  if (!source) return { full: '', initials: '' };
+  try {
+    if (!pinyin || typeof pinyin.parse !== 'function' || !pinyin.isSupported()) {
+      return { full: '', initials: '' };
+    }
+    const parts = pinyin.parse(source) || [];
+    let full = '';
+    let initials = '';
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (!p) continue;
+      // type 2 = Chinese char (has pinyin target); other = ASCII/symbol (target === source)
+      const target = typeof p.target === 'string' ? p.target.toLowerCase() : '';
+      if (!target) continue;
+      full += target;
+      if (p.type === 2) {
+        initials += target.charAt(0);
+      } else {
+        // 非中文部分：保留原样作为 initials 的一部分（让 "gh" 匹配 "GitHub Hub"）
+        initials += target;
+      }
+    }
+    return { full, initials };
+  } catch (e) {
+    return { full: '', initials: '' };
+  }
+}
+
 function mapBookmarkToSearchDocument(bookmark) {
   if (!bookmark || typeof bookmark !== 'object' || !bookmark.id || !bookmark.url) return null;
   const title = typeof bookmark.title === 'string' ? bookmark.title : '';
@@ -184,6 +271,9 @@ function mapBookmarkToSearchDocument(bookmark) {
   const path = typeof bookmark.path === 'string' && bookmark.path
     ? String(bookmark.path).split(PATH_SEPARATOR).map((item) => item.trim()).filter(Boolean)
     : [];
+
+  // 预计算 title 的拼音全拼与首字母，便于 "gh"→GitHub、"sjsj"→收藏夹设置 这类查询命中
+  const pinyinData = computePinyinFields(title);
 
   return {
     id: `${DOCUMENT_SOURCE_TYPE}:${String(bookmark.id)}`,
@@ -194,6 +284,8 @@ function mapBookmarkToSearchDocument(bookmark) {
     url,
     path,
     iconKey: url,
+    pinyinFull: pinyinData.full,
+    pinyinInitials: pinyinData.initials,
     updatedAt: (typeof bookmark.dateAdded === 'number' && Number.isFinite(bookmark.dateAdded)) ? bookmark.dateAdded : 0,
     metadata: {
       dateAdded: (typeof bookmark.dateAdded === 'number' && Number.isFinite(bookmark.dateAdded)) ? bookmark.dateAdded : 0
@@ -222,6 +314,52 @@ function mapSearchDocumentsToBookmarks(documents) {
   return bookmarks;
 }
 
+// 判断查询 token 是否"可能是拼音查询"：纯 ASCII 字母且长度 >= 2
+function isLikelyPinyinQuery(token) {
+  if (!token || typeof token !== 'string') return false;
+  if (token.length < 2) return false;
+  // 只接受 a-z（token 已被 toLowerCase），不含数字/符号
+  return /^[a-z]+$/.test(token);
+}
+
+// 用 bigram 倒排索引缩圈出候选 doc index 集合。返回 null 表示"没有有效缩圈信息，需全量扫描"
+function narrowCandidatesByBigram(tokens, documents) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return null;
+  const index = ensureSearchBigramIndex(documents);
+  if (!index || index.size === 0) return null;
+
+  let candidates = null;
+  for (let t = 0; t < tokens.length; t++) {
+    const token = tokens[t];
+    if (!token || token.length < 2) {
+      // 1 字符 token 信息量太少，不缩圈（避免误过滤）
+      return null;
+    }
+    const bigram = token.slice(0, 2);
+    const bucket = index.get(bigram);
+    if (!bucket || bucket.size === 0) {
+      // 该 bigram 不在索引里 → 0 候选
+      return new Set();
+    }
+    if (candidates === null) {
+      // 避免直接引用 bucket（后续交集会修改）
+      candidates = new Set(bucket);
+    } else {
+      // 交集
+      const next = new Set();
+      // 迭代小集合提升性能
+      const smaller = candidates.size <= bucket.size ? candidates : bucket;
+      const larger  = smaller === candidates ? bucket : candidates;
+      for (const idx of smaller) {
+        if (larger.has(idx)) next.add(idx);
+      }
+      candidates = next;
+      if (candidates.size === 0) return candidates;
+    }
+  }
+  return candidates;
+}
+
 function searchDocuments(documents, query, limit) {
   const list = Array.isArray(documents) ? documents : [];
   const raw = typeof query === 'string' ? query.trim() : '';
@@ -234,13 +372,19 @@ function searchDocuments(documents, query, limit) {
   const max = typeof limit === 'number' && limit > 0 ? limit : 10;
   const topK = [];
 
-  for (let i = 0; i < list.length; i++) {
+  // 倒排索引缩圈：把上万书签 × 每 token indexOf 的全量扫描，压缩到候选集合上
+  // 小库（< 200）直接扫，索引收益不够
+  const candidates = list.length >= 200 ? narrowCandidatesByBigram(tokens, list) : null;
+
+  function scoreDoc(i) {
     const doc = list[i];
-    if (!doc || !doc.url) continue;
+    if (!doc || !doc.url) return;
 
     const titleLower = String(doc.title || '').toLowerCase();
     const urlLower = String(doc.url || '').toLowerCase();
     const pathLower = String(doc.subtitle || '').toLowerCase();
+    const pinyinFull = String(doc.pinyinFull || '');
+    const pinyinInitials = String(doc.pinyinInitials || '');
 
     let score = 0;
     let matched = true;
@@ -250,7 +394,15 @@ function searchDocuments(documents, query, limit) {
       const ti = titleLower.indexOf(token);
       const pi = pathLower.indexOf(token);
       const ui = urlLower.indexOf(token);
-      if (ti < 0 && pi < 0 && ui < 0) {
+
+      let pyFullMatch = -1;
+      let pyInitialMatch = -1;
+      if (ti < 0 && isLikelyPinyinQuery(token)) {
+        if (pinyinFull) pyFullMatch = pinyinFull.indexOf(token);
+        if (pinyinInitials) pyInitialMatch = pinyinInitials.indexOf(token);
+      }
+
+      if (ti < 0 && pi < 0 && ui < 0 && pyFullMatch < 0 && pyInitialMatch < 0) {
         matched = false;
         break;
       }
@@ -263,8 +415,15 @@ function searchDocuments(documents, query, limit) {
           tokenScore -= 20;
         }
         score += tokenScore;
+      } else if (pyInitialMatch >= 0) {
+        let tokenScore = 200 + pyInitialMatch;
+        if (pyInitialMatch === 0) tokenScore -= 50;
+        score += tokenScore;
+      } else if (pyFullMatch >= 0) {
+        let tokenScore = 300 + pyFullMatch;
+        if (pyFullMatch === 0) tokenScore -= 50;
+        score += tokenScore;
       } else if (pi >= 0) {
-        // path 命中：优先级介于 title 和 url 之间
         let tokenScore = 500 + pi;
         if (pi === 0) tokenScore -= 30;
         score += tokenScore;
@@ -273,23 +432,27 @@ function searchDocuments(documents, query, limit) {
       }
     }
 
-    if (!matched) continue;
+    if (!matched) return;
     if (tokens.length === 1 && titleLower === queryLower) score -= 200;
 
     if (topK.length < max) {
       let insertIdx = topK.length;
-      while (insertIdx > 0 && topK[insertIdx - 1].score > score) {
-        insertIdx--;
-      }
+      while (insertIdx > 0 && topK[insertIdx - 1].score > score) insertIdx--;
       topK.splice(insertIdx, 0, { score, doc });
     } else if (score < topK[max - 1].score) {
       topK.pop();
       let insertIdx = topK.length;
-      while (insertIdx > 0 && topK[insertIdx - 1].score > score) {
-        insertIdx--;
-      }
+      while (insertIdx > 0 && topK[insertIdx - 1].score > score) insertIdx--;
       topK.splice(insertIdx, 0, { score, doc });
     }
+  }
+
+  if (candidates !== null) {
+    // 索引缩圈路径：只评分候选集合
+    for (const idx of candidates) scoreDoc(idx);
+  } else {
+    // 全量评分（小库 / 1 字符 token 等 fallback）
+    for (let i = 0; i < list.length; i++) scoreDoc(i);
   }
 
   const results = [];
@@ -304,6 +467,7 @@ function setRuntimeDocuments(nextDocuments) {
   runtimeState.documents = Array.isArray(nextDocuments) ? nextDocuments.filter((doc) => doc && doc.sourceType === DOCUMENT_SOURCE_TYPE && doc.sourceId && doc.url) : [];
   runtimeState.bookmarks = mapSearchDocumentsToBookmarks(runtimeState.documents);
   runtimeDocumentsFingerprint = getDocumentsFingerprint(runtimeState.documents);
+  invalidateSearchIndex();
 }
 
 function setRuntimeBookmarks(nextBookmarks) {
@@ -503,6 +667,64 @@ export async function getRecentOpenedBookmarks({ limit = 10 } = {}) {
   }
 
   return results;
+}
+
+/**
+ * URL 归一化：用于重复书签识别
+ * - 小写 hostname
+ * - 去掉 hash
+ * - 去掉 URL 末尾多余斜杠（保留根路径 /）
+ * - 保留 query string（同一页带不同参数算不同书签）
+ */
+function normalizeUrlForDedup(url) {
+  const safe = typeof url === 'string' ? url.trim() : '';
+  if (!safe) return '';
+  try {
+    const u = new URL(safe);
+    const host = (u.hostname || '').toLowerCase();
+    let path = u.pathname || '/';
+    if (path.length > 1 && path.endsWith('/')) path = path.replace(/\/+$/, '') || '/';
+    return `${u.protocol}//${host}${path}${u.search}`;
+  } catch (e) {
+    return safe.toLowerCase();
+  }
+}
+
+/**
+ * 查找重复书签：按归一化 URL 分组，返回每组 2+ 个的集合
+ * 返回格式：
+ *   [
+ *     { key: 'https://example.com/', items: [{ id, title, url, path, dateAdded }, ...] },
+ *     ...
+ *   ]
+ */
+export async function findDuplicateBookmarks() {
+  await loadCacheFromStorage();
+  const documents = await ensureRuntimeDocumentsAvailable();
+  const groups = new Map();
+  for (let i = 0; i < documents.length; i++) {
+    const doc = documents[i];
+    if (!doc || !doc.url) continue;
+    const key = normalizeUrlForDedup(doc.url);
+    if (!key) continue;
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = [];
+      groups.set(key, bucket);
+    }
+    const bookmark = mapSearchDocumentToBookmark(doc);
+    if (bookmark) bucket.push(bookmark);
+  }
+  const result = [];
+  for (const [key, items] of groups) {
+    if (!items || items.length < 2) continue;
+    // 按 dateAdded 升序排（旧的在前，新的在后；用户通常想保留新的）
+    items.sort((a, b) => (a.dateAdded || 0) - (b.dateAdded || 0));
+    result.push({ key, items });
+  }
+  // 按组内书签数降序排（冲突最多的在顶）
+  result.sort((a, b) => b.items.length - a.items.length);
+  return result;
 }
 
 export async function recordBookmarkOpen(url) {
