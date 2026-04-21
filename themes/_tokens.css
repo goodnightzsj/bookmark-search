@@ -752,12 +752,15 @@ input.form-input[readonly] {
   gap: 4px;
   padding: 6px 10px;
   margin-left: 4px;
+  border: 0;               /* button 默认有 border，重置 */
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
+  font-family: inherit;
   color: var(--text-secondary, #6b7280);
   text-decoration: none;
   background: transparent;
+  cursor: pointer;
   transition: background 120ms linear, color 120ms linear;
   flex-shrink: 0;
 }

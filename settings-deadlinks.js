@@ -211,10 +211,10 @@ function renderResults(results, scannedAt) {
         </div>
         <div class="duplicates-item-url" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</div>
       </div>
-      <a class="duplicates-open-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" title="在新标签页打开" aria-label="在新标签页打开">
+      <button type="button" class="duplicates-open-link" data-url="${escapeHtml(r.url)}" title="在新标签页打开" aria-label="在新标签页打开">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
         <span>打开</span>
-      </a>
+      </button>
     `;
     list.appendChild(row);
   });
@@ -251,9 +251,26 @@ function updateDlCount(bodyEl, actionsEl) {
   el.textContent = `已选 ${selected} 条`;
 }
 
+function openBookmarkUrl(url) {
+  try {
+    if (chrome && chrome.tabs && typeof chrome.tabs.create === 'function') {
+      chrome.tabs.create({ url, active: true });
+      return;
+    }
+  } catch (e) {}
+  try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) {}
+}
+
 function wireDeadlinkActions(bodyEl, actionsEl) {
   bodyEl.addEventListener('click', (e) => {
-    if (e.target.closest('.duplicates-open-link')) return;
+    // 打开按钮用 JS 跳转，避免 <a href> 被 Chrome 推测预加载触发 CSP 拦截
+    const openBtn = e.target.closest('.duplicates-open-link');
+    if (openBtn) {
+      e.stopPropagation();
+      const url = openBtn.dataset.url;
+      if (url) openBookmarkUrl(url);
+      return;
+    }
     const row = e.target.closest('.duplicates-item');
     if (!row || !bodyEl.contains(row)) return;
     setDlRowSelected(row, row.dataset.selected !== '1');
@@ -261,9 +278,16 @@ function wireDeadlinkActions(bodyEl, actionsEl) {
   });
   bodyEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    const openBtn = e.target.closest && e.target.closest('.duplicates-open-link');
+    if (openBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = openBtn.dataset.url;
+      if (url) openBookmarkUrl(url);
+      return;
+    }
     const row = e.target.closest && e.target.closest('.duplicates-item');
     if (!row || !bodyEl.contains(row)) return;
-    if (e.target.closest && e.target.closest('.duplicates-open-link')) return;
     e.preventDefault();
     setDlRowSelected(row, row.dataset.selected !== '1');
     updateDlCount(bodyEl, actionsEl);

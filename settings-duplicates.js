@@ -47,6 +47,16 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
+function openBookmarkUrl(url) {
+  try {
+    if (chrome && chrome.tabs && typeof chrome.tabs.create === 'function') {
+      chrome.tabs.create({ url, active: true });
+      return;
+    }
+  } catch (e) {}
+  try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) {}
+}
+
 function formatDate(ts) {
   if (!ts || typeof ts !== 'number') return '—';
   try {
@@ -122,10 +132,10 @@ function renderGroups(groups, scannedAt) {
           </div>
           <div class="duplicates-item-url" title="${escapeHtml(bm.url)}">${escapeHtml(bm.url)}</div>
         </div>
-        <a class="duplicates-open-link" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" title="在新标签页打开" aria-label="在新标签页打开该书签">
+        <button type="button" class="duplicates-open-link" data-url="${escapeHtml(bm.url)}" title="在新标签页打开" aria-label="在新标签页打开该书签">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
           <span>打开</span>
-        </a>
+        </button>
       `;
       itemsEl.appendChild(row);
     });
@@ -167,8 +177,14 @@ function updateSelectedCount(bodyEl, actionsEl) {
 
 function wireActions(bodyEl, actionsEl) {
   bodyEl.addEventListener('click', (e) => {
-    // 打开链接的 <a> 不触发行选中切换
-    if (e.target.closest('.duplicates-open-link')) return;
+    // 打开按钮：用 JS 跳转而不是 <a href>，避免 Chrome 推测预加载触发扩展页 CSP 拦截
+    const openBtn = e.target.closest('.duplicates-open-link');
+    if (openBtn) {
+      e.stopPropagation();
+      const url = openBtn.dataset.url;
+      if (url) openBookmarkUrl(url);
+      return;
+    }
     const row = e.target.closest('.duplicates-item');
     if (!row || !bodyEl.contains(row)) return;
     setRowSelected(row, row.dataset.selected !== '1');
@@ -176,10 +192,16 @@ function wireActions(bodyEl, actionsEl) {
   });
   bodyEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    const openBtn = e.target.closest && e.target.closest('.duplicates-open-link');
+    if (openBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = openBtn.dataset.url;
+      if (url) openBookmarkUrl(url);
+      return;
+    }
     const row = e.target.closest && e.target.closest('.duplicates-item');
     if (!row || !bodyEl.contains(row)) return;
-    // 聚焦到 <a> 时按 Enter 走默认跳转，不切换选中
-    if (e.target.closest && e.target.closest('.duplicates-open-link')) return;
     e.preventDefault();
     setRowSelected(row, row.dataset.selected !== '1');
     updateSelectedCount(bodyEl, actionsEl);
