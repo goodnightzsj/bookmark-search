@@ -23,7 +23,19 @@
       <p>自定义您的极速收藏夹管理与查找体验</p>
     </div>
 
-    <div class="card">
+    <div class="settings-layout">
+      <nav class="settings-sidebar" id="settingsSidebar" aria-label="章节导航">
+        <ul class="settings-nav">
+          <li><a href="#section-theme" class="settings-nav-link" data-target="section-theme">主题</a></li>
+          <li><a href="#section-shortcut" class="settings-nav-link" data-target="section-shortcut">快捷键</a></li>
+          <li><a href="#section-sync" class="settings-nav-link" data-target="section-sync">同步</a></li>
+          <li><a href="#section-history" class="settings-nav-link" data-target="section-history">历史</a></li>
+          <li><a href="#section-about" class="settings-nav-link" data-target="section-about">关于</a></li>
+        </ul>
+      </nav>
+
+      <div class="settings-main">
+    <div class="card" id="section-theme">
       <div class="card-title">
         <span><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 100-20 10 10 0 000 20z"/><circle cx="8.5" cy="10.5" r="1" fill="currentColor"/><circle cx="13.5" cy="8.5" r="1" fill="currentColor"/><circle cx="15.5" cy="13.5" r="1" fill="currentColor"/><path d="M12 22c2.2 0 4-1.8 4-4a2 2 0 00-2-2h-1a2 2 0 01-2-2V7"/></svg></span> 主题设置</span>
       </div>
@@ -61,7 +73,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="section-shortcut">
       <div class="card-title">
         <span><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 11h.01M10 11h.01M13 11h.01M16 11h.01M7 14h10"/></svg></span> 快捷键设置</span>
       </div>
@@ -96,7 +108,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="section-sync">
       <div class="card-title">
         <span><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 19v-6"/><path d="M12 19v-10"/><path d="M16 19v-3"/></svg></span> 书签同步设置</span>
         <button class="btn btn-secondary" id="syncBookmarks">
@@ -244,7 +256,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="section-history">
       <div class="card-title">
         <span><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span> 书签更新历史 <span class="badge" id="historyCount">0</span></span>
         <div class="card-actions">
@@ -293,7 +305,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="section-about">
       <div class="card-title">
         <span><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7h.01"/></svg></span> 关于</span>
       </div>
@@ -331,6 +343,8 @@
         </div>
       </div>
     </div>
+      </div><!-- /.settings-main -->
+    </div><!-- /.settings-layout -->
   </div>
 
   <script type="module" src="theme-loader.js"></script>

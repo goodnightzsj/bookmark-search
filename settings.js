@@ -76,6 +76,49 @@ function bindAllEvents() {
   bindHistoryEvents();
   bindDuplicatesEvents();
   bindDeadlinkEvents();
+  bindSidebarNav();
+}
+
+// 侧边栏锚点导航：点击平滑滚动 + 滚动时高亮当前 section
+function bindSidebarNav() {
+  const links = Array.from(document.querySelectorAll('.settings-nav-link'));
+  if (links.length === 0) return;
+  const sections = links
+    .map((a) => ({ link: a, target: document.getElementById(a.dataset.target) }))
+    .filter((s) => s.target);
+  if (sections.length === 0) return;
+
+  // 点击 → 平滑滚动到 section（避免默认锚点跳转的突变）
+  links.forEach((link) => {
+    link.addEventListener('click', (e) => {
+      const target = document.getElementById(link.dataset.target);
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // IntersectionObserver 高亮当前可视 section
+  if (typeof IntersectionObserver !== 'function') return;
+  const activate = (id) => {
+    sections.forEach(({ link, target }) => {
+      link.classList.toggle('is-active', target.id === id);
+    });
+  };
+  const observer = new IntersectionObserver((entries) => {
+    // 选离顶部最近的可视 section
+    let best = null;
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const rect = entry.target.getBoundingClientRect();
+      if (!best || rect.top < best.rect.top) best = { id: entry.target.id, rect };
+    }
+    if (best) activate(best.id);
+  }, { rootMargin: '-20% 0px -60% 0px', threshold: 0 });
+  sections.forEach(({ target }) => observer.observe(target));
+
+  // 初始态：选中第一个
+  activate(sections[0].target.id);
 }
 
 // 设置存储监听器，实现实时更新

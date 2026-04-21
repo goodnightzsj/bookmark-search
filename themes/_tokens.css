@@ -87,6 +87,74 @@ body.theme-ready {
 }
 
 /* ============================================================
+ * Settings 锚点侧边导航（跨主题结构；颜色由主题 override）
+ * ============================================================ */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+.settings-sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  padding: 8px 0;
+}
+.settings-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-nav-link {
+  display: block;
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: var(--text-secondary, #5c6573);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  letter-spacing: 0;
+  transition: background 120ms linear, color 120ms linear;
+}
+.settings-nav-link:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.08));
+  color: var(--text-primary, #0f1419);
+}
+.settings-nav-link.is-active {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.1));
+  color: var(--accent, #5e6ad2);
+  font-weight: 600;
+}
+@media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .settings-sidebar {
+    position: static;
+    overflow-x: auto;
+    padding: 4px 0;
+  }
+  .settings-nav {
+    flex-direction: row;
+    gap: 4px;
+  }
+  .settings-nav-link {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* minimal 主题 override */
+body[data-page="settings"].theme-ready .settings-nav-link {
+  /* minimal 用无圆角 + uppercase；其它主题保持默认 */
+}
+
+/* ============================================================
  * 原生控件重写：select / input / checkbox / scrollbar
  * 跨主题共享"去 native chrome"基线，具体色彩/边框由各主题覆盖
  * ============================================================ */

@@ -6,6 +6,9 @@ import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
 import { buildFaviconLookupKeys, buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
 import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 import { ensureInit } from './lifecycle.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('Messages');
 
 const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 
@@ -207,7 +210,7 @@ export function handleMessage(request, sender, sendResponse) {
     return false;
   }
 
-  console.log("[Background] 收到消息:", action);
+  log.debug('收到消息:', action);
 
   // 需要初始化的异步 action，在 ensureInit 完成后再执行
   const initThen = (asyncFn) => {

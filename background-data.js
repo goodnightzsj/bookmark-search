@@ -3,7 +3,10 @@ import { compareBookmarks, flattenBookmarksTree } from './bookmark-logic.js';
 import { HISTORY_ACTIONS, PATH_SEPARATOR, WARMUP_CONFIG } from './constants.js';
 import { idbGet, idbGetAllDocuments, idbPatchDocuments, idbReplaceDocuments, idbSet } from './idb-service.js';
 import { buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
+import { createLogger } from './logger.js';
 import pinyin from 'tiny-pinyin';
+
+const log = createLogger('Background');
 
 // 书签数据管理模块
 
@@ -216,7 +219,7 @@ function persistRecentOpenedRootsToIdb(nowTs = Date.now()) {
     .catch(() => {})
     .then(() => idbSet(IDB_KEY_RECENT_OPENED_ROOTS, snapshot))
     .catch((error) => {
-      console.warn('[Background][Observe] recent_open_roots_persist_failed', { message: error && error.message ? error.message : String(error) });
+      log.warn('recent_open_roots_persist_failed', { message: error && error.message ? error.message : String(error) });
     });
 
   return recentOpenedRootsPersistChain;
@@ -541,7 +544,7 @@ async function ensureRuntimeDocumentsAvailable() {
       return getRuntimeDocuments();
     }
   } catch (error) {
-    console.warn('[Background][Observe] documents_runtime_read_failed', { message: error && error.message ? error.message : String(error) });
+    log.warn('documents_runtime_read_failed', { message: error && error.message ? error.message : String(error) });
   }
   return runtimeDocuments;
 }
@@ -556,9 +559,9 @@ function maybeScheduleStaleRefresh() {
   if (tooSoon) return;
 
   lastStaleRefreshAt = now;
-  console.log('[Background][Observe] stale_refresh_trigger', { reason: 'ttl_expired', at: now });
+  log.observe('stale_refresh_trigger', { reason: 'ttl_expired', at: now });
   refreshBookmarks().catch((error) => {
-    console.warn('[Background][Observe] stale_refresh_failed', { message: error && error.message ? error.message : String(error) });
+    log.warn('stale_refresh_failed', { message: error && error.message ? error.message : String(error) });
   });
 }
 
@@ -569,7 +572,7 @@ async function ensureRuntimeCacheTtlMinutes() {
 
   const ttlRead = await getStorageWithStatus(STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES);
   if (!ttlRead.success && ttlRead.state && ttlRead.state[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] === 'failed') {
-    console.warn('[Background][Observe] ttl_storage_read_failed', { error: ttlRead.error || 'unknown' });
+    log.warn('ttl_storage_read_failed', { error: ttlRead.error || 'unknown' });
   }
 
   const ttlRaw = ttlRead.data ? ttlRead.data[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] : null;
@@ -808,7 +811,7 @@ async function runUpdateLoop() {
         if (refreshFailed && Array.isArray(stashedEvents) && stashedEvents.length > 0) {
           // 本轮新到事件排在旧事件之后，保持先到先处理
           pendingBookmarkEvents = stashedEvents.concat(pendingBookmarkEvents);
-          console.warn('[Background][Observe] refresh_failed_requeue_events', {
+          log.warn('refresh_failed_requeue_events', {
             requeued: stashedEvents.length,
             next: pendingBookmarkEvents.length,
             error: lastResult && lastResult.error ? lastResult.error : 'unknown'
@@ -853,7 +856,7 @@ export async function refreshBookmarks() {
   pendingRefresh = true;
   if (isUpdating) {
     updateQueued = true;
-    console.log("[Background] 刷新已在进行中，标记为待刷新");
+    log.info("刷新已在进行中，标记为待刷新");
     return { success: false, skipped: true };
   }
 
@@ -883,7 +886,7 @@ export async function applyBookmarkEvents(events) {
 }
 
 async function refreshBookmarksOnce() {
-  console.log("[Background] 开始刷新书签...");
+  log.info("开始刷新书签...");
 
   // 确保已有缓存基线，避免把“全量书签”误判成新增变更
   await loadCacheFromStorage();
@@ -900,7 +903,7 @@ async function refreshBookmarksOnce() {
     const changes = compareBookmarks(currentBookmarks, flatBookmarks);
     
     if (changes.length > 0) {
-      console.log("[Background] 检测到 %d 个书签变化", changes.length);
+      log.info("检测到 %d 个书签变化", changes.length);
       // 更新历史记录
       await updateHistory(changes);
 
@@ -919,13 +922,13 @@ async function refreshBookmarksOnce() {
         };
       }
     } else {
-      console.log("[Background] 书签无变化");
+      log.info("书签无变化");
       await ensureCacheConsistency(syncTime);
     }
     
     return { success: true, count: flatBookmarks.length, changes: changes.length };
   } catch (error) {
-    console.error("[Background] 刷新书签失败:", error);
+    log.error("刷新书签失败:", error);
     return { success: false, error: error.message };
   }
 }
@@ -956,7 +959,7 @@ async function preloadFolderPaths(cache, existingTree) {
     };
     buildPaths(tree, '');
   } catch (error) {
-    console.warn('[Background] 预加载文件夹路径失败:', error);
+    log.warn('预加载文件夹路径失败:', error);
   }
 }
 
@@ -1015,7 +1018,7 @@ export function shouldFallbackRemovedEvent(removedIds, fallbackRemovedId, indexB
 }
 
 async function applyBookmarkEventsOnce(events) {
-  console.log("[Background] 开始增量处理书签事件: %d 条", Array.isArray(events) ? events.length : 0);
+  log.info("开始增量处理书签事件: %d 条", Array.isArray(events) ? events.length : 0);
 
   await loadCacheFromStorage();
 
@@ -1029,7 +1032,7 @@ async function applyBookmarkEventsOnce(events) {
   // 过大批次直接走全量刷新，避免长时间占用 service worker
   if (list.length > 200) {
     pendingRefresh = true;
-    console.log('[Background][Observe] incremental_fallback_full', { reason: 'batch_too_large', size: list.length });
+    log.observe('incremental_fallback_full', { reason: 'batch_too_large', size: list.length });
     return { success: false, fallback: true };
   }
 
@@ -1052,7 +1055,7 @@ async function applyBookmarkEventsOnce(events) {
     if (!type) continue;
     if (type === 'forceRefresh' || type === 'importBegan' || type === 'importEnded') {
       pendingRefresh = true;
-      console.log('[Background][Observe] incremental_fallback_full', { reason: type });
+      log.observe('incremental_fallback_full', { reason: type });
       return { success: false, fallback: true };
     }
     if (type === 'changed' || type === 'moved') {
@@ -1060,7 +1063,7 @@ async function applyBookmarkEventsOnce(events) {
       // 允许本批次新创建的书签被修改/移动
       if (!id || (!indexById.has(id) && !createdIdsInBatch.has(id))) {
         pendingRefresh = true;
-        console.log('[Background][Observe] incremental_fallback_full', { reason: type + '_without_baseline', id });
+        log.observe('incremental_fallback_full', { reason: type + '_without_baseline', id });
         return { success: false, fallback: true };
       }
     }
@@ -1226,7 +1229,7 @@ async function applyBookmarkEventsOnce(events) {
 
       if (shouldFallbackRemovedEvent(removedIds, fallbackRemovedId, indexById)) {
         pendingRefresh = true;
-        console.log('[Background][Observe] incremental_fallback_full', { reason: 'removed_without_subtree', id: fallbackRemovedId });
+        log.observe('incremental_fallback_full', { reason: 'removed_without_subtree', id: fallbackRemovedId });
         return { success: false, fallback: true };
       }
 
@@ -1277,7 +1280,7 @@ async function applyBookmarkEventsOnce(events) {
   try {
     await idbPatchDocuments(upsertedDocs, deleteDocIds);
   } catch (error) {
-    console.warn('[Background][Observe] incremental_idb_patch_failed, fallback to full replace', { message: error && error.message ? error.message : String(error) });
+    log.warn('incremental_idb_patch_failed, fallback to full replace', { message: error && error.message ? error.message : String(error) });
     // 回退到全量写入
     const fullOk = await writeDocumentsWithRetry();
     if (!fullOk) {
@@ -1308,7 +1311,7 @@ async function loadCacheFromStorageOnce() {
   try {
     idbRecentOpenedRoots = await idbGet(IDB_KEY_RECENT_OPENED_ROOTS);
   } catch (error) {
-    console.warn("[Background] 从 IndexedDB 读取最近打开域名快照失败:", error);
+    log.warn("从 IndexedDB 读取最近打开域名快照失败:", error);
   }
 
   // chrome.storage.local: only metadata + history (no full bookmark list)
@@ -1326,15 +1329,15 @@ async function loadCacheFromStorageOnce() {
   try {
     documents = await readPersistedDocuments();
   } catch (error) {
-    console.warn('[Background][Observe] documents_load_failed', { message: error && error.message ? error.message : String(error) });
+    log.warn('documents_load_failed', { message: error && error.message ? error.message : String(error) });
   }
 
   if (documents.length > 0) {
     setRuntimeDocuments(documents);
-    console.log('[Background][Observe] cache_source_selected', { source: 'documents', count: documents.length });
+    log.observe('cache_source_selected', { source: 'documents', count: documents.length });
   } else {
     setRuntimeDocuments([]);
-    console.log('[Background][Observe] cache_source_selected', { source: 'empty', count: 0 });
+    log.observe('cache_source_selected', { source: 'empty', count: 0 });
   }
 
   const storedMeta = normalizeCacheMeta(storageData[STORAGE_KEYS.BOOKMARKS_META]);
@@ -1350,7 +1353,7 @@ async function loadCacheFromStorageOnce() {
   }
 
   if (!storageRead.success && storageRead.state && storageRead.state[STORAGE_KEYS.BOOKMARK_HISTORY] === 'failed') {
-    console.warn('[Background][Observe] history_load_failed_keep_memory', { error: storageRead.error || 'unknown' });
+    log.warn('history_load_failed_keep_memory', { error: storageRead.error || 'unknown' });
   } else {
     bookmarkHistory = storageHistory;
   }
@@ -1392,13 +1395,13 @@ async function ensureCacheConsistency(syncTime) {
     return;
   }
 
-  console.log('[Background][Observe] consistency_check_backfill', { needBackfillDocuments, needUpdateStorageMeta, updatedAt: meta.updatedAt, count: meta.count });
+  log.observe('consistency_check_backfill', { needBackfillDocuments, needUpdateStorageMeta, updatedAt: meta.updatedAt, count: meta.count });
 
   const tasks = [];
   if (needBackfillDocuments) {
     tasks.push(
       idbReplaceDocuments(documents).catch((error) => {
-        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'documents', message: error && error.message ? error.message : String(error) });
+        log.warn('consistency_backfill_failed', { target: 'documents', message: error && error.message ? error.message : String(error) });
       })
     );
   }
@@ -1407,10 +1410,10 @@ async function ensureCacheConsistency(syncTime) {
     tasks.push(
       writeStorageMetadataWithRetry(meta, { history: bookmarkHistory }).then((ok) => {
         if (!ok) {
-          console.warn('[Background][Observe] consistency_backfill_failed', { target: 'storage_meta', message: 'setStorage returned false' });
+          log.warn('consistency_backfill_failed', { target: 'storage_meta', message: 'setStorage returned false' });
         }
       }).catch((error) => {
-        console.warn('[Background][Observe] consistency_backfill_failed', { target: 'storage_meta', message: error && error.message ? error.message : String(error) });
+        log.warn('consistency_backfill_failed', { target: 'storage_meta', message: error && error.message ? error.message : String(error) });
       })
     );
   }
@@ -1531,7 +1534,7 @@ async function writeDocumentsWithRetry() {
     await persistSearchDocuments();
     return true;
   } catch (error) {
-    console.warn("[Background] 写入 IndexedDB documents 失败，500ms 后重试:", error);
+    log.warn("写入 IndexedDB documents 失败，500ms 后重试:", error);
   }
 
   return new Promise((resolve) => {
@@ -1539,7 +1542,7 @@ async function writeDocumentsWithRetry() {
       persistSearchDocuments()
         .then(() => { resolve(true); })
         .catch((retryErr) => {
-          console.warn("[Background] IndexedDB documents 重试仍失败:", retryErr);
+          log.warn("IndexedDB documents 重试仍失败:", retryErr);
           resolve(false);
         });
     }, 500);
@@ -1552,14 +1555,14 @@ async function saveToStorage(syncTime) {
 
   const idbOk = await writeDocumentsWithRetry();
   if (!idbOk) {
-    console.warn('[Background][Observe] cache_write_degraded', { source: 'documents_failed', updatedAt: meta.updatedAt, count: meta.count });
+    log.warn('cache_write_degraded', { source: 'documents_failed', updatedAt: meta.updatedAt, count: meta.count });
     return { success: false, degraded: true, source: 'documents_failed' };
   }
 
   const storageOk = await writeStorageMetadataWithRetry(meta, { history: bookmarkHistory });
 
   if (!storageOk) {
-    console.warn('[Background][Observe] cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
+    log.warn('cache_write_degraded', { source: 'storage_meta_failed', updatedAt: meta.updatedAt, count: meta.count });
     return { success: false, degraded: true, source: 'storage_meta_failed' };
   }
 
@@ -1575,15 +1578,15 @@ export async function loadInitialData(options = {}) {
 
   const runtimeDocuments = getRuntimeDocuments();
   if (runtimeDocuments.length > 0) {
-    console.log("[Background] 已加载缓存书签: %d 条", runtimeDocuments.length);
+    log.info("已加载缓存书签: %d 条", runtimeDocuments.length);
   } else if (skipInitialRefresh) {
-    console.log("[Background] 初始缓存为空，等待迁移后的显式重建");
+    log.info("初始缓存为空，等待迁移后的显式重建");
   } else {
     // 如果没有缓存，立即刷新一次
     await refreshBookmarks();
   }
   
-  console.log("[Background] 已加载历史记录: %d 条", bookmarkHistory.length);
+  log.info("已加载历史记录: %d 条", bookmarkHistory.length);
 }
 
 /**
@@ -1772,7 +1775,7 @@ async function clearHistoryOnce() {
     bookmarkHistory = previousHistory;
     throw error;
   }
-  console.log("[Background] 历史记录已清空");
+  log.info("历史记录已清空");
   return { success: true };
 }
 
