@@ -16,10 +16,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # pnpm 版本由 package.json 的 packageManager 字段决定（pnpm@10.33.0），
+      # 不在此处再显式指定 version，否则 action-setup@v4 会报 "Multiple versions of pnpm specified"。
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
