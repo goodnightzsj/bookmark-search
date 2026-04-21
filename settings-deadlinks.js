@@ -91,14 +91,21 @@ async function fetchWithTimeout(url, timeoutMs) {
 }
 
 function classify(result) {
+  // 只有明确证据才判 dead：状态码 404 / 410（页面已删除 / 永久消失）。
+  // 其它异常（网络错 / 5xx / 403 / 超时）一律 suspect，让用户人工确认。
+  // 之前把 status=0 和 5xx 都判 dead 是主要误判源。
   if (!result) return { level: 'suspect', reason: '未知' };
   if (result.ok) return { level: 'ok', reason: 'OK' };
-  if (result.status === 0) return { level: 'dead', reason: result.error || '网络错误' };
-  if (result.status >= 500) return { level: 'dead', reason: `HTTP ${result.status}` };
-  if (result.status === 404 || result.status === 410) return { level: 'dead', reason: `HTTP ${result.status}` };
-  if (result.status === 403 || result.status === 405) return { level: 'suspect', reason: `HTTP ${result.status} (可能反爬)` };
-  if (result.status >= 400) return { level: 'suspect', reason: `HTTP ${result.status}` };
-  return { level: 'suspect', reason: `HTTP ${result.status}` };
+  const st = result.status;
+  if (st === 404 || st === 410) return { level: 'dead', reason: `HTTP ${st}` };
+  if (st === 0) return { level: 'suspect', reason: result.error || '网络错误/超时' };
+  if (st === 401) return { level: 'suspect', reason: 'HTTP 401（需鉴权）' };
+  if (st === 403) return { level: 'suspect', reason: 'HTTP 403（可能反爬）' };
+  if (st === 405) return { level: 'suspect', reason: 'HTTP 405（方法不允许）' };
+  if (st === 429) return { level: 'suspect', reason: 'HTTP 429（限流）' };
+  if (st >= 500 && st < 600) return { level: 'suspect', reason: `HTTP ${st}（服务端异常）` };
+  if (st >= 400) return { level: 'suspect', reason: `HTTP ${st}` };
+  return { level: 'suspect', reason: `HTTP ${st}` };
 }
 
 function getHost(url) {
@@ -120,13 +127,19 @@ async function runBatch(bookmarks, onProgress, resultsHolder) {
       if (!bm) continue;
       const host = getHost(bm.url);
       let klass;
+      // 同 host 缓存：**仅**对"网络完全不可达"（status=0 且非 timeout）复用，
+      // 这是 host 级别问题（DNS / 证书 / 连接拒绝），确实适用整站所有路径。
+      // 原先把 HTTP 404/5xx 按 host 缓存是错的：404 是路径级，5xx 可能瞬时。
       const cached = host ? hostCache.get(host) : null;
-      if (cached && cached.level === 'dead') {
-        klass = { level: 'dead', reason: cached.reason + ' (同站缓存)' };
+      if (cached) {
+        klass = { level: cached.level, reason: cached.reason + '（同站缓存）' };
       } else {
         const res = await fetchWithTimeout(bm.url, TIMEOUT_MS);
         klass = classify(res);
-        if (host && klass.level === 'dead') hostCache.set(host, klass);
+        const isHostLevelNetFail = res && res.status === 0
+          && res.error
+          && res.error !== 'timeout'; // timeout 不一定是整站问题，可能某条路径慢
+        if (host && isHostLevelNetFail) hostCache.set(host, klass);
       }
       resultsHolder.push({
         id: bm.id,

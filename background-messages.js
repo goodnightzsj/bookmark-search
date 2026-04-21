@@ -563,10 +563,17 @@ export function handleMessage(request, sender, sendResponse) {
       );
 
     case MESSAGE_ACTIONS.PROBE_URL_REACHABILITY: {
-      // 在 service worker 里执行 HEAD 探测：
-      // 1) SW fetch 响应不会触发 Link: rel=modulepreload 的 script 预加载，
-      //    从根本上避免扩展页因外站响应头带 modulepreload 而触发 script-src CSP 拦截
-      // 2) 集中处理 timeout / AbortController
+      // SW 里探测 URL 可达性。算法：
+      //   Phase 1: HEAD（省流量）
+      //     2xx/3xx → OK
+      //     404/410 → 确认死链
+      //     其它（405/501/403/网络错/瞬时5xx）→ 进入 Phase 2，HEAD 结论不可信
+      //   Phase 2: GET + Range: bytes=0-0（只拉首字节）
+      //     2xx/206 → OK（站点不支持 HEAD 但实际活着，最常见的误判源）
+      //     404/410 → 死链
+      //     401/403 → suspect（需鉴权 / 反爬，非死）
+      //     5xx → 1s 后重试一次 GET，还是 5xx → suspect（瞬时 vs 永久难分）
+      //     网络错 → suspect（非 200 就报"失效"太激进）
       const url = typeof request.url === 'string' ? request.url.trim() : '';
       const timeoutMs = (typeof request.timeoutMs === 'number' && request.timeoutMs > 0)
         ? Math.min(request.timeoutMs, 30000)
@@ -575,24 +582,71 @@ export function handleMessage(request, sender, sendResponse) {
         sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'http(s) url required');
         return false;
       }
-      (async () => {
+
+      const COMMON_HEADERS = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+      };
+
+      async function tryFetch(method, headers, tmo) {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        const timer = setTimeout(() => ctrl.abort(), tmo);
         try {
           const res = await fetch(url, {
-            method: 'HEAD',
+            method,
             redirect: 'follow',
             signal: ctrl.signal,
             credentials: 'omit',
-            cache: 'no-store'
+            cache: 'no-store',
+            headers
           });
-          sendOkResponse(sendResponse, { ok: !!res.ok, status: Number(res.status) || 0 });
+          try { if (res.body && typeof res.body.cancel === 'function') res.body.cancel(); } catch (e) {}
+          return { status: Number(res.status) || 0, ok: !!res.ok };
         } catch (e) {
-          const msg = e && e.name === 'AbortError' ? 'timeout' : (e && e.message ? e.message : String(e));
-          sendOkResponse(sendResponse, { ok: false, status: 0, error: msg });
+          return { status: 0, ok: false, error: e && e.name === 'AbortError' ? 'timeout' : (e && e.message ? e.message : String(e)) };
         } finally {
           clearTimeout(timer);
         }
+      }
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      (async () => {
+        // Phase 1: HEAD
+        const head = await tryFetch('HEAD', COMMON_HEADERS, timeoutMs);
+        if (head.status >= 200 && head.status < 400) {
+          sendOkResponse(sendResponse, { ok: true, status: head.status, phase: 'head' });
+          return;
+        }
+        if (head.status === 404 || head.status === 410) {
+          sendOkResponse(sendResponse, { ok: false, status: head.status, phase: 'head' });
+          return;
+        }
+        // Phase 2: GET + Range（HEAD 结论不可信，大多数 CDN / 反爬 / 405 / 网络错都落到这）
+        const getHeaders = Object.assign({}, COMMON_HEADERS, { 'Range': 'bytes=0-0' });
+        let get = await tryFetch('GET', getHeaders, timeoutMs);
+        // 5xx 给一次 1s 重试（瞬时过载最常见）
+        if (get.status >= 500 && get.status < 600) {
+          await sleep(1000);
+          get = await tryFetch('GET', getHeaders, timeoutMs);
+        }
+        // 206 / 2xx / 3xx = 活
+        if (get.status >= 200 && get.status < 400) {
+          sendOkResponse(sendResponse, { ok: true, status: get.status, phase: 'get' });
+          return;
+        }
+        // 明确死链
+        if (get.status === 404 || get.status === 410) {
+          sendOkResponse(sendResponse, { ok: false, status: get.status, phase: 'get' });
+          return;
+        }
+        // 其它（0 网络错 / 401 / 403 / 5xx / 异常）都交给前端 classify 判 suspect
+        sendOkResponse(sendResponse, {
+          ok: false,
+          status: get.status,
+          phase: 'get',
+          error: get.error || head.error || ''
+        });
       })();
       return true;
     }
