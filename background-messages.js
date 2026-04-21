@@ -562,6 +562,41 @@ export function handleMessage(request, sender, sendResponse) {
           })
       );
 
+    case MESSAGE_ACTIONS.PROBE_URL_REACHABILITY: {
+      // 在 service worker 里执行 HEAD 探测：
+      // 1) SW fetch 响应不会触发 Link: rel=modulepreload 的 script 预加载，
+      //    从根本上避免扩展页因外站响应头带 modulepreload 而触发 script-src CSP 拦截
+      // 2) 集中处理 timeout / AbortController
+      const url = typeof request.url === 'string' ? request.url.trim() : '';
+      const timeoutMs = (typeof request.timeoutMs === 'number' && request.timeoutMs > 0)
+        ? Math.min(request.timeoutMs, 30000)
+        : 8000;
+      if (!url || !/^https?:\/\//i.test(url)) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'http(s) url required');
+        return false;
+      }
+      (async () => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+          const res = await fetch(url, {
+            method: 'HEAD',
+            redirect: 'follow',
+            signal: ctrl.signal,
+            credentials: 'omit',
+            cache: 'no-store'
+          });
+          sendOkResponse(sendResponse, { ok: !!res.ok, status: Number(res.status) || 0 });
+        } catch (e) {
+          const msg = e && e.name === 'AbortError' ? 'timeout' : (e && e.message ? e.message : String(e));
+          sendOkResponse(sendResponse, { ok: false, status: 0, error: msg });
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
+      return true;
+    }
+
     case MESSAGE_ACTIONS.TOGGLE_CURRENT_BOOKMARK: {
       const url = String((request && request.url) || '').trim();
       const title = String((request && request.title) || '').trim();

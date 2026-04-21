@@ -65,17 +65,27 @@ function flattenBookmarks(nodes, acc) {
   }
 }
 
+/**
+ * 委托给 service worker 做 HEAD 探测。
+ * 原因：在 settings 页直接 fetch 时，目标站响应头里若带
+ * `Link: <...>; rel=modulepreload`，Chrome 会在扩展页上下文里预加载那些
+ * JS chunk，触发扩展页默认 CSP `script-src 'self'` 的拦截，污染
+ * chrome://extensions 的错误面板。SW 的 fetch 不会处理 modulepreload 头。
+ */
 async function fetchWithTimeout(url, timeoutMs) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: ctrl.signal });
-    return { ok: res.ok, status: res.status };
+    const resp = await chrome.runtime.sendMessage({
+      action: MESSAGE_ACTIONS.PROBE_URL_REACHABILITY,
+      url,
+      timeoutMs
+    });
+    if (!resp || resp.success === false) {
+      const err = (resp && resp.error && resp.error.message) || 'probe failed';
+      return { ok: false, status: 0, error: err };
+    }
+    return { ok: !!resp.ok, status: Number(resp.status) || 0, error: resp.error };
   } catch (e) {
-    const msg = e && e.name === 'AbortError' ? 'timeout' : (e && e.message ? e.message : String(e));
-    return { ok: false, status: 0, error: msg };
-  } finally {
-    clearTimeout(timer);
+    return { ok: false, status: 0, error: e && e.message ? e.message : String(e) };
   }
 }
 
