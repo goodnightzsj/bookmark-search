@@ -648,7 +648,14 @@ function showSearch() {
       throw error;
     }
   }
-  
+
+  // 全屏 / 嵌入式 PDF 查看器：全屏元素会拦截输入事件，必须先退出全屏 overlay 才能拿到焦点
+  try {
+    if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (e) {}
+
   // 记录呼出前的焦点元素（不是 body / overlay 内部元素）
   try {
     const active = document.activeElement;
@@ -796,6 +803,20 @@ function resetSearchUiState() {
   prevSelectedIndex = -1;
 }
 
+// Shadow DOM 深度 activeElement：document.activeElement 只能看到 Shadow 宿主节点，
+// 要穿透 shadowRoot 才能拿到真正聚焦的内层节点（Web Components 场景）
+function deepActiveElement() {
+  try {
+    let el = document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) {
+      el = el.shadowRoot.activeElement;
+    }
+    return el;
+  } catch (e) {
+    return document.activeElement;
+  }
+}
+
 function focusSearchInput() {
   if (!searchInput) return;
   // 中转策略：先 focus body（确保 document 有焦点），再 focus input。
@@ -834,6 +855,15 @@ function handleFocusTrap(event) {
   const target = event && event.target;
   // 豁免 overlay 内部所有元素的焦点事件
   if (target && searchOverlay.contains(target)) return;
+  // iframe 抢焦点（内嵌视频/广告/文档）：先 blur iframe 本身，再把焦点拉回 input
+  if (target && target.tagName === 'IFRAME') {
+    try { target.blur(); } catch (e) {}
+    try {
+      if (target.contentWindow && typeof target.contentWindow.blur === 'function') {
+        target.contentWindow.blur();
+      }
+    } catch (e) {}
+  }
   // 防抖：避免高频焦点乒乓
   const now = Date.now();
   if (now - lastFocusTrapAt < 16) return;
@@ -951,6 +981,8 @@ function startFocusEnforcer() {
     }
     if (!searchInput) return;
     if (document.activeElement === searchInput) return;
+    // Shadow DOM 场景：activeElement 停在宿主节点，要再往里看一层
+    if (deepActiveElement() === searchInput) return;
     focusSearchInput();
   };
   focusEnforcerTimer = setInterval(() => {
@@ -2015,15 +2047,19 @@ async function searchBookmarksInBackground(query) {
 	    // Enter 键重试（在 input 外也能触发）
 	    const lastQuery = searchInput ? String(searchInput.value || '').trim() : '';
 	    const retryHandler = (ev) => {
+	      // overlay 已关闭则立刻清理，避免误触发页面本身的 Enter
+	      if (!searchOverlay || searchOverlay.style.display === 'none') {
+	        document.removeEventListener('keydown', retryHandler, true);
+	        return;
+	      }
 	      if (ev.key !== 'Enter') return;
 	      if (!searchInput || !lastQuery) return;
 	      document.removeEventListener('keydown', retryHandler, true);
 	      searchBookmarksInBackground(lastQuery);
 	    };
 	    document.addEventListener('keydown', retryHandler, true);
-	    // 查询词变更或 overlay 关闭时自动清理监听
-	    const cleanup = () => document.removeEventListener('keydown', retryHandler, true);
-	    setTimeout(cleanup, 10000);
+	    // 兜底超时清理
+	    setTimeout(() => document.removeEventListener('keydown', retryHandler, true), 10000);
 	  }
 	}
 
@@ -2079,6 +2115,8 @@ async function searchBookmarksInBackground(query) {
 	    } else if (!hasSearches) {
 	      renderOnboardingEmpty();
 	    }
+	  }).catch((err) => {
+	    console.warn('[Content] showRecentOpenedAsEmpty failed:', err);
 	  });
 }
 

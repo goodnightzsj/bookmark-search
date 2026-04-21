@@ -277,9 +277,19 @@ chrome.commands.onCommand.addListener(async (command) => {
         target: { tabId: tab.id, allFrames: true },
         func: () => {
           try {
-            const active = document.activeElement;
-            if (active && typeof active.blur === 'function') {
-              active.blur();
+            // 穿透 Shadow DOM：逐层跟随 shadowRoot.activeElement，blur 真正的内层焦点节点
+            let node = document.activeElement;
+            const visited = new Set();
+            while (node && !visited.has(node)) {
+              visited.add(node);
+              if (node.shadowRoot && node.shadowRoot.activeElement) {
+                const next = node.shadowRoot.activeElement;
+                try { if (typeof node.blur === 'function') node.blur(); } catch (e) {}
+                node = next;
+                continue;
+              }
+              try { if (typeof node.blur === 'function') node.blur(); } catch (e) {}
+              break;
             }
           } catch (e) {}
         }

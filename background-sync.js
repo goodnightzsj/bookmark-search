@@ -16,10 +16,16 @@ export async function setupAutoSync(intervalMinutes) {
   await chrome.alarms.clear(ALARM_NAMES.SYNC_BOOKMARKS);
   
   if (intervalMinutes > 0) {
-    chrome.alarms.create(ALARM_NAMES.SYNC_BOOKMARKS, {
-      periodInMinutes: intervalMinutes
-    });
-    log.info("定时任务已启动");
+    try {
+      chrome.alarms.create(ALARM_NAMES.SYNC_BOOKMARKS, {
+        periodInMinutes: intervalMinutes
+      });
+      log.info("定时任务已启动");
+    } catch (error) {
+      log.warn('sync_alarm_create_failed', {
+        message: error && error.message ? error.message : String(error)
+      });
+    }
   } else {
     log.info("自动同步已禁用");
   }
