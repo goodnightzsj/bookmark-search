@@ -29,7 +29,9 @@ function closeCurrent() {
 
 document.addEventListener('click', (e) => {
   if (!currentOpen) return;
+  // menu 已 portal 到 body，既要放行 root（button）也要放行 menu 本身
   if (currentOpen.root.contains(e.target)) return;
+  if (currentOpen.menu && currentOpen.menu.contains(e.target)) return;
   closeCurrent();
 }, true);
 
@@ -82,7 +84,29 @@ function enhanceOne(select) {
   menu.className = 'custom-select-menu';
   menu.setAttribute('role', 'listbox');
   menu.setAttribute('tabindex', '-1');
-  root.appendChild(menu);
+  // Portal 到 document.body：脱离父级 stacking context / overflow:hidden / transform 影响，
+  // 确保下拉浮层永远在最上层、不被卡片 clip
+  if (document.body) document.body.appendChild(menu);
+  else root.appendChild(menu);
+
+  function positionMenu() {
+    const rect = button.getBoundingClientRect();
+    // 宽度跟随 button；top 贴在 button 下方 6px，避免 layout thrash 用 viewport 坐标
+    menu.style.left = rect.left + 'px';
+    menu.style.top = (rect.bottom + 6) + 'px';
+    menu.style.width = rect.width + 'px';
+    menu.style.minWidth = rect.width + 'px';
+    // 若下方空间不足（视口底部 < 240px），翻转到 button 上方
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const needed = 240;
+    if (spaceBelow < needed && spaceAbove > spaceBelow) {
+      menu.style.top = (rect.top - 6 - Math.min(spaceAbove, 280)) + 'px';
+      menu.style.maxHeight = Math.min(spaceAbove, 280) + 'px';
+    } else {
+      menu.style.maxHeight = Math.min(Math.max(spaceBelow, 160), 280) + 'px';
+    }
+  }
 
   function readOptions() {
     return Array.from(select.options).map((opt, index) => ({
@@ -156,22 +180,39 @@ function enhanceOne(select) {
     renderMenu();
   }
 
+  let scrollHandler = null;
+  let resizeHandler = null;
+
   function openMenu() {
     if (root.classList.contains(OPEN_CLASS)) return;
     closeCurrent();
     renderMenu();
     root.classList.add(OPEN_CLASS);
+    menu.classList.add('is-open'); // portal 后 menu 与 root 没父子关系，用独立 class 触发 display
     button.setAttribute('aria-expanded', 'true');
+    positionMenu();
     const selectedIndex = select.selectedIndex >= 0 ? select.selectedIndex : 0;
     setActiveIndex(selectedIndex);
-    currentOpen = { root, button, close: closeMenu };
+    // 滚动 / resize 时跟随 button 位置
+    scrollHandler = () => { if (root.classList.contains(OPEN_CLASS)) positionMenu(); };
+    resizeHandler = scrollHandler;
+    window.addEventListener('scroll', scrollHandler, true);
+    window.addEventListener('resize', resizeHandler);
+    currentOpen = { root, menu, button, close: closeMenu };
   }
 
   function closeMenu() {
     if (!root.classList.contains(OPEN_CLASS)) return;
     root.classList.remove(OPEN_CLASS);
+    menu.classList.remove('is-open');
     button.setAttribute('aria-expanded', 'false');
     setActiveIndex(-1);
+    if (scrollHandler) {
+      window.removeEventListener('scroll', scrollHandler, true);
+      window.removeEventListener('resize', resizeHandler);
+      scrollHandler = null;
+      resizeHandler = null;
+    }
     if (currentOpen && currentOpen.root === root) currentOpen = null;
   }
 

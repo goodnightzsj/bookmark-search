@@ -268,11 +268,8 @@ select.custom-select-native {
   transform: translateY(-50%) rotate(180deg);
 }
 .custom-select-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 50;
+  position: fixed;      /* portal 到 body 后用 viewport 坐标定位，不受父级 transform / overflow 影响 */
+  z-index: 9999;        /* 确保在 card / hover-elevated 元素之上，不被遮挡 */
   max-height: 280px;
   overflow-y: auto;
   padding: 6px;
@@ -282,8 +279,10 @@ select.custom-select-native {
   box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.12));
   display: none;
   scrollbar-gutter: stable;
+  font-family: inherit;
+  color: var(--text-primary, #0f1419);
 }
-.custom-select.is-open .custom-select-menu {
+.custom-select-menu.is-open {
   display: block;
 }
 .custom-select-option {
@@ -496,10 +495,16 @@ input.form-input[readonly] {
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 10px;
   background: var(--card-bg, #ffffff);
+  /* flex 列 + 固定高度 + 内部 list 自己滚：卡片不会随结果数量撑大 */
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  max-height: 520px;
+  overflow: hidden;
 }
 .duplicates-loading { padding: 24px; text-align: center; color: var(--text-secondary, #6b7280); }
 .duplicates-empty   { padding: 24px; text-align: center; color: var(--text-secondary, #6b7280); }
-.duplicates-summary { font-size: 13px; color: var(--text-secondary, #6b7280); margin-bottom: 12px; line-height: 1.5; }
+.duplicates-summary { font-size: 13px; color: var(--text-secondary, #6b7280); margin-bottom: 12px; line-height: 1.5; flex-shrink: 0; }
 .duplicates-summary strong { color: var(--accent, #5e6ad2); font-weight: 600; }
 
 .duplicates-actions {
@@ -521,14 +526,6 @@ input.form-input[readonly] {
   font-variant-numeric: tabular-nums;
 }
 
-/* 把滚动迁到内层 list：外层 .duplicates-result 保持卡片大小稳定，不会随结果数量撑大 */
-.duplicates-result {
-  display: flex;
-  flex-direction: column;
-  min-height: 280px;
-  max-height: 520px;
-  overflow: hidden; /* 内部 list 自己滚 */
-}
 .duplicates-list {
   display: flex;
   flex-direction: column;

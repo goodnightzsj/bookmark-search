@@ -2390,6 +2390,29 @@ function displayResults(results, options) {
       if (favicon.src && favicon.src !== defaultIcon) {
         delete favicon.dataset.bsLoading;
       }
+      // 渲染期默认 favicon 兜底：Phase 2b 直接把 _favicon URL 赋给 src，
+      // 对没有真实图标的站点 Chrome 返回默认占位（globe / document / book）。
+      // loadFavicon 路径里的 isLikelyDefaultGlobeFavicon 检测只覆盖 loadFavicon，
+      // 这里是所有渲染路径的统一兜底。
+      const curSrc = favicon.src || '';
+      if (curSrc && curSrc.indexOf('/_favicon/') !== -1 && isLikelyDefaultGlobeFavicon(favicon)) {
+        const domain = favicon.dataset[FAVICON_IMG_DATASET.DOMAIN] || '';
+        if (domain) {
+          const safeDomain = normalizeFaviconDomain(domain) || domain;
+          const monogram = buildMonogramDataUrl(safeDomain);
+          if (monogram && favicon.src !== monogram) {
+            const curToken = Number(favicon.dataset[FAVICON_IMG_DATASET.TOKEN] || 0);
+            resetFaviconImageErrorState(favicon, monogram, curToken);
+            favicon.src = monogram;
+            // 记为该域 render 失败，供 warmup / 二次搜索避免再用 _favicon
+            faviconRenderFailureDomains[safeDomain] = curToken;
+            faviconDebugLog('render load default_detected_to_monogram', {
+              domain: safeDomain,
+              previousSrc: curSrc
+            });
+          }
+        }
+      }
     });
     let parsedUrl = null;
     try { parsedUrl = new URL(bookmark.url); } catch (e) {}
