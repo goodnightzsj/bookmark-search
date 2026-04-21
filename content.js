@@ -24,6 +24,8 @@
 	  let recentLoadToken = 0;
 	  // 多选：存储被多选的 bookmark.id；独立于 selectedIndex（光标所在）
 	  let multiSelectedIds = new Set();
+	  // 最近一次"多选锚点" index，用于 Shift+Click 范围选
+	  let multiSelectAnchorIndex = -1;
 	  // 最近搜索词（本地持久化）
 	  const RECENT_SEARCHES_KEY = 'recentSearches';
 	  const RECENT_SEARCHES_MAX = 20;
@@ -502,15 +504,23 @@ function createSearchUI() {
     if (!item) return;
     const index = Array.prototype.indexOf.call(item.parentNode.children, item);
     if (index < 0 || index >= filteredResults.length) return;
-    // Shift+click 切换多选，不打开
+    // Shift+click：
+    //   - 已有锚点 → 选锚点到 index 之间所有项
+    //   - 无锚点 → 锚点 = index + 切换当前
     if (e.shiftKey) {
       e.preventDefault();
-      toggleMultiSelect(index);
+      if (multiSelectAnchorIndex >= 0 && multiSelectAnchorIndex !== index) {
+        rangeSelectMulti(multiSelectAnchorIndex, index);
+      } else {
+        multiSelectAnchorIndex = index;
+        toggleMultiSelect(index);
+      }
       return;
     }
     // 普通 click：如果已有多选，也不触发单条打开（避免误操作）
     if (multiSelectedIds.size > 0) {
       e.preventDefault();
+      multiSelectAnchorIndex = index;
       toggleMultiSelect(index);
       return;
     }
@@ -2527,13 +2537,28 @@ function toggleMultiSelect(index) {
   } else {
     multiSelectedIds.add(id);
   }
+  multiSelectAnchorIndex = index;
   repaintMultiSelectState();
   updateMultiSelectBar();
 }
 
 function clearMultiSelect() {
-  if (multiSelectedIds.size === 0) return;
+  if (multiSelectedIds.size === 0 && multiSelectAnchorIndex < 0) return;
   multiSelectedIds.clear();
+  multiSelectAnchorIndex = -1;
+  repaintMultiSelectState();
+  updateMultiSelectBar();
+}
+
+function rangeSelectMulti(fromIndex, toIndex) {
+  const lo = Math.max(0, Math.min(fromIndex, toIndex));
+  const hi = Math.min(filteredResults.length - 1, Math.max(fromIndex, toIndex));
+  for (let i = lo; i <= hi; i++) {
+    const bm = filteredResults[i];
+    if (bm && bm.id) multiSelectedIds.add(String(bm.id));
+  }
+  // 锚点保持为首个调用者指定的起点（fromIndex）
+  multiSelectAnchorIndex = fromIndex;
   repaintMultiSelectState();
   updateMultiSelectBar();
 }

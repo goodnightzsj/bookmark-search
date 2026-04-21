@@ -66,9 +66,16 @@ function classify(result) {
   return { level: 'suspect', reason: `HTTP ${result.status}` };
 }
 
+function getHost(url) {
+  try { return new URL(url).hostname.toLowerCase(); } catch (e) { return ''; }
+}
+
 async function runBatch(bookmarks, progressEl, resultsHolder) {
   let done = 0;
   const total = bookmarks.length;
+  // host → 首次分类结果；若 host 明确死链（dead 级，非 suspect），后续同 host 的 bookmark 直接复用
+  // 避免一个死站点一次次触发 8s 超时浪费检测时间
+  const hostCache = new Map();
 
   function updateProgress() {
     if (!progressEl) return;
@@ -80,8 +87,20 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
     while (queue.length > 0) {
       const bm = queue.shift();
       if (!bm) continue;
-      const res = await fetchWithTimeout(bm.url, TIMEOUT_MS);
-      const klass = classify(res);
+      const host = getHost(bm.url);
+      let klass;
+      const cached = host ? hostCache.get(host) : null;
+      // 仅复用"明确 dead"缓存（网络/DNS 错误对整个 host 通常适用）
+      // suspect (403/405) 可能是单页鉴权，不应扩散到同 host 其它路径
+      if (cached && cached.level === 'dead') {
+        klass = { level: 'dead', reason: cached.reason + ' (同站缓存)' };
+      } else {
+        const res = await fetchWithTimeout(bm.url, TIMEOUT_MS);
+        klass = classify(res);
+        if (host && klass.level === 'dead') {
+          hostCache.set(host, klass);
+        }
+      }
       resultsHolder.push({
         id: bm.id,
         title: bm.title,
@@ -95,7 +114,14 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
   }
 
   updateProgress();
-  const queue = bookmarks.slice();
+  // 按 host 分散排队，让不同 host 的请求能并发（而不是 3 个 worker 都卡在同一 host 上）
+  const queue = bookmarks.slice().sort((a, b) => {
+    const ha = getHost(a.url);
+    const hb = getHost(b.url);
+    if (ha === hb) return 0;
+    return ha < hb ? -1 : 1;
+  });
+  // 然后 zigzag：每个 worker 先拿一个不同 host 的
   const workers = [];
   for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
     workers.push(worker(queue));
