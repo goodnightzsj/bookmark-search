@@ -601,6 +601,36 @@ input.form-input[readonly] {
   line-height: 1.6;
 }
 
+/* 上次检测时间戳（副标题里的次级信息） */
+.bs-scan-stamp {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary, #8a929d);
+  background: var(--surface-subtle, rgba(148, 163, 184, 0.08));
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+}
+
+/* 重新检测按钮：操作栏第一位，svg + 文字紧凑风格 */
+.bs-rescan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bs-rescan-btn svg { flex-shrink: 0; }
+
+/* actions 条里的竖向分隔线（重新检测 与 选择操作之间） */
+.bs-action-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border, rgba(148, 163, 184, 0.28));
+  margin: 0 4px;
+}
+
 /* ============================================================
  * 结果面板共享 item 样式（重复 / 失效统一）
  * ============================================================ */

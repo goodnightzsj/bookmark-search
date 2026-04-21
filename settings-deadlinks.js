@@ -11,9 +11,34 @@
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
+import { formatRelativeTime } from './utils.js';
 
 const CONCURRENCY = 3;
 const TIMEOUT_MS = 8000;
+
+const CACHE_KEY = 'settings.deadlinksCache.v1';
+
+async function loadDlCache() {
+  try {
+    const r = await chrome.storage.local.get(CACHE_KEY);
+    const raw = r && r[CACHE_KEY];
+    if (!raw || typeof raw !== 'object') return null;
+    if (!Array.isArray(raw.results)) return null;
+    if (typeof raw.scannedAt !== 'number') return null;
+    return raw;
+  } catch (e) { return null; }
+}
+
+async function saveDlCache(results, scannedAt) {
+  try {
+    await chrome.storage.local.set({
+      [CACHE_KEY]: {
+        scannedAt: typeof scannedAt === 'number' ? scannedAt : Date.now(),
+        results: Array.isArray(results) ? results : []
+      }
+    });
+  } catch (e) {}
+}
 
 function notifySettings(message, type = 'success') {
   try {
@@ -129,7 +154,7 @@ async function runBatch(bookmarks, onProgress, resultsHolder) {
 // Modal context
 let modalRef = null;
 
-function renderResults(results) {
+function renderResults(results, scannedAt) {
   if (!modalRef || !modalRef.isOpen()) return;
   const { bodyEl, actionsEl, setSubtitle } = modalRef;
 
@@ -137,16 +162,23 @@ function renderResults(results) {
   const suspect = results.filter((r) => r.level === 'suspect');
   const ok = results.filter((r) => r.level === 'ok');
 
-  setSubtitle(`共 <strong>${results.length}</strong> 条；疑似失效 <strong style="color:#dc2626">${dead.length}</strong> · 状态可疑 <strong style="color:#d97706">${suspect.length}</strong> · 正常 <strong>${ok.length}</strong>。误判率约 10%，请人工确认再删。`);
+  const stamp = typeof scannedAt === 'number' && scannedAt > 0
+    ? `<br><span class="bs-scan-stamp">上次检测：${formatRelativeTime(scannedAt, { showFullDate: false })}</span>`
+    : '';
+
+  setSubtitle(`共 <strong>${results.length}</strong> 条；疑似失效 <strong style="color:#dc2626">${dead.length}</strong> · 状态可疑 <strong style="color:#d97706">${suspect.length}</strong> · 正常 <strong>${ok.length}</strong>。误判率约 10%，请人工确认再删。${stamp}`);
 
   const problematic = dead.concat(suspect);
   if (problematic.length === 0) {
-    actionsEl.innerHTML = '';
+    actionsEl.innerHTML = '<button class="btn btn-secondary btn-sm bs-rescan-btn" id="dlRescan" type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg><span>重新检测</span></button>';
     bodyEl.innerHTML = '<div class="bs-empty-state">没有发现疑似失效的链接 🎉</div>';
+    wireDlRescan(actionsEl);
     return;
   }
 
   actionsEl.innerHTML = `
+    <button class="btn btn-secondary btn-sm bs-rescan-btn" id="dlRescan" type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg><span>重新检测</span></button>
+    <span class="bs-action-divider"></span>
     <button class="btn btn-secondary btn-sm" id="dlSelectDead" type="button">选中所有疑似失效</button>
     <button class="btn btn-secondary btn-sm" id="dlSelectNone" type="button">全不选</button>
     <span class="bs-result-modal-action-sep"></span>
@@ -191,7 +223,13 @@ function renderResults(results) {
   bodyEl.appendChild(list);
 
   wireDeadlinkActions(bodyEl, actionsEl);
+  wireDlRescan(actionsEl);
   updateDlCount(bodyEl, actionsEl);
+}
+
+function wireDlRescan(actionsEl) {
+  const btn = actionsEl.querySelector('#dlRescan');
+  if (btn) btn.addEventListener('click', () => runDeadLinkCheck());
 }
 
 function getDlRows(bodyEl) {
@@ -260,6 +298,15 @@ function wireDeadlinkActions(bodyEl, actionsEl) {
       notifySettings(`已删除 ${resp && resp.removed ? resp.removed : ids.length} 条`);
       rows.forEach((row) => row.remove());
       updateDlCount(bodyEl, actionsEl);
+      // 同步更新缓存：移除已删 id，保留原 scannedAt（不重置）
+      try {
+        const cached = await loadDlCache();
+        if (cached) {
+          const removedSet = new Set(ids);
+          const next = cached.results.filter((r) => !removedSet.has(String(r.id)));
+          await saveDlCache(next, cached.scannedAt);
+        }
+      } catch (e) {}
     } catch (e) {
       notifySettings('删除失败：' + (e && e.message ? e.message : String(e)), 'error');
     }
@@ -318,7 +365,9 @@ async function runDeadLinkCheck() {
     setProgress(`检测中 ${done}/${total} (${pct}%)`);
   }, results);
   const ms = Date.now() - started;
-  renderResults(results);
+  const now = Date.now();
+  saveDlCache(results);
+  renderResults(results, now);
   notifySettings(`检测完成：${flat.length} 条 / 用时 ${(ms / 1000).toFixed(1)}s`);
 }
 
@@ -328,9 +377,15 @@ export function bindDeadlinkEvents() {
   btn.addEventListener('click', async () => {
     modalRef = openResultModal({
       title: '失效链接检测',
-      subtitle: '准备中…',
+      subtitle: '加载中…',
       onClose: () => { modalRef = null; }
     });
+    // 先尝试缓存；无缓存再跑
+    const cached = await loadDlCache();
+    if (cached) {
+      renderResults(cached.results, cached.scannedAt);
+      return;
+    }
     btn.disabled = true;
     const label = btn.querySelector('.btn-text');
     const original = label ? label.textContent : '';

@@ -6,6 +6,28 @@
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
+import { formatRelativeTime } from './utils.js';
+
+const CACHE_KEY = 'settings.duplicatesCache.v1';
+
+async function loadDupCache() {
+  try {
+    const r = await chrome.storage.local.get(CACHE_KEY);
+    const raw = r && r[CACHE_KEY];
+    if (!raw || typeof raw !== 'object') return null;
+    if (!Array.isArray(raw.groups)) return null;
+    if (typeof raw.scannedAt !== 'number') return null;
+    return raw;
+  } catch (e) { return null; }
+}
+
+async function saveDupCache(groups) {
+  try {
+    await chrome.storage.local.set({
+      [CACHE_KEY]: { scannedAt: Date.now(), groups: Array.isArray(groups) ? groups : [] }
+    });
+  } catch (e) {}
+}
 
 function notifySettings(message, type = 'success') {
   try {
@@ -39,21 +61,28 @@ function formatDate(ts) {
 // Modal context：每次运行复用，避免不必要的 DOM 重建
 let modalRef = null;
 
-function renderGroups(groups) {
+function renderGroups(groups, scannedAt) {
   if (!modalRef || !modalRef.isOpen()) return;
   const { bodyEl, actionsEl, setSubtitle } = modalRef;
 
+  const stamp = typeof scannedAt === 'number' && scannedAt > 0
+    ? `<span class="bs-scan-stamp">上次检测：${formatRelativeTime(scannedAt, { showFullDate: false })}</span>`
+    : '';
+
   if (!groups || groups.length === 0) {
-    setSubtitle('没有发现重复书签 🎉');
-    actionsEl.innerHTML = '';
+    setSubtitle(`没有发现重复书签 🎉${stamp ? '　' + stamp : ''}`);
+    actionsEl.innerHTML = '<button class="btn btn-secondary btn-sm bs-rescan-btn" id="dupRescan" type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg><span>重新检测</span></button>';
     bodyEl.innerHTML = '<div class="bs-empty-state">所有书签 URL 均唯一。</div>';
+    wireRescan(actionsEl);
     return;
   }
 
   const total = groups.reduce((acc, g) => acc + (g.items.length - 1), 0);
-  setSubtitle(`共 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余。默认选中每组中较早的条目，保留最新一条。`);
+  setSubtitle(`共 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余。默认选中每组中较早的条目，保留最新一条。${stamp ? '<br>' + stamp : ''}`);
 
   actionsEl.innerHTML = `
+    <button class="btn btn-secondary btn-sm bs-rescan-btn" id="dupRescan" type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg><span>重新检测</span></button>
+    <span class="bs-action-divider"></span>
     <button class="btn btn-secondary btn-sm" id="dupSelectAllOlder" type="button">选中旧的（保留最新）</button>
     <button class="btn btn-secondary btn-sm" id="dupSelectNone" type="button">全不选</button>
     <span class="bs-result-modal-action-sep"></span>
@@ -108,7 +137,13 @@ function renderGroups(groups) {
   bodyEl.appendChild(list);
 
   wireActions(bodyEl, actionsEl);
+  wireRescan(actionsEl);
   updateSelectedCount(bodyEl, actionsEl);
+}
+
+function wireRescan(actionsEl) {
+  const btn = actionsEl.querySelector('#dupRescan');
+  if (btn) btn.addEventListener('click', () => runFindDuplicates());
 }
 
 function getRows(bodyEl) {
@@ -219,7 +254,9 @@ async function runFindDuplicates() {
       '查找重复失败'
     );
     const groups = resp && Array.isArray(resp.groups) ? resp.groups : [];
-    renderGroups(groups);
+    const now = Date.now();
+    saveDupCache(groups);
+    renderGroups(groups, now);
   } catch (e) {
     modalRef.setSubtitle('扫描失败');
     modalRef.bodyEl.innerHTML = `<div class="bs-empty-state">${escapeHtml(e && e.message ? e.message : String(e))}</div>`;
@@ -234,9 +271,15 @@ export function bindDuplicatesEvents() {
   findBtn.addEventListener('click', async () => {
     modalRef = openResultModal({
       title: '重复书签清理',
-      subtitle: '扫描中…',
+      subtitle: '加载中…',
       onClose: () => { modalRef = null; }
     });
-    await runFindDuplicates();
+    // 先尝试缓存；无缓存再实扫
+    const cached = await loadDupCache();
+    if (cached) {
+      renderGroups(cached.groups, cached.scannedAt);
+    } else {
+      await runFindDuplicates();
+    }
   });
 }
