@@ -553,6 +553,37 @@ export function handleMessage(request, sender, sendResponse) {
           })
       );
 
+    case MESSAGE_ACTIONS.TOGGLE_CURRENT_BOOKMARK: {
+      const url = String((request && request.url) || '').trim();
+      const title = String((request && request.title) || '').trim();
+      if (!url) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'url required');
+        return false;
+      }
+      return initThen(async () => {
+        try {
+          const existing = await chrome.bookmarks.search({ url });
+          if (Array.isArray(existing) && existing.length > 0) {
+            // 已收藏 → 全部删除（可能有多条）
+            for (const bm of existing) {
+              try { await chrome.bookmarks.remove(bm.id); } catch (e) {}
+            }
+            sendOkResponse(sendResponse, { bookmarked: false, removed: existing.length });
+            return;
+          }
+          // 未收藏 → 添加到 "其他书签" (id='2')
+          const created = await chrome.bookmarks.create({
+            parentId: '2',
+            title: title || url,
+            url
+          });
+          sendOkResponse(sendResponse, { bookmarked: true, id: created && created.id });
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+    }
+
     case MESSAGE_ACTIONS.REVEAL_BOOKMARK: {
       const id = String((request && request.id) || '').trim();
       return initThen(async () => {

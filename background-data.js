@@ -322,39 +322,48 @@ function isLikelyPinyinQuery(token) {
   return /^[a-z]+$/.test(token);
 }
 
+function intersectInto(target, bucket) {
+  // target ∩ bucket，返回新 Set（不修改 target / bucket）
+  const next = new Set();
+  const smaller = target.size <= bucket.size ? target : bucket;
+  const larger  = smaller === target ? bucket : target;
+  for (const idx of smaller) {
+    if (larger.has(idx)) next.add(idx);
+  }
+  return next;
+}
+
 // 用 bigram 倒排索引缩圈出候选 doc index 集合。返回 null 表示"没有有效缩圈信息，需全量扫描"
+// 改进：对每个 token 取所有相邻 2-gram（不只是第一个），逐一 intersect，最大化缩圈。
+//   token "github" → ["gi","it","th","hu","ub"]；任一 bigram 的 bucket 不存在则候选为空。
 function narrowCandidatesByBigram(tokens, documents) {
   if (!Array.isArray(tokens) || tokens.length === 0) return null;
   const index = ensureSearchBigramIndex(documents);
   if (!index || index.size === 0) return null;
 
   let candidates = null;
+
   for (let t = 0; t < tokens.length; t++) {
     const token = tokens[t];
     if (!token || token.length < 2) {
       // 1 字符 token 信息量太少，不缩圈（避免误过滤）
       return null;
     }
-    const bigram = token.slice(0, 2);
-    const bucket = index.get(bigram);
-    if (!bucket || bucket.size === 0) {
-      // 该 bigram 不在索引里 → 0 候选
-      return new Set();
-    }
-    if (candidates === null) {
-      // 避免直接引用 bucket（后续交集会修改）
-      candidates = new Set(bucket);
-    } else {
-      // 交集
-      const next = new Set();
-      // 迭代小集合提升性能
-      const smaller = candidates.size <= bucket.size ? candidates : bucket;
-      const larger  = smaller === candidates ? bucket : candidates;
-      for (const idx of smaller) {
-        if (larger.has(idx)) next.add(idx);
+
+    // 该 token 的所有相邻 bigram
+    for (let b = 0; b + 1 < token.length; b++) {
+      const bigram = token.slice(b, b + 2);
+      const bucket = index.get(bigram);
+      if (!bucket || bucket.size === 0) {
+        // 有任何一个 bigram 不在索引里 → 必然无结果
+        return new Set();
       }
-      candidates = next;
-      if (candidates.size === 0) return candidates;
+      if (candidates === null) {
+        candidates = new Set(bucket);
+      } else {
+        candidates = intersectInto(candidates, bucket);
+        if (candidates.size === 0) return candidates;
+      }
     }
   }
   return candidates;

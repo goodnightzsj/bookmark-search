@@ -55,54 +55,57 @@ function ensureAutoMediaListener() {
   } catch (e) {}
 }
 
-// 应用主题（加载对应的CSS文件）
+// 所有可加载的主题名（排除 'auto'——它解析为具体主题）
+const LOADABLE_THEMES = Object.keys(THEMES).filter((name) => name !== 'auto');
+// themeName → HTMLLinkElement 的缓存；所有主题 CSS 预加载 + 通过 disabled 切换，消除切换闪动
+const themeLinkCache = new Map();
+
+function ensureThemeLink(themeName) {
+  if (themeLinkCache.has(themeName)) return themeLinkCache.get(themeName);
+  const page = document.body.dataset.page || 'popup';
+  const href = `themes/${page}-${themeName}.css`;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  link.dataset.theme = themeName;
+  // 默认禁用；下方 applyTheme 会启用目标主题
+  link.disabled = true;
+  document.head.appendChild(link);
+  themeLinkCache.set(themeName, link);
+  return link;
+}
+
+// 应用主题：切换预加载的 <link>.disabled 属性，浏览器内部样式表已解析，无闪动
 function applyTheme(themeName) {
   currentRawTheme = THEMES[themeName] ? themeName : DEFAULT_THEME;
   const prefersDark = !!(autoMediaQuery && autoMediaQuery.matches)
     || !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
   const resolved = resolveActiveTheme(currentRawTheme, prefersDark);
-  const page = document.body.dataset.page || 'popup';
-  const expectedHref = `themes/${page}-${resolved}.css`;
-
-  const currentLink = document.getElementById('theme-css');
   const token = ++themeLoadToken;
+
+  // 保证所有主题 <link> 存在；切换 disabled 即瞬切
+  const targetLink = ensureThemeLink(resolved);
+  for (const name of LOADABLE_THEMES) {
+    const link = ensureThemeLink(name);
+    const shouldEnable = name === resolved;
+    // 已经对齐 → 跳过（避免重复 reflow）
+    if (link.disabled === !shouldEnable) continue;
+    link.disabled = !shouldEnable;
+  }
+
   const markReady = () => {
     if (token !== themeLoadToken) return;
     document.body.classList.add('theme-ready');
   };
 
-  // 检查是否已经是当前主题（防止初始化时重复加载或刷新）
-  if (currentLink && currentLink.href.includes(expectedHref)) {
-    // 即使是当前主题，也要确保 body class 正确
-    document.body.classList.add('theme-ready');
-    updateThemeSelector(themeName);
-    return;
+  // 如果目标主题 CSS 已经加载过（sheet 存在），立刻标记 ready
+  if (targetLink.sheet) {
+    markReady();
+  } else {
+    targetLink.addEventListener('load', markReady, { once: true });
+    targetLink.addEventListener('error', markReady, { once: true });
   }
 
-  // 如果当前已经有主题CSS（说明不是第一次加载，而是切换），则直接替换 href
-  if (currentLink) {
-    currentLink.onload = markReady;
-    currentLink.onerror = markReady;
-    currentLink.href = expectedHref;
-
-    // 更新缓存
-    localStorage.setItem(THEME_CACHE_KEY, themeName);
-    updateThemeSelector(themeName);
-    return;
-  }
-
-  // 下面是初始化时的逻辑（首次加载）
-  const link = document.createElement('link');
-  link.id = 'theme-css';
-  link.rel = 'stylesheet';
-  link.href = expectedHref;
-
-  link.onload = markReady;
-  link.onerror = markReady;
-
-  document.head.appendChild(link);
-
-  // 更新 localStorage 缓存
   localStorage.setItem(THEME_CACHE_KEY, themeName);
   updateThemeSelector(themeName);
 }
@@ -114,26 +117,17 @@ function updateThemeSelector(themeName) {
   });
 }
 
-// 初始化主题（从 storage 同步到 localStorage）
+// 初始化主题：应用当前选中主题 + 后台预加载其它主题（消除后续切换延迟）
 async function initTheme() {
   const theme = await getCurrentTheme();
   currentRawTheme = theme;
   ensureAutoMediaListener();
-  // 根据 auto 解析后的目标 CSS 来判定是否需要重新加载
-  const prefersDark = !!(autoMediaQuery && autoMediaQuery.matches)
-    || !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
-  const resolved = resolveActiveTheme(theme, prefersDark);
-  const currentLink = document.getElementById('theme-css');
-  const page = document.body.dataset.page || 'popup';
-  const expectedHref = `themes/${page}-${resolved}.css`;
-
-  if (!currentLink || !currentLink.href.endsWith(expectedHref)) {
-    applyTheme(theme);
-  } else {
-    document.body.classList.add('theme-ready');
-  }
-
-  // 更新主题选择器UI
+  applyTheme(theme);
+  // 空闲时间预热其它主题 CSS，后续切换瞬完成
+  const idle = (cb) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(cb, { timeout: 2000 }) : setTimeout(cb, 400));
+  idle(() => {
+    for (const name of LOADABLE_THEMES) ensureThemeLink(name);
+  });
   updateThemeSelector(theme);
 }
 

@@ -2760,15 +2760,39 @@ function handleActionMenuKeydown(e) {
 function copyBookmarkUrl(bookmark) {
   const url = bookmark && bookmark.url ? String(bookmark.url) : '';
   if (!url) return;
+  let success = false;
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).catch(() => legacyCopy(url));
-    } else {
-      legacyCopy(url);
+      navigator.clipboard.writeText(url).then(
+        () => showOverlayToast('已复制链接'),
+        () => {
+          if (legacyCopy(url)) showOverlayToast('已复制链接');
+          else showOverlayToast('复制失败', true);
+        }
+      );
+      return;
     }
+    success = legacyCopy(url);
   } catch (e) {
-    legacyCopy(url);
+    success = legacyCopy(url);
   }
+  showOverlayToast(success ? '已复制链接' : '复制失败', !success);
+}
+
+function showOverlayToast(message, isError) {
+  if (!searchContainer) return;
+  const existing = searchContainer.querySelector('.bookmark-overlay-toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'bookmark-overlay-toast';
+  if (isError) el.classList.add('is-error');
+  el.textContent = String(message || '');
+  searchContainer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('is-visible'));
+  setTimeout(() => {
+    el.classList.remove('is-visible');
+    setTimeout(() => { try { el.remove(); } catch (e) {} }, 220);
+  }, 1600);
 }
 
 function legacyCopy(text) {
@@ -2779,9 +2803,12 @@ function legacyCopy(text) {
     ta.style.left = '-9999px';
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    const ok = document.execCommand('copy');
     document.body.removeChild(ta);
-  } catch (e) {}
+    return !!ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 function openBookmarkInNewWindow(bookmark) {

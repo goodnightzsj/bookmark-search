@@ -37,7 +37,8 @@ export const MESSAGE_ACTIONS = {
   DELETE_BOOKMARKS_BATCH: 'deleteBookmarksBatch',
   OPEN_BOOKMARK_IN_WINDOW: 'openBookmarkInWindow',
   REVEAL_BOOKMARK: 'revealBookmark',
-  FIND_DUPLICATE_BOOKMARKS: 'findDuplicateBookmarks'
+  FIND_DUPLICATE_BOOKMARKS: 'findDuplicateBookmarks',
+  TOGGLE_CURRENT_BOOKMARK: 'toggleCurrentBookmark'
 };
 
 export const MESSAGE_ACTION_VALUES = Object.freeze(Object.values(MESSAGE_ACTIONS));

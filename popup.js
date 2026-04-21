@@ -7,28 +7,55 @@ const BUTTON_RESET_DELAY_MS = 1500;  // 按钮状态恢复延时
 
 console.log("[Popup] popup.js 开始加载");
 
+// 缓存当前 tab，供收藏切换使用
+let currentTab = null;
+
 // 检测当前页面状态
 async function checkCurrentPageStatus() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+    currentTab = tab || null;
+
     if (!tab || !tab.url) {
       setStatus('unknown', '无法获取页面信息');
+      setBookmarkButtonDisabled(true);
       return;
     }
-    
+
     // 检查是否为特殊页面
     const isSpecialPage = SPECIAL_PROTOCOLS.some(protocol => tab.url.startsWith(protocol));
-    
+
     if (isSpecialPage) {
       setStatus('warning', '特殊页面（需在普通页面使用）');
+      setBookmarkButtonDisabled(true);
     } else {
       setStatus('success', '可用');
+      setBookmarkButtonDisabled(false);
+      refreshBookmarkButtonState();
     }
   } catch (error) {
     console.error("[Popup] 检测页面状态失败:", error);
     setStatus('error', '检测失败');
+    setBookmarkButtonDisabled(true);
   }
+}
+
+function setBookmarkButtonDisabled(disabled) {
+  const btn = document.getElementById('toggleBookmark');
+  if (!btn) return;
+  btn.disabled = !!disabled;
+}
+
+async function refreshBookmarkButtonState() {
+  const btn = document.getElementById('toggleBookmark');
+  if (!btn || !currentTab || !currentTab.url) return;
+  try {
+    const results = await chrome.bookmarks.search({ url: currentTab.url });
+    const bookmarked = Array.isArray(results) && results.length > 0;
+    const label = btn.querySelector('.btn-text');
+    if (label) label.textContent = bookmarked ? '取消收藏' : '收藏此页';
+    btn.dataset.bookmarked = bookmarked ? '1' : '0';
+  } catch (e) {}
 }
 
 // 设置状态显示
@@ -171,6 +198,37 @@ function applySyncTimes(lastSyncTime, syncInterval, nextSyncScheduledTime) {
 
 // 绑定事件
 function bindEvents() {
+  // 收藏/取消收藏 当前页
+  const toggleBtn = document.getElementById('toggleBookmark');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', async () => {
+      if (!currentTab || !currentTab.url) return;
+      toggleBtn.disabled = true;
+      try {
+        const resp = assertSuccessfulMessageResponse(
+          await chrome.runtime.sendMessage({
+            action: MESSAGE_ACTIONS.TOGGLE_CURRENT_BOOKMARK,
+            url: currentTab.url,
+            title: currentTab.title || ''
+          }),
+          '操作失败'
+        );
+        const label = toggleBtn.querySelector('.btn-text');
+        if (label) {
+          label.textContent = resp.bookmarked ? '已收藏' : '已取消收藏';
+        }
+        setTimeout(refreshBookmarkButtonState, 600);
+      } catch (e) {
+        console.error('[Popup] toggle bookmark failed:', e);
+        const label = toggleBtn.querySelector('.btn-text');
+        if (label) label.textContent = '操作失败';
+        setTimeout(refreshBookmarkButtonState, 1500);
+      } finally {
+        setTimeout(() => { toggleBtn.disabled = false; }, 300);
+      }
+    });
+  }
+
   // 打开设置页面
   document.getElementById('openSettings').addEventListener('click', () => {
     console.log("[Popup] 打开设置页面");
