@@ -478,6 +478,11 @@ function createSearchUI() {
   resultsContainer.setAttribute('aria-live', 'polite');
   resultsContainer.addEventListener('mousemove', () => {
     lastPointerMoveAt = Date.now();
+    // 鼠标移动时切回"鼠标模式"，:hover 视觉效果恢复；与键盘导航期间的
+    // .selected 形成两种焦点视觉会引发"hover 不跟随选中"的观感
+    if (resultsContainer && resultsContainer.dataset.inputMode !== 'mouse') {
+      resultsContainer.dataset.inputMode = 'mouse';
+    }
   });
 
   // 事件委托：统一处理结果项的 hover 和 click
@@ -988,6 +993,7 @@ function handleKeydown(e) {
     case "ArrowDown":
       if (composing) return;
       lastPointerMoveAt = 0;
+      if (resultsContainer) resultsContainer.dataset.inputMode = 'keyboard';
       e.preventDefault();
       if (filteredResults.length > 0) {
         selectedIndex = selectedIndex >= filteredResults.length - 1 ? 0 : selectedIndex + 1;
@@ -997,6 +1003,7 @@ function handleKeydown(e) {
     case "ArrowUp":
       if (composing) return;
       lastPointerMoveAt = 0;
+      if (resultsContainer) resultsContainer.dataset.inputMode = 'keyboard';
       e.preventDefault();
       if (filteredResults.length > 0) {
         selectedIndex = selectedIndex <= 0 ? filteredResults.length - 1 : selectedIndex - 1;

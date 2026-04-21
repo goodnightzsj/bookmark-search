@@ -58,26 +58,29 @@ function getPersistedFaviconEntryState(entry, domain) {
     };
   }
 
-  // 旧格式：src 字段（base64 data URL 或 http 链接），向后兼容
+  // 旧格式：src 字段（可能是 base64 data URL，或曾经的第三方 favicon 服务 URL 如 DDG/Google/Faviconkit）
   const src = typeof entry.src === 'string' ? entry.src.trim() : '';
   if (src) {
-    // 如果 src 是 http(s) URL，直接当 pageUrl 用（早期实现）
-    // 如果 src 是 data:URL 或其他，我们仍当作有效 src 返回，content 会优先用它
     const explicitState = typeof entry.state === 'string' ? entry.state : '';
     if (explicitState === 'failure') {
-      // failure 不该有 src，降级为 staleFailure
       return { kind: 'staleFailure' };
     }
-    const legacyEntry = {
-      state: 'success',
-      src,
-      updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
-    };
-    // 尝试从 src 里推断 pageUrl（http[s] 才可）；否则留空让 content 直接用 src
+    // 旧 src 若是 http(s) URL，几乎都是历史上从 DDG/Google 第三方 favicon 服务抓来的图标 URL
+    // （不是书签页面本身的 pageUrl）。v2.x 把它误当 pageUrl 喂给 _favicon，会拿到
+    // DDG/Google 自身站的图标，不是用户书签目标站的。这里统一作为 staleFailure，
+    // 让 content 用书签 URL 重新通过 _favicon 抓取。
     if (isTrustedPersistedPageUrl(src)) {
-      legacyEntry.pageUrl = src;
+      return { kind: 'staleFailure' };
     }
-    return { kind: 'success', entry: legacyEntry };
+    // data: URL（base64 PNG/SVG）直接作为 src 返回，content 仍可显示
+    return {
+      kind: 'success',
+      entry: {
+        state: 'success',
+        src,
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0
+      }
+    };
   }
 
   const state = typeof entry.state === 'string' ? entry.state : '';

@@ -75,7 +75,7 @@ function ensureThemeLink(themeName) {
   return link;
 }
 
-// 应用主题：切换预加载的 <link>.disabled 属性，浏览器内部样式表已解析，无闪动
+// 应用主题：先确保目标 CSS 已加载，再统一关掉其它主题，避免"先无样式再新样式"的 FOUC
 function applyTheme(themeName) {
   currentRawTheme = THEMES[themeName] ? themeName : DEFAULT_THEME;
   const prefersDark = !!(autoMediaQuery && autoMediaQuery.matches)
@@ -83,27 +83,34 @@ function applyTheme(themeName) {
   const resolved = resolveActiveTheme(currentRawTheme, prefersDark);
   const token = ++themeLoadToken;
 
-  // 保证所有主题 <link> 存在；切换 disabled 即瞬切
   const targetLink = ensureThemeLink(resolved);
-  for (const name of LOADABLE_THEMES) {
-    const link = ensureThemeLink(name);
-    const shouldEnable = name === resolved;
-    // 已经对齐 → 跳过（避免重复 reflow）
-    if (link.disabled === !shouldEnable) continue;
-    link.disabled = !shouldEnable;
-  }
 
-  const markReady = () => {
+  // 一次性完成切换：启用目标 + 禁用其它
+  const doSwap = () => {
     if (token !== themeLoadToken) return;
+    targetLink.disabled = false;
+    for (const name of LOADABLE_THEMES) {
+      if (name === resolved) continue;
+      const link = themeLinkCache.get(name);
+      if (link && !link.disabled) link.disabled = true;
+    }
     document.body.classList.add('theme-ready');
   };
 
-  // 如果目标主题 CSS 已经加载过（sheet 存在），立刻标记 ready
   if (targetLink.sheet) {
-    markReady();
+    // 已经解析过 → 直接瞬切
+    doSwap();
   } else {
-    targetLink.addEventListener('load', markReady, { once: true });
-    targetLink.addEventListener('error', markReady, { once: true });
+    // 尚未加载：先启用目标让浏览器开始加载（如果之前是 disabled），
+    // 同时保持旧主题 enabled，避免出现"无样式"帧。等新主题 load 后再禁用旧主题。
+    targetLink.disabled = false;
+    const onReady = () => {
+      targetLink.removeEventListener('load', onReady);
+      targetLink.removeEventListener('error', onReady);
+      doSwap();
+    };
+    targetLink.addEventListener('load', onReady);
+    targetLink.addEventListener('error', onReady);
   }
 
   localStorage.setItem(THEME_CACHE_KEY, themeName);

@@ -330,7 +330,7 @@ body::before {
 
 .form-input {
   width: 100%;
-  background: var(--surface-2);
+  background-color: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 14px;
@@ -339,7 +339,7 @@ body::before {
   font-weight: 500;
   transition: border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
               box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
-              background 180ms cubic-bezier(0.22, 1, 0.36, 1);
+              background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* dark chevron：柔和 accent（不发光） */
@@ -354,14 +354,14 @@ select.form-input option {
 
 .form-input:hover {
   border-color: var(--border-strong);
-  background: var(--surface-3);
+  background-color: var(--surface-3);
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
-  background: var(--surface-2);
+  background-color: var(--surface-2);
 }
 
 .form-input[readonly] {

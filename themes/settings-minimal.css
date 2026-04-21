@@ -358,7 +358,7 @@ body {
 
 .form-input {
   width: 100%;
-  background: var(--paper);
+  background-color: var(--paper);
   border: none;
   border-bottom: 1.5px solid var(--rule);
   border-radius: 0;
@@ -366,7 +366,7 @@ body {
   font-family: inherit;
   font-size: 13px;
   color: var(--ink);
-  transition: border-color 120ms linear, background 120ms linear;
+  transition: border-color 120ms linear, background-color 120ms linear;
 }
 
 /* Swiss chevron: 黑色细线 */
@@ -376,11 +376,11 @@ select.form-input {
   font-weight: 500;
 }
 
-.form-input:hover { background: var(--bg-subtle); }
+.form-input:hover { background-color: var(--bg-subtle); }
 
 .form-input:focus {
   outline: none;
-  background: var(--paper);
+  background-color: var(--paper);
   border-bottom-color: var(--ink);
   box-shadow: 0 1.5px 0 var(--ink);
 }

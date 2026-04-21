@@ -370,6 +370,19 @@
   transform: translateX(4px);
 }
 
+/* 键盘导航中：抑制 :hover 视觉（避免鼠标停留的位置与 .selected 同时激活，产生"两个焦点"观感） */
+.bookmark-results[data-input-mode="keyboard"] .bookmark-item:hover {
+  background: transparent;
+  transform: none;
+}
+.bookmark-results[data-input-mode="keyboard"] .bookmark-item.selected:hover {
+  background: var(--overlay-item-selected);
+  transform: translateX(4px);
+}
+.bookmark-results[data-input-mode="keyboard"] .bookmark-item:hover .bookmark-favicon {
+  transform: none;
+}
+
 .bookmark-item.selected {
   background: var(--overlay-item-selected);
   border-left: 3px solid var(--overlay-item-selected-border);
@@ -602,19 +615,19 @@
   border-color: rgba(220, 38, 38, 0.3);
 }
 
-/* minimal 主题下多选反色 */
+/* minimal 主题多选：浅灰底 + 左侧粗黑竖条 + 黑色勾（不遮 favicon） */
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.is-multi-selected {
-  background: #0a0a0a;
+  background: #ececec;
   border-left: 3px solid #0a0a0a;
 }
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.is-multi-selected .bookmark-title,
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.is-multi-selected .bookmark-path,
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.is-multi-selected .bookmark-url {
-  color: #ffffff;
+  color: #0a0a0a;
 }
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.is-multi-selected::before {
-  background: #ffffff;
-  color: #0a0a0a;
+  background: #0a0a0a;
+  color: #ffffff;
 }
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-multi-action {
   border-radius: 0;
@@ -857,19 +870,23 @@
 }
 
 /* Swiss: 选中项用反色块（纯黑底白字）而不是淡蓝高亮 */
+/* Swiss 风选中：左侧 3px 黑竖条 + 浅灰底；保持 favicon/图标可见 */
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected {
-  background: #0a0a0a;
-  border-left: none;
+  background: #f5f5f5;
+  border-left: 3px solid #0a0a0a;
   transform: none;
 }
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected .bookmark-title,
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected .bookmark-path,
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected .bookmark-url {
-  color: #ffffff;
+  color: #0a0a0a;
 }
 .bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected .bs-mark {
-  background: #ffffff;
-  color: #0a0a0a;
+  background: #0a0a0a;
+  color: #ffffff;
+}
+.bookmark-search-overlay[data-bs-theme="minimal"] .bookmark-item.selected .bookmark-favicon {
+  transform: none;
 }
 
 /* uppercase shortcut hints */
