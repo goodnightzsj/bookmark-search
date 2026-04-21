@@ -332,7 +332,15 @@ input.form-input[readonly] {
   font-variant-numeric: tabular-nums;
 }
 
-.duplicates-list { display: flex; flex-direction: column; gap: 12px; }
+.duplicates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
 .duplicates-group {
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 8px;

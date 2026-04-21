@@ -106,8 +106,6 @@
 	  const MESSAGE_ACTIONS = INJECTED_MESSAGE_ACTIONS || {
 	    SEARCH_BOOKMARKS: 'searchBookmarks',
 	    GET_WARMUP_DOMAINS: 'getWarmupDomains',
-	    GET_BROWSER_FAVICON: 'getBrowserFavicon',
-	    GET_BROWSER_FAVICONS_BATCH: 'getBrowserFaviconsBatch',
 	    GET_FAVICONS: 'getFavicons',
 	    SET_FAVICONS: 'setFavicons',
 	    GET_RECENT_OPENED: 'getRecentOpened',
@@ -121,8 +119,6 @@
 	  const REQUIRED_MESSAGE_ACTIONS = {
 	    SEARCH_BOOKMARKS: true,
 	    GET_WARMUP_DOMAINS: true,
-	    GET_BROWSER_FAVICON: true,
-	    GET_BROWSER_FAVICONS_BATCH: true,
 	    GET_FAVICONS: true,
 	    SET_FAVICONS: true,
 	    GET_RECENT_OPENED: true,

@@ -559,8 +559,8 @@ export function handleMessage(request, sender, sendResponse) {
     case MESSAGE_ACTIONS.TOGGLE_CURRENT_BOOKMARK: {
       const url = String((request && request.url) || '').trim();
       const title = String((request && request.title) || '').trim();
-      if (!url) {
-        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'url required');
+      if (!url || !(/^https?:\/\//i.test(url))) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'only http(s) URLs are bookmarkable');
         return false;
       }
       return initThen(async () => {
@@ -574,9 +574,16 @@ export function handleMessage(request, sender, sendResponse) {
             sendOkResponse(sendResponse, { bookmarked: false, removed: existing.length });
             return;
           }
-          // 未收藏 → 添加到 "其他书签" (id='2')
+          // 未收藏 → 添加到"其他书签"；在 Chrome/Edge 上 id 通常是 '2'，
+          // 但部分配置（Firefox / 企业策略）会有不同；尝试从书签树顶层第二个节点取。
+          let parentId = '2';
+          try {
+            const roots = await chrome.bookmarks.getChildren('0');
+            // 顶层 children: [0]=bookmarks bar, [1]=other bookmarks, [2]=mobile bookmarks (某些平台)
+            if (Array.isArray(roots) && roots[1] && roots[1].id) parentId = roots[1].id;
+          } catch (e) {}
           const created = await chrome.bookmarks.create({
-            parentId: '2',
+            parentId,
             title: title || url,
             url
           });

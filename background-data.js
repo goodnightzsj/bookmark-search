@@ -480,6 +480,27 @@ function setRuntimeDocuments(nextDocuments) {
   runtimeState.bookmarks = mapSearchDocumentsToBookmarks(runtimeState.documents);
   runtimeDocumentsFingerprint = getDocumentsFingerprint(runtimeState.documents);
   invalidateSearchIndex();
+  // 空闲时预热索引（10k 书签 ~200ms）。首次搜索就能命中已构建好的索引，
+  // 省掉"用户打开搜索框输入第一个字符时才同步构建"的感知延迟。
+  scheduleSearchIndexWarmup();
+}
+
+let searchIndexWarmupScheduled = false;
+function scheduleSearchIndexWarmup() {
+  if (searchIndexWarmupScheduled) return;
+  searchIndexWarmupScheduled = true;
+  const run = () => {
+    searchIndexWarmupScheduled = false;
+    const docs = getRuntimeDocuments();
+    if (docs.length < 200) return; // 小库全量扫够快，不用索引
+    try { ensureSearchBigramIndex(docs); } catch (e) {}
+  };
+  // SW 环境可能无 requestIdleCallback，fallback 到 setTimeout
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 2000 });
+  } else {
+    setTimeout(run, 500);
+  }
 }
 
 function setRuntimeBookmarks(nextBookmarks) {

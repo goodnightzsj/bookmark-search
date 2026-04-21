@@ -13,7 +13,7 @@ const IDB_KEY_PREFIX_FAVICON = 'favicon:';
 const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';
 const DOCUMENT_SOURCE_TYPE = 'bookmark';
 const IDB_META_KEY_SCHEMA_VERSION = 'schemaVersion';
-const VALID_THEMES = new Set(['original', 'minimal', 'glass', 'dark']);
+const VALID_THEMES = new Set(['original', 'minimal', 'glass', 'dark', 'auto']);
 const VALID_HISTORY_ACTIONS = new Set(['add', 'delete', 'edit', 'move']);
 
 function assertStorageReadSucceeded(storageRead, context) {
