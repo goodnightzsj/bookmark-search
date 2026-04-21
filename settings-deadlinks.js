@@ -114,14 +114,21 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
   }
 
   updateProgress();
-  // 按 host 分散排队，让不同 host 的请求能并发（而不是 3 个 worker 都卡在同一 host 上）
-  const queue = bookmarks.slice().sort((a, b) => {
-    const ha = getHost(a.url);
-    const hb = getHost(b.url);
-    if (ha === hb) return 0;
-    return ha < hb ? -1 : 1;
-  });
-  // 然后 zigzag：每个 worker 先拿一个不同 host 的
+  // 真正的 zigzag：按 host 分组，然后轮询拉一个 → 同 host 在队列里被隔开，
+  // CONCURRENCY=3 的 worker 不会同时打同一个站触发反爬/限流
+  const byHost = new Map();
+  for (const bm of bookmarks) {
+    const h = getHost(bm.url);
+    if (!byHost.has(h)) byHost.set(h, []);
+    byHost.get(h).push(bm);
+  }
+  const groups = Array.from(byHost.values());
+  let maxLen = 0;
+  for (const g of groups) if (g.length > maxLen) maxLen = g.length;
+  const queue = [];
+  for (let i = 0; i < maxLen; i++) {
+    for (const g of groups) if (i < g.length) queue.push(g[i]);
+  }
   const workers = [];
   for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
     workers.push(worker(queue));
