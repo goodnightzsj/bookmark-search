@@ -1553,6 +1553,21 @@ function updateSelection(options) {
 	  }
 	}
 
+	// 写入失败态（用于"_favicon 返回默认占位"等伪成功场景）
+	// background 会 clamp 到 FAVICON_CONFIG.FAILURE_TTL_MS（10 分钟），到期后自动重试。
+	// force=true 让 background 覆盖已有 success 条目（默认的"success sticky"保护对此场景无效）
+	function queuePersistFaviconFailure(domain) {
+	  const safeDomain = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
+	  if (!safeDomain) return;
+	  const key = normalizeFaviconDomain(safeDomain) || safeDomain;
+	  const existed = !!faviconPersistQueue[key];
+	  faviconPersistQueue[key] = { domain: key, state: 'failure', force: true, updatedAt: Date.now() };
+	  if (!existed) faviconPersistQueueSize++;
+
+	  faviconDebugLog('persist failure queued', { domain: key });
+	  scheduleFaviconPersistFlush();
+	}
+
 	async function fetchPersistedFavicons(domains) {
 	  const list = Array.isArray(domains) ? domains : [];
 	  const uniq = [];
@@ -2404,8 +2419,11 @@ function displayResults(results, options) {
             const curToken = Number(favicon.dataset[FAVICON_IMG_DATASET.TOKEN] || 0);
             resetFaviconImageErrorState(favicon, monogram, curToken);
             favicon.src = monogram;
-            // 记为该域 render 失败，供 warmup / 二次搜索避免再用 _favicon
+            // 内存：记为该域 render 失败，同页再搜不再尝试 _favicon
             faviconRenderFailureDomains[safeDomain] = curToken;
+            // 持久化：写入 10 分钟 failure cooldown，跨 tab / 重启继续生效。
+            // 10 分钟到期后自动重试（FAVICON_CONFIG.FAILURE_TTL_MS）
+            queuePersistFaviconFailure(safeDomain);
             faviconDebugLog('render load default_detected_to_monogram', {
               domain: safeDomain,
               previousSrc: curSrc

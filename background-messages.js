@@ -405,6 +405,7 @@ export function handleMessage(request, sender, sendResponse) {
       const now = Date.now();
 
       const deduped = new Map();
+      const forceOverride = new Set(); // 允许覆盖已有 success 的 domain（用于"_favicon 返回默认占位"场景）
       for (const entry of entries) {
         if (!entry || typeof entry !== 'object') continue;
         const domain = typeof entry.domain === 'string' ? entry.domain.trim().slice(0, 253) : '';
@@ -430,6 +431,7 @@ export function handleMessage(request, sender, sendResponse) {
         if (state !== 'failure') continue;
         const retryAt = clampRetryAt(entry.retryAt, domain);
         if (deduped.get(domain) && deduped.get(domain).state === 'success') continue;
+        if (entry.force === true) forceOverride.add(domain);
         deduped.set(domain, { state: 'failure', retryAt, updatedAt });
       }
 
@@ -451,8 +453,9 @@ export function handleMessage(request, sender, sendResponse) {
             const current = existing ? existing[key] : undefined;
             const currentState = getPersistedFaviconEntryState(current, domain);
             // Keep existing success sticky even when content later reports retryable failures
-            // (including render-time broken-image cases that reuse the same failure schema).
-            if (value.state === 'failure' && currentState.kind === 'success') continue;
+            // (including render-time broken-image cases that reuse the same failure schema)。
+            // 例外：force=true 表示"持久化的 pageUrl 本身就有问题"（如 _favicon 返回默认占位），必须覆盖。
+            if (value.state === 'failure' && currentState.kind === 'success' && !forceOverride.has(domain)) continue;
             items.push({ key, value });
           }
 

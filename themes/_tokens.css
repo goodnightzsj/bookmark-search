@@ -575,7 +575,7 @@ input.form-input[readonly] {
 .duplicates-group-items { display: flex; flex-direction: column; }
 .duplicates-item {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   padding: 12px 14px;
   border-top: 1px solid var(--rule-hairline, #ebebeb);
   cursor: pointer;
@@ -590,6 +590,17 @@ input.form-input[readonly] {
 .duplicates-item:active {
   background: var(--surface-active, rgba(148, 163, 184, 0.18));
 }
+/* 非组内的独立行（失效链接检测没有 group 包裹）：增加卡片化视觉，
+   避免左侧 checkbox 看起来像整个面板的全选控件 */
+.duplicates-list > .duplicates-item {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--card-bg, #ffffff);
+}
+.duplicates-list > .duplicates-item + .duplicates-item {
+  margin-top: 8px;
+}
+.duplicates-list > .duplicates-item:first-child { border-top: 1px solid var(--border, #e5e7eb); }
 /* 勾选态：左侧彩条 + 柔和背景，与单纯 hover 明显区分 */
 .duplicates-item:has(input.duplicates-checkbox:checked),
 .duplicates-item:has(input.dl-checkbox:checked) {
