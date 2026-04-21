@@ -48,13 +48,13 @@ function renderGroups(container, groups) {
   const summary = document.createElement('div');
   summary.className = 'duplicates-summary';
   const total = groups.reduce((acc, g) => acc + (g.items.length - 1), 0);
-  summary.innerHTML = `发现 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余书签。默认勾选每组中较早添加的条目，保留最新一条。`;
+  summary.innerHTML = `发现 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余书签。默认选中每组中较早添加的条目，保留最新一条。`;
   container.appendChild(summary);
 
   const actions = document.createElement('div');
   actions.className = 'duplicates-actions';
   actions.innerHTML = `
-    <button class="btn btn-secondary btn-sm" id="dupSelectAllOlder" type="button">勾选旧的（保留最新）</button>
+    <button class="btn btn-secondary btn-sm" id="dupSelectAllOlder" type="button">选中旧的（保留最新）</button>
     <button class="btn btn-secondary btn-sm" id="dupSelectNone" type="button">全不选</button>
     <span class="duplicates-action-sep"></span>
     <button class="btn btn-primary btn-sm" id="dupDeleteSelected" type="button">删除选中</button>
@@ -77,11 +77,15 @@ function renderGroups(container, groups) {
     const itemsEl = document.createElement('div');
     itemsEl.className = 'duplicates-group-items';
     group.items.forEach((bm, bi) => {
-      const isOldest = bi < group.items.length - 1; // 默认勾选每组除最后一条外的所有（保留最新）
-      const row = document.createElement('label');
-      row.className = 'duplicates-item';
+      const isOldest = bi < group.items.length - 1; // 默认选中每组除最后一条外的所有（保留最新）
+      const row = document.createElement('div');
+      row.className = 'duplicates-item' + (isOldest ? ' is-selected' : '');
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-pressed', isOldest ? 'true' : 'false');
+      row.dataset.bookmarkId = String(bm.id || '');
+      row.dataset.selected = isOldest ? '1' : '0';
       row.innerHTML = `
-        <input type="checkbox" class="history-checkbox duplicates-checkbox" data-bookmark-id="${escapeHtml(bm.id)}" ${isOldest ? 'checked' : ''}>
         <div class="duplicates-item-body">
           <div class="duplicates-item-title">${escapeHtml(bm.title || '(无标题)')}</div>
           <div class="duplicates-item-meta">
@@ -101,20 +105,41 @@ function renderGroups(container, groups) {
   updateSelectedCount(container);
 }
 
-function getCheckboxes(container) {
-  return Array.from(container.querySelectorAll('.duplicates-checkbox'));
+function getRows(container) {
+  return Array.from(container.querySelectorAll('.duplicates-item'));
+}
+
+function setRowSelected(row, selected) {
+  if (!row) return;
+  const on = !!selected;
+  row.classList.toggle('is-selected', on);
+  row.dataset.selected = on ? '1' : '0';
+  row.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 
 function updateSelectedCount(container) {
   const countEl = container.querySelector('#dupSelectedCount');
   if (!countEl) return;
-  const selected = getCheckboxes(container).filter((cb) => cb.checked).length;
+  const selected = getRows(container).filter((r) => r.dataset.selected === '1').length;
   countEl.textContent = `已选 ${selected} 条`;
 }
 
 function wireActions(container) {
-  container.querySelectorAll('.duplicates-checkbox').forEach((cb) => {
-    cb.addEventListener('change', () => updateSelectedCount(container));
+  // 行整体点击切换选中
+  container.addEventListener('click', (e) => {
+    const row = e.target.closest('.duplicates-item');
+    if (!row || !container.contains(row)) return;
+    setRowSelected(row, row.dataset.selected !== '1');
+    updateSelectedCount(container);
+  });
+  // 键盘可达：Enter / Space 切换
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest && e.target.closest('.duplicates-item');
+    if (!row || !container.contains(row)) return;
+    e.preventDefault();
+    setRowSelected(row, row.dataset.selected !== '1');
+    updateSelectedCount(container);
   });
 
   const selectAllOlder = container.querySelector('#dupSelectAllOlder');
@@ -123,8 +148,8 @@ function wireActions(container) {
       // 每组除最后一条外全选（保留最新）
       const groups = container.querySelectorAll('.duplicates-group');
       groups.forEach((g) => {
-        const items = g.querySelectorAll('.duplicates-checkbox');
-        items.forEach((cb, idx) => { cb.checked = idx < items.length - 1; });
+        const items = g.querySelectorAll('.duplicates-item');
+        items.forEach((row, idx) => setRowSelected(row, idx < items.length - 1));
       });
       updateSelectedCount(container);
     });
@@ -133,7 +158,7 @@ function wireActions(container) {
   const selectNone = container.querySelector('#dupSelectNone');
   if (selectNone) {
     selectNone.addEventListener('click', () => {
-      getCheckboxes(container).forEach((cb) => { cb.checked = false; });
+      getRows(container).forEach((row) => setRowSelected(row, false));
       updateSelectedCount(container);
     });
   }
@@ -145,7 +170,10 @@ function wireActions(container) {
 }
 
 async function deleteSelected(container) {
-  const ids = getCheckboxes(container).filter((cb) => cb.checked).map((cb) => cb.dataset.bookmarkId).filter(Boolean);
+  const ids = getRows(container)
+    .filter((r) => r.dataset.selected === '1')
+    .map((r) => r.dataset.bookmarkId)
+    .filter(Boolean);
   if (ids.length === 0) {
     notifySettings('请先勾选要删除的书签', 'warning');
     return;

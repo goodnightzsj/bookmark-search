@@ -531,7 +531,6 @@ select.form-input option {
 
 .history-item.selectable {
   position: relative;
-  padding-left: 48px;
   cursor: pointer;
 }
 

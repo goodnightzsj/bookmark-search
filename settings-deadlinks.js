@@ -150,7 +150,7 @@ function renderResults(container, results) {
   const actions = document.createElement('div');
   actions.className = 'duplicates-actions';
   actions.innerHTML = `
-    <button class="btn btn-secondary btn-sm" id="dlSelectDead" type="button">勾选所有疑似失效</button>
+    <button class="btn btn-secondary btn-sm" id="dlSelectDead" type="button">选中所有疑似失效</button>
     <button class="btn btn-secondary btn-sm" id="dlSelectNone" type="button">全不选</button>
     <span class="duplicates-action-sep"></span>
     <button class="btn btn-primary btn-sm" id="dlDeleteSelected" type="button">删除选中</button>
@@ -171,12 +171,18 @@ function renderResults(container, results) {
   }
 
   problematic.forEach((r) => {
-    const row = document.createElement('label');
-    row.className = 'duplicates-item';
-    const levelLabel = r.level === 'dead' ? '失效' : '可疑';
-    const levelColor = r.level === 'dead' ? '#dc2626' : '#d97706';
+    const isDead = r.level === 'dead';
+    const row = document.createElement('div');
+    row.className = 'duplicates-item' + (isDead ? ' is-selected' : '');
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-pressed', isDead ? 'true' : 'false');
+    row.dataset.bookmarkId = String(r.id || '');
+    row.dataset.selected = isDead ? '1' : '0';
+    row.dataset.level = r.level || '';
+    const levelLabel = isDead ? '失效' : '可疑';
+    const levelColor = isDead ? '#dc2626' : '#d97706';
     row.innerHTML = `
-      <input type="checkbox" class="history-checkbox dl-checkbox" data-bookmark-id="${escapeHtml(r.id)}" ${r.level === 'dead' ? 'checked' : ''}>
       <div class="duplicates-item-body">
         <div class="duplicates-item-title">${escapeHtml(r.title || '(无标题)')}</div>
         <div class="duplicates-item-meta">
@@ -193,40 +199,58 @@ function renderResults(container, results) {
   updateDlCount(container);
 }
 
-function getDlCheckboxes(container) {
-  return Array.from(container.querySelectorAll('.dl-checkbox'));
+function getDlRows(container) {
+  return Array.from(container.querySelectorAll('.duplicates-item'));
+}
+
+function setDlRowSelected(row, selected) {
+  if (!row) return;
+  const on = !!selected;
+  row.classList.toggle('is-selected', on);
+  row.dataset.selected = on ? '1' : '0';
+  row.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 
 function updateDlCount(container) {
   const el = container.querySelector('#dlSelectedCount');
   if (!el) return;
-  const selected = getDlCheckboxes(container).filter((cb) => cb.checked).length;
+  const selected = getDlRows(container).filter((r) => r.dataset.selected === '1').length;
   el.textContent = `已选 ${selected} 条`;
 }
 
 function wireDeadlinkActions(container) {
-  container.querySelectorAll('.dl-checkbox').forEach((cb) => {
-    cb.addEventListener('change', () => updateDlCount(container));
+  container.addEventListener('click', (e) => {
+    const row = e.target.closest('.duplicates-item');
+    if (!row || !container.contains(row)) return;
+    setDlRowSelected(row, row.dataset.selected !== '1');
+    updateDlCount(container);
+  });
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest && e.target.closest('.duplicates-item');
+    if (!row || !container.contains(row)) return;
+    e.preventDefault();
+    setDlRowSelected(row, row.dataset.selected !== '1');
+    updateDlCount(container);
   });
   const btnDead = container.querySelector('#dlSelectDead');
   if (btnDead) btnDead.addEventListener('click', () => {
-    getDlCheckboxes(container).forEach((cb) => {
-      const label = cb.parentElement && cb.parentElement.querySelector('.duplicates-item-path');
-      const isDead = label && label.textContent.indexOf('失效') === 0;
-      cb.checked = !!isDead;
+    getDlRows(container).forEach((row) => {
+      setDlRowSelected(row, row.dataset.level === 'dead');
     });
     updateDlCount(container);
   });
   const btnNone = container.querySelector('#dlSelectNone');
   if (btnNone) btnNone.addEventListener('click', () => {
-    getDlCheckboxes(container).forEach((cb) => cb.checked = false);
+    getDlRows(container).forEach((row) => setDlRowSelected(row, false));
     updateDlCount(container);
   });
   const btnDelete = container.querySelector('#dlDeleteSelected');
   if (btnDelete) btnDelete.addEventListener('click', async () => {
-    const ids = getDlCheckboxes(container).filter((cb) => cb.checked).map((cb) => cb.dataset.bookmarkId).filter(Boolean);
+    const rows = getDlRows(container).filter((r) => r.dataset.selected === '1');
+    const ids = rows.map((r) => r.dataset.bookmarkId).filter(Boolean);
     if (ids.length === 0) {
-      notifySettings('请先勾选要删除的书签', 'warning');
+      notifySettings('请先选中要删除的书签', 'warning');
       return;
     }
     const confirmed = await (window.__bsConfirm
@@ -239,14 +263,7 @@ function wireDeadlinkActions(container) {
         '批量删除失败'
       );
       notifySettings(`已删除 ${resp && resp.removed ? resp.removed : ids.length} 条`);
-      // 移除已删除的行
-      ids.forEach((id) => {
-        const cb = container.querySelector(`.dl-checkbox[data-bookmark-id="${CSS.escape(id)}"]`);
-        if (cb) {
-          const row = cb.closest('.duplicates-item');
-          if (row) row.remove();
-        }
-      });
+      rows.forEach((row) => row.remove());
       updateDlCount(container);
     } catch (e) {
       notifySettings('删除失败：' + (e && e.message ? e.message : String(e)), 'error');

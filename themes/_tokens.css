@@ -601,13 +601,11 @@ input.form-input[readonly] {
   margin-top: 8px;
 }
 .duplicates-list > .duplicates-item:first-child { border-top: 1px solid var(--border, #e5e7eb); }
-/* 勾选态：左侧彩条 + 柔和背景，与单纯 hover 明显区分 */
-.duplicates-item:has(input.duplicates-checkbox:checked),
-.duplicates-item:has(input.dl-checkbox:checked) {
-  background: var(--accent-soft, rgba(94, 106, 210, 0.1));
+/* 选中态：左侧彩条 + 柔和背景 + 右侧勾号，行整体表达选中，不再依赖 checkbox */
+.duplicates-item.is-selected {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.12));
 }
-.duplicates-item:has(input.duplicates-checkbox:checked)::before,
-.duplicates-item:has(input.dl-checkbox:checked)::before {
+.duplicates-item.is-selected::before {
   content: "";
   position: absolute;
   left: 0;
@@ -616,12 +614,26 @@ input.form-input[readonly] {
   width: 3px;
   background: var(--accent, #5e6ad2);
 }
-/* checkbox 大小提升，与行对齐；加透明"命中区" label 的直觉 */
-.duplicates-item > input[type="checkbox"] {
+.duplicates-item::after {
+  /* 右侧选中 indicator：未选中时透明；选中时显示勾号圆 */
+  content: "";
   width: 18px;
   height: 18px;
-  margin: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong, rgba(148, 163, 184, 0.45));
   flex-shrink: 0;
+  transition: background 120ms linear, border-color 120ms linear;
+  margin-left: auto;
+  align-self: center;
+}
+.duplicates-item.is-selected::after {
+  background: var(--accent, #5e6ad2)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E") center / 12px 12px no-repeat;
+  border-color: var(--accent, #5e6ad2);
+}
+.duplicates-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring, rgba(94, 106, 210, 0.4)) inset;
 }
 .duplicates-item-body { flex: 1; min-width: 0; }
 .duplicates-item-title {

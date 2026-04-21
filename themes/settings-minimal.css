@@ -540,7 +540,6 @@ select.form-input {
 .history-item:last-child { border-bottom: none; }
 
 .history-item.selectable {
-  padding-left: 46px;
   position: relative;
   cursor: pointer;
 }

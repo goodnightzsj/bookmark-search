@@ -101,11 +101,10 @@ export async function loadUpdateHistory() {
         const isSelected = selectedItems.has(itemKey);
         const selectableClass = exportMode ? 'selectable' : '';
         const selectedClass = isSelected ? 'selected' : '';
-        const checkboxHtml = exportMode ? `<input type="checkbox" class="history-checkbox" data-index="${index}" ${isSelected ? 'checked' : ''}>` : '';
-        
+        const pressed = exportMode ? `role="button" tabindex="0" aria-pressed="${isSelected ? 'true' : 'false'}"` : '';
+
         return `
-          <div class="history-item ${selectableClass} ${selectedClass}" data-index="${index}">
-            ${checkboxHtml}
+          <div class="history-item ${selectableClass} ${selectedClass}" data-index="${index}" ${pressed}>
             <div class="history-header">
               <span class="history-type ${action}">${getActionText(action)}</span>
               <span class="history-time">${formatTime(item.timestamp)}</span>
@@ -365,22 +364,14 @@ function updateSelectionUI() {
 
   if (!exportMode) return;
 
-  // 更新每个item的选中状态（使用缓存的 DOM 引用）
+  // 更新每个 item 的选中状态（去掉了 checkbox，仅用 class + aria-pressed 表示）
   const items = getSelectableItems();
   items.forEach(item => {
     const index = parseInt(item.dataset.index);
-    const checkbox = item.querySelector('.history-checkbox');
-
     const historyItem = currentHistory[index];
     const selected = historyItem ? selectedItems.has(getHistoryItemKey(historyItem)) : false;
-
-    if (selected) {
-      item.classList.add('selected');
-      if (checkbox) checkbox.checked = true;
-    } else {
-      item.classList.remove('selected');
-      if (checkbox) checkbox.checked = false;
-    }
+    item.classList.toggle('selected', selected);
+    item.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
 }
 
