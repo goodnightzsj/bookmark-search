@@ -3,14 +3,14 @@
  * - 用户点击"检测失效链接"时请求 <all_urls> 可选 host permission
  * - 获得授权后，遍历所有书签，用 HEAD 请求 + 8s 超时，并发 3
  * - 网络错误 / 4xx / 5xx 标记为"可能失效"
- * - 结果列表支持勾选后批量删除
+ * - 结果显示在独立 modal，内置滚动 + 单条"打开"跳转
  *
- * 注意：这只是启发式——某些站点会屏蔽 HEAD、需要 UA、要求登录、或返回 403 反爬。
- * 误判率不低于 10%，UI 会明确提示用户人工确认后再删。
+ * 误判率约 10%（某些站点屏蔽 HEAD / 反爬），UI 提示人工确认后再删。
  */
 
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
+import { openResultModal } from './bs-result-modal.js';
 
 const CONCURRENCY = 3;
 const TIMEOUT_MS = 8000;
@@ -55,7 +55,6 @@ async function fetchWithTimeout(url, timeoutMs) {
 }
 
 function classify(result) {
-  // 返回 { level: 'dead' | 'suspect' | 'ok', reason: string }
   if (!result) return { level: 'suspect', reason: '未知' };
   if (result.ok) return { level: 'ok', reason: 'OK' };
   if (result.status === 0) return { level: 'dead', reason: result.error || '网络错误' };
@@ -70,17 +69,13 @@ function getHost(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch (e) { return ''; }
 }
 
-async function runBatch(bookmarks, progressEl, resultsHolder) {
+async function runBatch(bookmarks, onProgress, resultsHolder) {
   let done = 0;
   const total = bookmarks.length;
-  // host → 首次分类结果；若 host 明确死链（dead 级，非 suspect），后续同 host 的 bookmark 直接复用
-  // 避免一个死站点一次次触发 8s 超时浪费检测时间
   const hostCache = new Map();
 
   function updateProgress() {
-    if (!progressEl) return;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    progressEl.textContent = `检测中 ${done}/${total} (${pct}%)`;
+    if (typeof onProgress === 'function') onProgress(done, total);
   }
 
   async function worker(queue) {
@@ -90,16 +85,12 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
       const host = getHost(bm.url);
       let klass;
       const cached = host ? hostCache.get(host) : null;
-      // 仅复用"明确 dead"缓存（网络/DNS 错误对整个 host 通常适用）
-      // suspect (403/405) 可能是单页鉴权，不应扩散到同 host 其它路径
       if (cached && cached.level === 'dead') {
         klass = { level: 'dead', reason: cached.reason + ' (同站缓存)' };
       } else {
         const res = await fetchWithTimeout(bm.url, TIMEOUT_MS);
         klass = classify(res);
-        if (host && klass.level === 'dead') {
-          hostCache.set(host, klass);
-        }
+        if (host && klass.level === 'dead') hostCache.set(host, klass);
       }
       resultsHolder.push({
         id: bm.id,
@@ -114,8 +105,7 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
   }
 
   updateProgress();
-  // 真正的 zigzag：按 host 分组，然后轮询拉一个 → 同 host 在队列里被隔开，
-  // CONCURRENCY=3 的 worker 不会同时打同一个站触发反爬/限流
+  // zigzag：按 host 分组后轮询出队，同 host 不连续，避免 3 worker 同时打一个站
   const byHost = new Map();
   for (const bm of bookmarks) {
     const h = getHost(bm.url);
@@ -136,39 +126,36 @@ async function runBatch(bookmarks, progressEl, resultsHolder) {
   await Promise.all(workers);
 }
 
-function renderResults(container, results) {
-  container.innerHTML = '';
+// Modal context
+let modalRef = null;
+
+function renderResults(results) {
+  if (!modalRef || !modalRef.isOpen()) return;
+  const { bodyEl, actionsEl, setSubtitle } = modalRef;
+
   const dead = results.filter((r) => r.level === 'dead');
   const suspect = results.filter((r) => r.level === 'suspect');
   const ok = results.filter((r) => r.level === 'ok');
 
-  const summary = document.createElement('div');
-  summary.className = 'duplicates-summary';
-  summary.innerHTML = `共 <strong>${results.length}</strong> 条；疑似失效 <strong style="color:#dc2626">${dead.length}</strong> · 状态可疑 <strong style="color:#d97706">${suspect.length}</strong> · 正常 <strong>${ok.length}</strong>。误判率约 10% 左右，请人工确认再删。`;
-  container.appendChild(summary);
-
-  const actions = document.createElement('div');
-  actions.className = 'duplicates-actions';
-  actions.innerHTML = `
-    <button class="btn btn-secondary btn-sm" id="dlSelectDead" type="button">选中所有疑似失效</button>
-    <button class="btn btn-secondary btn-sm" id="dlSelectNone" type="button">全不选</button>
-    <span class="duplicates-action-sep"></span>
-    <button class="btn btn-primary btn-sm" id="dlDeleteSelected" type="button">删除选中</button>
-    <span class="duplicates-selected-count" id="dlSelectedCount">已选 0 条</span>
-  `;
-  container.appendChild(actions);
-
-  const list = document.createElement('div');
-  list.className = 'duplicates-list';
+  setSubtitle(`共 <strong>${results.length}</strong> 条；疑似失效 <strong style="color:#dc2626">${dead.length}</strong> · 状态可疑 <strong style="color:#d97706">${suspect.length}</strong> · 正常 <strong>${ok.length}</strong>。误判率约 10%，请人工确认再删。`);
 
   const problematic = dead.concat(suspect);
   if (problematic.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'duplicates-empty';
-    empty.textContent = '没有发现疑似失效的链接 🎉';
-    container.appendChild(empty);
+    actionsEl.innerHTML = '';
+    bodyEl.innerHTML = '<div class="bs-empty-state">没有发现疑似失效的链接 🎉</div>';
     return;
   }
+
+  actionsEl.innerHTML = `
+    <button class="btn btn-secondary btn-sm" id="dlSelectDead" type="button">选中所有疑似失效</button>
+    <button class="btn btn-secondary btn-sm" id="dlSelectNone" type="button">全不选</button>
+    <span class="bs-result-modal-action-sep"></span>
+    <span class="duplicates-selected-count" id="dlSelectedCount">已选 0 条</span>
+    <button class="btn btn-primary btn-sm" id="dlDeleteSelected" type="button">删除选中</button>
+  `;
+
+  const list = document.createElement('div');
+  list.className = 'duplicates-list';
 
   problematic.forEach((r) => {
     const isDead = r.level === 'dead';
@@ -180,27 +167,35 @@ function renderResults(container, results) {
     row.dataset.bookmarkId = String(r.id || '');
     row.dataset.selected = isDead ? '1' : '0';
     row.dataset.level = r.level || '';
+    row.dataset.url = String(r.url || '');
     const levelLabel = isDead ? '失效' : '可疑';
-    const levelColor = isDead ? '#dc2626' : '#d97706';
+    const levelCls = isDead ? 'is-dead' : 'is-suspect';
     row.innerHTML = `
       <div class="duplicates-item-body">
         <div class="duplicates-item-title">${escapeHtml(r.title || '(无标题)')}</div>
         <div class="duplicates-item-meta">
-          <span class="duplicates-item-path" style="color:${levelColor};font-weight:600;">${levelLabel} · ${escapeHtml(r.reason)}</span>
+          <span class="bs-status-badge ${levelCls}">${levelLabel}</span>
+          <span class="duplicates-item-reason">${escapeHtml(r.reason)}</span>
         </div>
         <div class="duplicates-item-url" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</div>
       </div>
+      <a class="duplicates-open-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" title="在新标签页打开" aria-label="在新标签页打开">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+        <span>打开</span>
+      </a>
     `;
     list.appendChild(row);
   });
-  container.appendChild(list);
 
-  wireDeadlinkActions(container);
-  updateDlCount(container);
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(list);
+
+  wireDeadlinkActions(bodyEl, actionsEl);
+  updateDlCount(bodyEl, actionsEl);
 }
 
-function getDlRows(container) {
-  return Array.from(container.querySelectorAll('.duplicates-item'));
+function getDlRows(bodyEl) {
+  return Array.from(bodyEl.querySelectorAll('.duplicates-item'));
 }
 
 function setDlRowSelected(row, selected) {
@@ -211,43 +206,43 @@ function setDlRowSelected(row, selected) {
   row.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 
-function updateDlCount(container) {
-  const el = container.querySelector('#dlSelectedCount');
+function updateDlCount(bodyEl, actionsEl) {
+  const el = actionsEl.querySelector('#dlSelectedCount');
   if (!el) return;
-  const selected = getDlRows(container).filter((r) => r.dataset.selected === '1').length;
+  const selected = getDlRows(bodyEl).filter((r) => r.dataset.selected === '1').length;
   el.textContent = `已选 ${selected} 条`;
 }
 
-function wireDeadlinkActions(container) {
-  container.addEventListener('click', (e) => {
+function wireDeadlinkActions(bodyEl, actionsEl) {
+  bodyEl.addEventListener('click', (e) => {
+    if (e.target.closest('.duplicates-open-link')) return;
     const row = e.target.closest('.duplicates-item');
-    if (!row || !container.contains(row)) return;
+    if (!row || !bodyEl.contains(row)) return;
     setDlRowSelected(row, row.dataset.selected !== '1');
-    updateDlCount(container);
+    updateDlCount(bodyEl, actionsEl);
   });
-  container.addEventListener('keydown', (e) => {
+  bodyEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const row = e.target.closest && e.target.closest('.duplicates-item');
-    if (!row || !container.contains(row)) return;
+    if (!row || !bodyEl.contains(row)) return;
+    if (e.target.closest && e.target.closest('.duplicates-open-link')) return;
     e.preventDefault();
     setDlRowSelected(row, row.dataset.selected !== '1');
-    updateDlCount(container);
+    updateDlCount(bodyEl, actionsEl);
   });
-  const btnDead = container.querySelector('#dlSelectDead');
+  const btnDead = actionsEl.querySelector('#dlSelectDead');
   if (btnDead) btnDead.addEventListener('click', () => {
-    getDlRows(container).forEach((row) => {
-      setDlRowSelected(row, row.dataset.level === 'dead');
-    });
-    updateDlCount(container);
+    getDlRows(bodyEl).forEach((row) => setDlRowSelected(row, row.dataset.level === 'dead'));
+    updateDlCount(bodyEl, actionsEl);
   });
-  const btnNone = container.querySelector('#dlSelectNone');
+  const btnNone = actionsEl.querySelector('#dlSelectNone');
   if (btnNone) btnNone.addEventListener('click', () => {
-    getDlRows(container).forEach((row) => setDlRowSelected(row, false));
-    updateDlCount(container);
+    getDlRows(bodyEl).forEach((row) => setDlRowSelected(row, false));
+    updateDlCount(bodyEl, actionsEl);
   });
-  const btnDelete = container.querySelector('#dlDeleteSelected');
+  const btnDelete = actionsEl.querySelector('#dlDeleteSelected');
   if (btnDelete) btnDelete.addEventListener('click', async () => {
-    const rows = getDlRows(container).filter((r) => r.dataset.selected === '1');
+    const rows = getDlRows(bodyEl).filter((r) => r.dataset.selected === '1');
     const ids = rows.map((r) => r.dataset.bookmarkId).filter(Boolean);
     if (ids.length === 0) {
       notifySettings('请先选中要删除的书签', 'warning');
@@ -264,7 +259,7 @@ function wireDeadlinkActions(container) {
       );
       notifySettings(`已删除 ${resp && resp.removed ? resp.removed : ids.length} 条`);
       rows.forEach((row) => row.remove());
-      updateDlCount(container);
+      updateDlCount(bodyEl, actionsEl);
     } catch (e) {
       notifySettings('删除失败：' + (e && e.message ? e.message : String(e)), 'error');
     }
@@ -280,21 +275,20 @@ async function requestHostPermission() {
   }
 }
 
-async function runDeadLinkCheck(container) {
-  const savedScrollY = window.scrollY;
-  const restoreScroll = () => {
-    if (Math.abs(window.scrollY - savedScrollY) > 4) {
-      window.scrollTo({ top: savedScrollY, behavior: 'instant' });
-    }
+async function runDeadLinkCheck() {
+  if (!modalRef || !modalRef.isOpen()) return;
+  const setProgress = (text) => {
+    modalRef.setSubtitle(text);
   };
 
-  container.innerHTML = '<div class="duplicates-loading" id="dlProgress">准备中…</div>';
-  restoreScroll();
+  setProgress('准备中…');
+  modalRef.actionsEl.innerHTML = '';
+  modalRef.bodyEl.innerHTML = '<div class="bs-loading-state">正在请求网络访问权限…</div>';
 
   const granted = await requestHostPermission();
   if (!granted) {
-    container.innerHTML = '<div class="duplicates-empty">需要授权"访问所有网站"权限才能检测链接状态。请点击按钮后在弹出的权限对话框中允许。</div>';
-    restoreScroll();
+    setProgress('未授权');
+    modalRef.bodyEl.innerHTML = '<div class="bs-empty-state">需要授权"访问所有网站"权限才能检测链接状态。请点按钮重新尝试并在权限对话框中允许。</div>';
     return;
   }
 
@@ -303,39 +297,46 @@ async function runDeadLinkCheck(container) {
     tree = await chrome.bookmarks.getTree();
   } catch (e) {
     notifySettings('读取书签失败：' + (e.message || String(e)), 'error');
-    container.innerHTML = '';
+    modalRef.bodyEl.innerHTML = '';
     return;
   }
   const flat = [];
   flattenBookmarks(tree, flat);
   if (flat.length === 0) {
-    container.innerHTML = '<div class="duplicates-empty">没有找到可检测的书签（仅检测 http/https）。</div>';
-    restoreScroll();
+    setProgress('没有可检测的书签');
+    modalRef.bodyEl.innerHTML = '<div class="bs-empty-state">没有找到可检测的书签（仅检测 http/https）。</div>';
     return;
   }
 
-  const progressEl = container.querySelector('#dlProgress');
+  modalRef.bodyEl.innerHTML = '<div class="bs-loading-state" id="dlProgress">检测中 0/' + flat.length + ' (0%)</div>';
   const results = [];
   const started = Date.now();
-  await runBatch(flat, progressEl, results);
+  await runBatch(flat, (done, total) => {
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const el = modalRef && modalRef.bodyEl ? modalRef.bodyEl.querySelector('#dlProgress') : null;
+    if (el) el.textContent = `检测中 ${done}/${total} (${pct}%)`;
+    setProgress(`检测中 ${done}/${total} (${pct}%)`);
+  }, results);
   const ms = Date.now() - started;
-  renderResults(container, results);
-  restoreScroll();
+  renderResults(results);
   notifySettings(`检测完成：${flat.length} 条 / 用时 ${(ms / 1000).toFixed(1)}s`);
 }
 
 export function bindDeadlinkEvents() {
   const btn = document.getElementById('checkDeadLinks');
-  const container = document.getElementById('deadlinksResult');
-  if (!btn || !container) return;
+  if (!btn) return;
   btn.addEventListener('click', async () => {
-    container.style.display = 'block';
+    modalRef = openResultModal({
+      title: '失效链接检测',
+      subtitle: '准备中…',
+      onClose: () => { modalRef = null; }
+    });
     btn.disabled = true;
     const label = btn.querySelector('.btn-text');
     const original = label ? label.textContent : '';
     if (label) label.textContent = '检测中…';
     try {
-      await runDeadLinkCheck(container);
+      await runDeadLinkCheck();
     } finally {
       btn.disabled = false;
       if (label) label.textContent = original;

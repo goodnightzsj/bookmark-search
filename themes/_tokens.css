@@ -487,55 +487,135 @@ input.form-input[readonly] {
 }
 
 /* ============================================================
- * 重复书签面板（跨主题共享结构；颜色由各主题 override）
+ * 结果 modal：独立 overlay 展示，彻底不撑父 action-card
  * ============================================================ */
-.duplicates-result {
-  margin-top: 16px;
-  padding: 16px;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 10px;
-  background: var(--card-bg, #ffffff);
-  /* flex 列 + 固定高度 + 内部 list 自己滚：卡片不会随结果数量撑大 */
+.bs-result-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background: rgba(15, 23, 42, 0.42);
+  opacity: 0;
+  transition: opacity 180ms var(--motion-spring, cubic-bezier(0.22, 1, 0.36, 1));
+  overscroll-behavior: contain;
+}
+.bs-result-modal-overlay.is-visible { opacity: 1; }
+.bs-result-modal {
+  width: min(760px, 100%);
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
-  min-height: 280px;
-  max-height: 520px;
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg, 0 30px 70px rgba(15, 23, 42, 0.25));
   overflow: hidden;
+  color: var(--text-primary, #0f1419);
+  font-family: inherit;
+  transform: translateY(8px) scale(0.985);
+  transition: transform 200ms var(--motion-spring, cubic-bezier(0.22, 1, 0.36, 1));
 }
-.duplicates-loading { padding: 24px; text-align: center; color: var(--text-secondary, #6b7280); }
-.duplicates-empty   { padding: 24px; text-align: center; color: var(--text-secondary, #6b7280); }
-.duplicates-summary { font-size: 13px; color: var(--text-secondary, #6b7280); margin-bottom: 12px; line-height: 1.5; flex-shrink: 0; }
-.duplicates-summary strong { color: var(--accent, #5e6ad2); font-weight: 600; }
-
-.duplicates-actions {
+.bs-result-modal-overlay.is-visible .bs-result-modal {
+  transform: translateY(0) scale(1);
+}
+.bs-result-modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  flex-shrink: 0;
+}
+.bs-result-modal-title-wrap { flex: 1 1 auto; min-width: 0; }
+.bs-result-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #0f1419);
+}
+.bs-result-modal-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary, #6b7280);
+  word-break: break-word;
+}
+.bs-result-modal-subtitle strong {
+  color: var(--text-primary, #0f1419);
+  font-weight: 600;
+}
+.bs-result-modal-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: background 120ms linear, color 120ms linear;
+}
+.bs-result-modal-close:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.12));
+  color: var(--text-primary, #0f1419);
+}
+.bs-result-modal-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(94, 106, 210, 0.4));
+}
+.bs-result-modal-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 0;
-  margin-bottom: 10px;
-  border-top: 1px solid var(--border, #e5e7eb);
+  padding: 12px 22px;
   border-bottom: 1px solid var(--border, #e5e7eb);
   flex-wrap: wrap;
-  flex-shrink: 0; /* flex 滚动父容器里固定高度，不被列表压缩 */
+  flex-shrink: 0;
+  background: var(--surface-subtle, rgba(148, 163, 184, 0.04));
 }
-.duplicates-action-sep { flex: 1; }
+.bs-result-modal-actions:empty {
+  display: none;
+}
+.bs-result-modal-action-sep { flex: 1 1 auto; }
+.bs-result-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 22px 22px;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.bs-loading-state,
+.bs-empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ============================================================
+ * 结果面板共享 item 样式（重复 / 失效统一）
+ * ============================================================ */
 .duplicates-selected-count {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary, #6b7280);
   font-variant-numeric: tabular-nums;
+  padding: 0 8px;
 }
 
 .duplicates-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 1 1 auto;
-  min-height: 0;      /* flex 滚动容器必需，防 flex item 溢出撑高父级 */
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
-  overscroll-behavior: contain;
 }
 .duplicates-group {
   border: 1px solid var(--border, #e5e7eb);
@@ -634,6 +714,57 @@ input.form-input[readonly] {
 .duplicates-item:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--focus-ring, rgba(94, 106, 210, 0.4)) inset;
+}
+/* 打开链接按钮：嵌在行右侧选中 indicator 左边 */
+.duplicates-open-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  margin-left: 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  text-decoration: none;
+  background: transparent;
+  transition: background 120ms linear, color 120ms linear;
+  flex-shrink: 0;
+}
+.duplicates-open-link:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.14));
+  color: var(--accent, #5e6ad2);
+}
+.duplicates-open-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring, rgba(94, 106, 210, 0.4));
+}
+.duplicates-open-link svg { flex-shrink: 0; }
+
+/* 状态 badge（失效/可疑） */
+.bs-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+.bs-status-badge.is-dead {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+.bs-status-badge.is-suspect {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+.duplicates-item-reason {
+  color: var(--text-tertiary, #8a929d);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .duplicates-item-body { flex: 1; min-width: 0; }
 .duplicates-item-title {

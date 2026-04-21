@@ -1,9 +1,11 @@
 /**
  * 重复书签查找与清理（settings 页）
+ * 结果展示在独立 modal 内，不再嵌入 action-card
  */
 
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
+import { openResultModal } from './bs-result-modal.js';
 
 function notifySettings(message, type = 'success') {
   try {
@@ -34,39 +36,35 @@ function formatDate(ts) {
   } catch (e) { return '—'; }
 }
 
-function renderGroups(container, groups) {
-  if (!container) return;
-  container.innerHTML = '';
+// Modal context：每次运行复用，避免不必要的 DOM 重建
+let modalRef = null;
+
+function renderGroups(groups) {
+  if (!modalRef || !modalRef.isOpen()) return;
+  const { bodyEl, actionsEl, setSubtitle } = modalRef;
+
   if (!groups || groups.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'duplicates-empty';
-    empty.textContent = '没有发现重复书签。';
-    container.appendChild(empty);
+    setSubtitle('没有发现重复书签 🎉');
+    actionsEl.innerHTML = '';
+    bodyEl.innerHTML = '<div class="bs-empty-state">所有书签 URL 均唯一。</div>';
     return;
   }
 
-  const summary = document.createElement('div');
-  summary.className = 'duplicates-summary';
   const total = groups.reduce((acc, g) => acc + (g.items.length - 1), 0);
-  summary.innerHTML = `发现 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余书签。默认选中每组中较早添加的条目，保留最新一条。`;
-  container.appendChild(summary);
+  setSubtitle(`共 <strong>${groups.length}</strong> 组重复，可清理 <strong>${total}</strong> 条冗余。默认选中每组中较早的条目，保留最新一条。`);
 
-  const actions = document.createElement('div');
-  actions.className = 'duplicates-actions';
-  actions.innerHTML = `
+  actionsEl.innerHTML = `
     <button class="btn btn-secondary btn-sm" id="dupSelectAllOlder" type="button">选中旧的（保留最新）</button>
     <button class="btn btn-secondary btn-sm" id="dupSelectNone" type="button">全不选</button>
-    <span class="duplicates-action-sep"></span>
-    <button class="btn btn-primary btn-sm" id="dupDeleteSelected" type="button">删除选中</button>
+    <span class="bs-result-modal-action-sep"></span>
     <span class="duplicates-selected-count" id="dupSelectedCount">已选 0 条</span>
+    <button class="btn btn-primary btn-sm" id="dupDeleteSelected" type="button">删除选中</button>
   `;
-  container.appendChild(actions);
 
   const list = document.createElement('div');
   list.className = 'duplicates-list';
-  container.appendChild(list);
 
-  groups.forEach((group, gi) => {
+  groups.forEach((group) => {
     const groupEl = document.createElement('div');
     groupEl.className = 'duplicates-group';
     const head = document.createElement('div');
@@ -77,7 +75,7 @@ function renderGroups(container, groups) {
     const itemsEl = document.createElement('div');
     itemsEl.className = 'duplicates-group-items';
     group.items.forEach((bm, bi) => {
-      const isOldest = bi < group.items.length - 1; // 默认选中每组除最后一条外的所有（保留最新）
+      const isOldest = bi < group.items.length - 1;
       const row = document.createElement('div');
       row.className = 'duplicates-item' + (isOldest ? ' is-selected' : '');
       row.setAttribute('role', 'button');
@@ -85,6 +83,7 @@ function renderGroups(container, groups) {
       row.setAttribute('aria-pressed', isOldest ? 'true' : 'false');
       row.dataset.bookmarkId = String(bm.id || '');
       row.dataset.selected = isOldest ? '1' : '0';
+      row.dataset.url = String(bm.url || '');
       row.innerHTML = `
         <div class="duplicates-item-body">
           <div class="duplicates-item-title">${escapeHtml(bm.title || '(无标题)')}</div>
@@ -94,6 +93,10 @@ function renderGroups(container, groups) {
           </div>
           <div class="duplicates-item-url" title="${escapeHtml(bm.url)}">${escapeHtml(bm.url)}</div>
         </div>
+        <a class="duplicates-open-link" href="${escapeHtml(bm.url)}" target="_blank" rel="noopener noreferrer" title="在新标签页打开" aria-label="在新标签页打开该书签">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+          <span>打开</span>
+        </a>
       `;
       itemsEl.appendChild(row);
     });
@@ -101,12 +104,15 @@ function renderGroups(container, groups) {
     list.appendChild(groupEl);
   });
 
-  wireActions(container);
-  updateSelectedCount(container);
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(list);
+
+  wireActions(bodyEl, actionsEl);
+  updateSelectedCount(bodyEl, actionsEl);
 }
 
-function getRows(container) {
-  return Array.from(container.querySelectorAll('.duplicates-item'));
+function getRows(bodyEl) {
+  return Array.from(bodyEl.querySelectorAll('.duplicates-item'));
 }
 
 function setRowSelected(row, selected) {
@@ -117,70 +123,71 @@ function setRowSelected(row, selected) {
   row.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 
-function updateSelectedCount(container) {
-  const countEl = container.querySelector('#dupSelectedCount');
+function updateSelectedCount(bodyEl, actionsEl) {
+  const countEl = actionsEl.querySelector('#dupSelectedCount');
   if (!countEl) return;
-  const selected = getRows(container).filter((r) => r.dataset.selected === '1').length;
+  const selected = getRows(bodyEl).filter((r) => r.dataset.selected === '1').length;
   countEl.textContent = `已选 ${selected} 条`;
 }
 
-function wireActions(container) {
-  // 行整体点击切换选中
-  container.addEventListener('click', (e) => {
+function wireActions(bodyEl, actionsEl) {
+  bodyEl.addEventListener('click', (e) => {
+    // 打开链接的 <a> 不触发行选中切换
+    if (e.target.closest('.duplicates-open-link')) return;
     const row = e.target.closest('.duplicates-item');
-    if (!row || !container.contains(row)) return;
+    if (!row || !bodyEl.contains(row)) return;
     setRowSelected(row, row.dataset.selected !== '1');
-    updateSelectedCount(container);
+    updateSelectedCount(bodyEl, actionsEl);
   });
-  // 键盘可达：Enter / Space 切换
-  container.addEventListener('keydown', (e) => {
+  bodyEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const row = e.target.closest && e.target.closest('.duplicates-item');
-    if (!row || !container.contains(row)) return;
+    if (!row || !bodyEl.contains(row)) return;
+    // 聚焦到 <a> 时按 Enter 走默认跳转，不切换选中
+    if (e.target.closest && e.target.closest('.duplicates-open-link')) return;
     e.preventDefault();
     setRowSelected(row, row.dataset.selected !== '1');
-    updateSelectedCount(container);
+    updateSelectedCount(bodyEl, actionsEl);
   });
 
-  const selectAllOlder = container.querySelector('#dupSelectAllOlder');
+  const selectAllOlder = actionsEl.querySelector('#dupSelectAllOlder');
   if (selectAllOlder) {
     selectAllOlder.addEventListener('click', () => {
-      // 每组除最后一条外全选（保留最新）
-      const groups = container.querySelectorAll('.duplicates-group');
+      const groups = bodyEl.querySelectorAll('.duplicates-group');
       groups.forEach((g) => {
         const items = g.querySelectorAll('.duplicates-item');
         items.forEach((row, idx) => setRowSelected(row, idx < items.length - 1));
       });
-      updateSelectedCount(container);
+      updateSelectedCount(bodyEl, actionsEl);
     });
   }
 
-  const selectNone = container.querySelector('#dupSelectNone');
+  const selectNone = actionsEl.querySelector('#dupSelectNone');
   if (selectNone) {
     selectNone.addEventListener('click', () => {
-      getRows(container).forEach((row) => setRowSelected(row, false));
-      updateSelectedCount(container);
+      getRows(bodyEl).forEach((row) => setRowSelected(row, false));
+      updateSelectedCount(bodyEl, actionsEl);
     });
   }
 
-  const deleteBtn = container.querySelector('#dupDeleteSelected');
+  const deleteBtn = actionsEl.querySelector('#dupDeleteSelected');
   if (deleteBtn) {
-    deleteBtn.addEventListener('click', () => deleteSelected(container));
+    deleteBtn.addEventListener('click', () => deleteSelected(bodyEl, actionsEl));
   }
 }
 
-async function deleteSelected(container) {
-  const ids = getRows(container)
+async function deleteSelected(bodyEl, actionsEl) {
+  const ids = getRows(bodyEl)
     .filter((r) => r.dataset.selected === '1')
     .map((r) => r.dataset.bookmarkId)
     .filter(Boolean);
   if (ids.length === 0) {
-    notifySettings('请先勾选要删除的书签', 'warning');
+    notifySettings('请先选中要删除的书签', 'warning');
     return;
   }
   const confirmed = await (window.__bsConfirm
     ? window.__bsConfirm(`确定删除选中的 ${ids.length} 条书签？浏览器书签中会被同步移除。`, { tone: 'danger', confirmText: '删除' })
-    : Promise.resolve(confirm(`确定删除选中的 ${ids.length} 条书签？浏览器书签中会被同步移除。`)));
+    : Promise.resolve(confirm(`确定删除选中的 ${ids.length} 条书签？`)));
   if (!confirmed) return;
 
   try {
@@ -195,42 +202,41 @@ async function deleteSelected(container) {
     } else {
       notifySettings(`已删除 ${removed} 条，${failedCount} 条失败`, 'warning');
     }
-    // 重新扫描
-    await runFindDuplicates(container);
+    await runFindDuplicates();
   } catch (e) {
     notifySettings('批量删除失败：' + (e && e.message ? e.message : String(e)), 'error');
   }
 }
 
-async function runFindDuplicates(container) {
-  // 保留页面滚动位置：innerHTML 替换会引发 layout 收缩，浏览器可能自动滚动
-  const savedScrollY = window.scrollY;
-  container.innerHTML = '<div class="duplicates-loading">扫描中…</div>';
+async function runFindDuplicates() {
+  if (!modalRef || !modalRef.isOpen()) return;
+  modalRef.setSubtitle('扫描中…');
+  modalRef.actionsEl.innerHTML = '';
+  modalRef.bodyEl.innerHTML = '<div class="bs-loading-state">正在扫描所有书签…</div>';
   try {
     const resp = assertSuccessfulMessageResponse(
       await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.FIND_DUPLICATE_BOOKMARKS }),
       '查找重复失败'
     );
     const groups = resp && Array.isArray(resp.groups) ? resp.groups : [];
-    renderGroups(container, groups);
+    renderGroups(groups);
   } catch (e) {
-    container.innerHTML = '';
+    modalRef.setSubtitle('扫描失败');
+    modalRef.bodyEl.innerHTML = `<div class="bs-empty-state">${escapeHtml(e && e.message ? e.message : String(e))}</div>`;
     notifySettings('查找失败：' + (e && e.message ? e.message : String(e)), 'error');
-  } finally {
-    // 渲染完成后还原滚动，用户视线不离开原来位置
-    if (Math.abs(window.scrollY - savedScrollY) > 4) {
-      window.scrollTo({ top: savedScrollY, behavior: 'instant' });
-    }
   }
 }
 
 export function bindDuplicatesEvents() {
   const findBtn = document.getElementById('findDuplicates');
-  const container = document.getElementById('duplicatesResult');
-  if (!findBtn || !container) return;
+  if (!findBtn) return;
 
   findBtn.addEventListener('click', async () => {
-    container.style.display = 'block';
-    await runFindDuplicates(container);
+    modalRef = openResultModal({
+      title: '重复书签清理',
+      subtitle: '扫描中…',
+      onClose: () => { modalRef = null; }
+    });
+    await runFindDuplicates();
   });
 }
