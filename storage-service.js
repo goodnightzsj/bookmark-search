@@ -2,6 +2,9 @@
  * 存储访问层 - 封装 chrome.storage.local 操作
  * 提供类型安全的默认值和统一的错误处理
  */
+import { createLogger } from './logger.js';
+
+const log = createLogger('Storage');
 
 // 存储键名常量
 export const STORAGE_KEYS = {
@@ -56,7 +59,7 @@ export async function getStorage(keys) {
 
     return output;
   } catch (error) {
-    console.error('[Storage] 读取失败:', error);
+    log.error('读取失败:', error);
 
     // 返回默认值
     const fallback = {};
@@ -92,7 +95,7 @@ export async function getStorageWithStatus(keys) {
 
     return { success: true, data, state };
   } catch (error) {
-    console.error('[Storage] 读取失败:', error);
+    log.error('读取失败:', error);
 
     const fallback = {};
     const state = {};
@@ -134,7 +137,7 @@ export async function setStorage(data) {
     await chrome.storage.local.set(data);
     return true;
   } catch (error) {
-    console.error('[Storage] 写入失败:', error);
+    log.error('写入失败:', error);
     return false;
   }
 }
