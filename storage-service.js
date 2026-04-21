@@ -20,7 +20,8 @@ export const STORAGE_KEYS = {
   MIGRATION_STATE: 'migrationState',
   LAST_MIGRATION_AT: 'lastMigrationAt',
   LAST_MIGRATION_ERROR: 'lastMigrationError',
-  NEEDS_REBUILD: 'needsRebuild'
+  NEEDS_REBUILD: 'needsRebuild',
+  DEADLINK_CONCURRENCY: 'deadlinkConcurrency'
 };
 
 // 默认值
@@ -37,7 +38,8 @@ const DEFAULTS = {
   [STORAGE_KEYS.MIGRATION_STATE]: 'idle',
   [STORAGE_KEYS.LAST_MIGRATION_AT]: null,
   [STORAGE_KEYS.LAST_MIGRATION_ERROR]: null,
-  [STORAGE_KEYS.NEEDS_REBUILD]: false
+  [STORAGE_KEYS.NEEDS_REBUILD]: false,
+  [STORAGE_KEYS.DEADLINK_CONCURRENCY]: 16
 };
 
 /**

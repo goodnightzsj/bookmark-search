@@ -195,6 +195,26 @@
               </div>
             </div>
 
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-title form-label" for="deadlinkConcurrency">
+                  失效检测并发数
+                  <span class="help-tip" tabindex="0" aria-label="什么是失效检测并发数？" title="检测失效链接时同时发出的 HTTP 请求数。更高 = 扫描更快，但对单一站点压力更大；内部会按 host 分散排队，避免连续打同一个站。">ⓘ</span>
+                </label>
+                <p class="setting-description">同时发出多少个 HEAD/GET 请求。大书签库建议 16–32，慢网环境可降到 4–8。</p>
+              </div>
+              <div class="setting-control">
+                <select id="deadlinkConcurrency" class="form-input" data-custom-select="true">
+                  <option value="4">4 · 慢网/低功耗</option>
+                  <option value="8">8</option>
+                  <option value="16" selected>16（推荐）</option>
+                  <option value="24">24</option>
+                  <option value="32">32 · 快</option>
+                  <option value="48">48 · 激进</option>
+                </select>
+              </div>
+            </div>
+
           </div>
         </section>
 

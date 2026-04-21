@@ -19,10 +19,12 @@ export async function loadSyncSettings() {
     const result = await getStorageOrThrow([
       STORAGE_KEYS.SYNC_INTERVAL,
       STORAGE_KEYS.LAST_SYNC_TIME,
-      STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES
+      STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES,
+      STORAGE_KEYS.DEADLINK_CONCURRENCY
     ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
     const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
+    const deadlinkConcurrencySelect = document.getElementById('deadlinkConcurrency');
     const lastSyncDisplay = document.getElementById('lastSyncDisplay');
     const nextSyncDisplay = document.getElementById('nextSyncDisplay');
 
@@ -41,6 +43,13 @@ export async function loadSyncSettings() {
       const ttlMinutes = result[STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES] || 30;
       bookmarkCacheTtlSelect.value = ttlMinutes;
       console.log("[Settings] 主缓存 TTL:", ttlMinutes, "分钟");
+    }
+
+    // 设置失效检测并发数
+    if (deadlinkConcurrencySelect) {
+      const conc = Number(result[STORAGE_KEYS.DEADLINK_CONCURRENCY]) || 16;
+      deadlinkConcurrencySelect.value = String(conc);
+      console.log("[Settings] 失效检测并发:", conc);
     }
 
     // 显示最后同步时间
@@ -176,6 +185,24 @@ export function bindSyncEvents() {
         notifySettings(`主缓存 TTL 已更新为 ${ttlMinutes} 分钟`);
       } catch (error) {
         console.error("[Settings] 更新主缓存 TTL 失败:", error);
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    });
+  }
+
+  // 失效检测并发数
+  const deadlinkConcurrencySelect = document.getElementById('deadlinkConcurrency');
+  const VALID_DL_CONC = [4, 8, 16, 24, 32, 48];
+  if (deadlinkConcurrencySelect) {
+    deadlinkConcurrencySelect.addEventListener('change', async (e) => {
+      const conc = parseInt(e.target.value);
+      if (!VALID_DL_CONC.includes(conc)) return;
+      try {
+        await setStorageOrThrow({ [STORAGE_KEYS.DEADLINK_CONCURRENCY]: conc });
+        notifySettings(`失效检测并发已更新为 ${conc}`);
+      } catch (error) {
+        console.error("[Settings] 更新并发数失败:", error);
         await loadSyncSettings();
         notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
       }

@@ -12,10 +12,22 @@ import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
 import { formatRelativeTime } from './utils.js';
+import { getStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
-// SW 侧 fetch 放开并发瓶颈后提速；zigzag 按 host 分散保证单站仍温和
-const CONCURRENCY = 8;
+// 并发上限与合法取值：过高会对单站造成压力，过低太慢
+const VALID_CONCURRENCIES = [4, 8, 16, 24, 32, 48];
+const DEFAULT_CONCURRENCY = 16;
+const MAX_CONCURRENCY = 48;
 const TIMEOUT_MS = 8000;
+
+async function loadConcurrency() {
+  try {
+    const r = await getStorageOrThrow([STORAGE_KEYS.DEADLINK_CONCURRENCY]);
+    const raw = Number(r && r[STORAGE_KEYS.DEADLINK_CONCURRENCY]);
+    if (Number.isFinite(raw) && raw >= 1 && raw <= MAX_CONCURRENCY) return Math.floor(raw);
+  } catch (e) {}
+  return DEFAULT_CONCURRENCY;
+}
 
 const CACHE_KEY = 'settings.deadlinksCache.v1';
 
@@ -116,6 +128,7 @@ async function runBatch(bookmarks, onProgress, resultsHolder) {
   let done = 0;
   const total = bookmarks.length;
   const hostCache = new Map();
+  const concurrency = await loadConcurrency();
 
   function updateProgress() {
     if (typeof onProgress === 'function') onProgress(done, total);
@@ -169,7 +182,7 @@ async function runBatch(bookmarks, onProgress, resultsHolder) {
     for (const g of groups) if (i < g.length) queue.push(g[i]);
   }
   const workers = [];
-  for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+  for (let i = 0; i < Math.min(concurrency, queue.length); i++) {
     workers.push(worker(queue));
   }
   await Promise.all(workers);
