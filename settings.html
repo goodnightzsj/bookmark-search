@@ -161,7 +161,7 @@
                 <p class="setting-description">定时触发增量或全量同步，0 表示禁用自动同步。</p>
               </div>
               <div class="setting-control">
-                <select id="syncInterval" class="form-input">
+                <select id="syncInterval" class="form-input" data-custom-select="true">
                   <option value="5">5 分钟</option>
                   <option value="10">10 分钟</option>
                   <option value="15">15 分钟</option>
@@ -185,7 +185,7 @@
                 <p class="setting-description">超过该时间后，搜索会在后台自动触发一次书签全量同步，不阻塞当前搜索。</p>
               </div>
               <div class="setting-control">
-                <select id="bookmarkCacheTtl" class="form-input">
+                <select id="bookmarkCacheTtl" class="form-input" data-custom-select="true">
                   <option value="30" selected>30 分钟（推荐）</option>
                   <option value="60">1 小时</option>
                   <option value="360">6 小时</option>

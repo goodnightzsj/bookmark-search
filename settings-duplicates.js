@@ -172,6 +172,8 @@ async function deleteSelected(container) {
 }
 
 async function runFindDuplicates(container) {
+  // 保留页面滚动位置：innerHTML 替换会引发 layout 收缩，浏览器可能自动滚动
+  const savedScrollY = window.scrollY;
   container.innerHTML = '<div class="duplicates-loading">扫描中…</div>';
   try {
     const resp = assertSuccessfulMessageResponse(
@@ -183,6 +185,11 @@ async function runFindDuplicates(container) {
   } catch (e) {
     container.innerHTML = '';
     notifySettings('查找失败：' + (e && e.message ? e.message : String(e)), 'error');
+  } finally {
+    // 渲染完成后还原滚动，用户视线不离开原来位置
+    if (Math.abs(window.scrollY - savedScrollY) > 4) {
+      window.scrollTo({ top: savedScrollY, behavior: 'instant' });
+    }
   }
 }
 

@@ -261,11 +261,20 @@ async function requestHostPermission() {
 }
 
 async function runDeadLinkCheck(container) {
+  const savedScrollY = window.scrollY;
+  const restoreScroll = () => {
+    if (Math.abs(window.scrollY - savedScrollY) > 4) {
+      window.scrollTo({ top: savedScrollY, behavior: 'instant' });
+    }
+  };
+
   container.innerHTML = '<div class="duplicates-loading" id="dlProgress">准备中…</div>';
+  restoreScroll();
 
   const granted = await requestHostPermission();
   if (!granted) {
     container.innerHTML = '<div class="duplicates-empty">需要授权"访问所有网站"权限才能检测链接状态。请点击按钮后在弹出的权限对话框中允许。</div>';
+    restoreScroll();
     return;
   }
 
@@ -281,6 +290,7 @@ async function runDeadLinkCheck(container) {
   flattenBookmarks(tree, flat);
   if (flat.length === 0) {
     container.innerHTML = '<div class="duplicates-empty">没有找到可检测的书签（仅检测 http/https）。</div>';
+    restoreScroll();
     return;
   }
 
@@ -290,6 +300,7 @@ async function runDeadLinkCheck(container) {
   await runBatch(flat, progressEl, results);
   const ms = Date.now() - started;
   renderResults(container, results);
+  restoreScroll();
   notifySettings(`检测完成：${flat.length} 条 / 用时 ${(ms / 1000).toFixed(1)}s`);
 }
 

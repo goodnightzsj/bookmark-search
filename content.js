@@ -612,9 +612,26 @@ function createSearchUI() {
 
   // 点击遮罩关闭搜索框
   searchOverlay.addEventListener("click", (e) => {
-    if (e.target === searchOverlay) {
-      hideSearch();
-    }
+    if (e.target !== searchOverlay) return;
+    // 特殊场景：焦点仍在地址栏/DevTools 等浏览器 chrome，搜索框从未真正拿到焦点。
+    // 用户下意识点 overlay 是为了"让搜索框被聚焦"，而不是关闭 overlay。
+    // 判据：点击发生时 deepActiveElement !== searchInput，且此前 savedFocusBeforeOverlay 已记录为"页面内元素"
+    // → 用户的真实意图是激活输入框，而非关闭
+    try {
+      const deepActive = deepActiveElement();
+      if (searchInput && deepActive !== searchInput) {
+        focusSearchInput();
+        // 二次验证：rAF 后如果仍未聚焦到 input，且浏览器 chrome 释放了焦点，再补一次
+        requestAnimationFrame(() => {
+          if (searchOverlay && searchOverlay.style.display !== 'none'
+              && document.activeElement !== searchInput) {
+            focusSearchInput();
+          }
+        });
+        return;
+      }
+    } catch (err) {}
+    hideSearch();
   });
 }
 
@@ -2507,6 +2524,54 @@ function displayResults(results, options) {
     }
   }
 
+  // 启发式判断：Chrome _favicon 服务对无图标站点返回默认地球图标
+  // （灰/白圆+地球线条），img.onload 会正常触发使得 fallback 不生效。
+  // 通过 canvas 采样识别：4 角几乎透明 + 中心低饱和 + 全图颜色种类极少。
+  function isLikelyDefaultGlobeFavicon(img) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return false;
+    try {
+      var N = 16;
+      var canvas = document.createElement('canvas');
+      canvas.width = N;
+      canvas.height = N;
+      var ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return false;
+      ctx.clearRect(0, 0, N, N);
+      ctx.drawImage(img, 0, 0, N, N);
+      var data;
+      try {
+        data = ctx.getImageData(0, 0, N, N).data;
+      } catch (e) {
+        return false; // cross-origin tainting
+      }
+      // 1) 四角必须基本透明（默认地球是圆形，四角空）
+      var corners = [0, (N - 1) * 4, (N * (N - 1)) * 4, (N * N - 1) * 4];
+      var transparentCorners = 0;
+      for (var ci = 0; ci < corners.length; ci++) {
+        if (data[corners[ci] + 3] < 40) transparentCorners++;
+      }
+      if (transparentCorners < 3) return false;
+      // 2) 中心颜色低饱和（默认是灰 / 浅蓝灰）
+      var cIdx = ((N >> 1) * N + (N >> 1)) * 4;
+      var cR = data[cIdx], cG = data[cIdx + 1], cB = data[cIdx + 2], cA = data[cIdx + 3];
+      if (cA < 60) return false;
+      var cMax = Math.max(cR, cG, cB), cMin = Math.min(cR, cG, cB);
+      var sat = cMax > 0 ? (cMax - cMin) / cMax : 0;
+      if (sat > 0.35) return false;
+      // 3) 色彩种类稀少（地球图案本质是单色线条 + 渐变）
+      var colors = Object.create(null);
+      var uniq = 0;
+      for (var i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 32) continue;
+        var key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
+        if (!colors[key]) { colors[key] = 1; uniq++; if (uniq > 6) return false; }
+      }
+      return uniq <= 4;
+    } catch (e) {
+      return false;
+    }
+  }
+
 	function loadFavicon(domain, pageUrl, callback, options) {
 	  // 提取一级域名（IP/localhost 直接返回自身）
 	  var rootDomain = getRootDomain(domain);
@@ -2628,6 +2693,12 @@ function displayResults(results, options) {
       settled = true;
       clearTimeout(timer);
       faviconDebugLog('loaded', { domain: domain, url: url, w: img.naturalWidth, h: img.naturalHeight, source: isExtensionFavicon ? '_favicon' : 'local' });
+      // _favicon 源：对无图标站点会返回默认地球，识别后继续 fallback 到 monogram
+      if (isExtensionFavicon && isLikelyDefaultGlobeFavicon(img)) {
+        faviconDebugLog('favicon_default_globe_detected', { domain: domain, url: url });
+        tryLoad(idx + 1);
+        return;
+      }
       finishSuccess(url, isExtensionFavicon ? '_favicon' : 'local');
     };
     img.onerror = function() {

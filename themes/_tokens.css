@@ -211,6 +211,104 @@ select.form-input:-moz-focusring {
   text-shadow: 0 0 0 var(--text-primary, var(--ink, #0a0a0a));
 }
 
+/* ============================================================
+ * 自定义 select（custom-select.js 构建）：跨主题可控渲染
+ * 原 <select> 视觉隐藏、保留可访问性与数据源
+ * ============================================================ */
+select.custom-select-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.custom-select {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.custom-select-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding-right: 38px;
+  background-image: none !important; /* 按钮自己渲染 chevron，不要继承 select 的背景 SVG */
+}
+.custom-select-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(94, 106, 210, 0.4));
+}
+.custom-select-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.custom-select-chevron {
+  flex-shrink: 0;
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary, var(--ink-2, #5c6573));
+  line-height: 0;
+  transition: transform 150ms var(--motion-spring, cubic-bezier(0.22, 1, 0.36, 1));
+}
+.custom-select.is-open .custom-select-chevron {
+  transform: translateY(-50%) rotate(180deg);
+}
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--card-bg, #ffffff);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.12));
+  display: none;
+  scrollbar-gutter: stable;
+}
+.custom-select.is-open .custom-select-menu {
+  display: block;
+}
+.custom-select-option {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary, var(--ink, #0a0a0a));
+  cursor: pointer;
+  transition: background 120ms linear, color 120ms linear;
+  user-select: none;
+}
+.custom-select-option.is-active,
+.custom-select-option:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.12));
+}
+.custom-select-option.is-selected {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.12));
+  color: var(--accent, #5e6ad2);
+  font-weight: 600;
+}
+.custom-select-option.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* input[type=text|search]：统一字体 + 去 native chrome */
 input.form-input,
 input[type="text"].form-input,
@@ -323,6 +421,11 @@ input.form-input[readonly] {
   border-top: 1px solid var(--border, #e5e7eb);
   border-bottom: 1px solid var(--border, #e5e7eb);
   flex-wrap: wrap;
+  /* 滚动时操作按钮吸顶在面板内，始终可达，不用用户滚回顶部 */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card-bg, #ffffff);
 }
 .duplicates-action-sep { flex: 1; }
 .duplicates-selected-count {
@@ -332,14 +435,18 @@ input.form-input[readonly] {
   font-variant-numeric: tabular-nums;
 }
 
+/* 把滚动迁到外层 .duplicates-result：actions 可吸顶、列表高度充分利用视口 */
+.duplicates-result {
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  /* 避免点击面板内按钮时页面滚动被打扰（Firefox/Chrome 行为一致） */
+  overscroll-behavior: contain;
+}
 .duplicates-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 520px;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
 }
 .duplicates-group {
   border: 1px solid var(--border, #e5e7eb);

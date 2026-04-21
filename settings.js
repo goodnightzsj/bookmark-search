@@ -4,6 +4,7 @@ import { loadSyncSettings, loadBookmarkStats, bindSyncEvents } from './settings-
 import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpdateNotification } from './settings-history.js';
 import { bindDuplicatesEvents } from './settings-duplicates.js';
 import { bindDeadlinkEvents } from './settings-deadlinks.js';
+import { enhanceAllCustomSelects } from './custom-select.js';
 
 console.log("[Settings] settings.js 开始加载 (主入口)");
 
@@ -56,6 +57,10 @@ async function init() {
       loadSyncSettings(),
       loadUpdateHistory()
     ]);
+
+    // 把标了 data-custom-select 的原生 select 替换为主题化自定义 combobox
+    // 必须在 loadSyncSettings 之后：原 select 的 value 已经被恢复，enhance 会读取初始值
+    enhanceAllCustomSelects();
 
     // 绑定事件
     bindAllEvents();
