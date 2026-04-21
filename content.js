@@ -384,6 +384,8 @@
 	  let globalKeydownTrapEnabled = false;
 	  let focusEnforcerTimer = null;
 	  let lastFocusTrapAt = 0;
+	  // 记录呼出搜索框前页面焦点元素，关闭时还原
+	  let savedFocusBeforeOverlay = null;
 
 	  let currentTheme = 'original';
 	  let currentRawTheme = 'original';
@@ -647,8 +649,23 @@ function showSearch() {
     }
   }
   
+  // 记录呼出前的焦点元素（不是 body / overlay 内部元素）
+  try {
+    const active = document.activeElement;
+    if (active && active !== document.body && !(searchOverlay && searchOverlay.contains(active))) {
+      savedFocusBeforeOverlay = active;
+    } else {
+      savedFocusBeforeOverlay = null;
+    }
+  } catch (e) {
+    savedFocusBeforeOverlay = null;
+  }
+
   console.log("[Content] 显示搜索框");
   searchOverlay.style.display = "flex";
+  // 尝试把窗口焦点拉到页面；对于"用户焦点在地址栏时按快捷键"的场景很关键，
+  // 否则后续 searchInput.focus() 可能被浏览器 chrome 拦截（页面未激活）。
+  try { window.focus(); } catch (e) {}
   enableFocusTrap();
   enableGlobalKeydownTrap();
   if (focusRetryTimer) clearTimeout(focusRetryTimer);
@@ -702,6 +719,19 @@ function hideSearch() {
   cachedResultItems = null;
   prevSelectedIndex = -1;
   console.log("[Content] 搜索框已隐藏");
+
+  // 还原呼出前的焦点元素（如果元素还在 DOM 中）
+  const toRestore = savedFocusBeforeOverlay;
+  savedFocusBeforeOverlay = null;
+  if (toRestore && typeof toRestore.focus === 'function') {
+    try {
+      if (document.contains(toRestore)) {
+        toRestore.focus({ preventScroll: true });
+      }
+    } catch (e) {
+      try { toRestore.focus(); } catch (e2) {}
+    }
+  }
 
   // Persist any newly discovered favicons ASAP so other tabs can benefit without waiting for timers.
   flushFaviconPersistQueue();

@@ -257,8 +257,21 @@ chrome.commands.onCommand.addListener(async (command) => {
       return;
     }
 
-    // Some pages keep focus inside inputs/iframes; proactively blur active elements in all frames
-    // so the overlay input can reliably take focus after it appears.
+    // 焦点迁移：
+    //   1) 顶层 frame 执行 window.focus()：把窗口焦点从浏览器 chrome（地址栏等）
+    //      拉回页面内容层，否则下一步 overlay input.focus() 可能被拦截。
+    //   2) 所有 frame 内 blur 当前 activeElement，避免 overlay 出来后原 input
+    //      继续截获键盘事件。
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: false },
+        func: () => {
+          try { window.focus(); } catch (e) {}
+        }
+      });
+    } catch (error) {
+      // best-effort
+    }
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
