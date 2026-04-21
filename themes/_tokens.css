@@ -309,6 +309,96 @@ select.custom-select-native {
   cursor: not-allowed;
 }
 
+/* ============================================================
+ * bs-dialog：主题化 confirm / alert 模态
+ * ============================================================ */
+.bs-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  transition: opacity 160ms var(--motion-spring, cubic-bezier(0.22, 1, 0.36, 1));
+}
+.bs-dialog-overlay.is-visible {
+  opacity: 1;
+}
+.bs-dialog-box {
+  width: min(460px, calc(100vw - 48px));
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg, 0 30px 70px rgba(15, 23, 42, 0.25));
+  padding: 24px;
+  transform: translateY(8px) scale(0.98);
+  transition: transform 180ms var(--motion-spring, cubic-bezier(0.22, 1, 0.36, 1));
+  color: var(--text-primary, #0f1419);
+  font-family: inherit;
+}
+.bs-dialog-overlay.is-visible .bs-dialog-box {
+  transform: translateY(0) scale(1);
+}
+.bs-dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-primary, #0f1419);
+}
+.bs-dialog-body {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-secondary, #5c6573);
+  margin-bottom: 20px;
+  max-height: 360px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+.bs-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.bs-dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms linear, border-color 120ms linear, color 120ms linear;
+}
+.bs-dialog-btn-secondary {
+  background: transparent;
+  border-color: var(--border, #e5e7eb);
+  color: var(--text-primary, #0f1419);
+}
+.bs-dialog-btn-secondary:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.1));
+}
+.bs-dialog-btn-primary {
+  background: var(--accent, #5e6ad2);
+  color: #ffffff;
+}
+.bs-dialog-btn-primary:hover {
+  filter: brightness(1.05);
+}
+.bs-dialog-btn-danger {
+  background: var(--danger, #dc2626);
+}
+.bs-dialog-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(94, 106, 210, 0.4));
+}
+
 /* input[type=text|search]：统一字体 + 去 native chrome */
 input.form-input,
 input[type="text"].form-input,
@@ -421,11 +511,7 @@ input.form-input[readonly] {
   border-top: 1px solid var(--border, #e5e7eb);
   border-bottom: 1px solid var(--border, #e5e7eb);
   flex-wrap: wrap;
-  /* 滚动时操作按钮吸顶在面板内，始终可达，不用用户滚回顶部 */
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--card-bg, #ffffff);
+  flex-shrink: 0; /* flex 滚动父容器里固定高度，不被列表压缩 */
 }
 .duplicates-action-sep { flex: 1; }
 .duplicates-selected-count {
@@ -435,18 +521,24 @@ input.form-input[readonly] {
   font-variant-numeric: tabular-nums;
 }
 
-/* 把滚动迁到外层 .duplicates-result：actions 可吸顶、列表高度充分利用视口 */
+/* 把滚动迁到内层 list：外层 .duplicates-result 保持卡片大小稳定，不会随结果数量撑大 */
 .duplicates-result {
-  max-height: min(72vh, 760px);
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  /* 避免点击面板内按钮时页面滚动被打扰（Firefox/Chrome 行为一致） */
-  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  max-height: 520px;
+  overflow: hidden; /* 内部 list 自己滚 */
 }
 .duplicates-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;      /* flex 滚动容器必需，防 flex item 溢出撑高父级 */
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 .duplicates-group {
   border: 1px solid var(--border, #e5e7eb);
@@ -487,13 +579,42 @@ input.form-input[readonly] {
 .duplicates-item {
   display: flex;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-top: 1px solid var(--rule-hairline, #ebebeb);
   cursor: pointer;
-  align-items: flex-start;
+  align-items: center;
+  position: relative;
+  transition: background 120ms linear;
 }
 .duplicates-item:first-child { border-top: none; }
-.duplicates-item:hover { background: var(--surface-hover, #f5f7fa); }
+.duplicates-item:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.1));
+}
+.duplicates-item:active {
+  background: var(--surface-active, rgba(148, 163, 184, 0.18));
+}
+/* 勾选态：左侧彩条 + 柔和背景，与单纯 hover 明显区分 */
+.duplicates-item:has(input.duplicates-checkbox:checked),
+.duplicates-item:has(input.dl-checkbox:checked) {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.1));
+}
+.duplicates-item:has(input.duplicates-checkbox:checked)::before,
+.duplicates-item:has(input.dl-checkbox:checked)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent, #5e6ad2);
+}
+/* checkbox 大小提升，与行对齐；加透明"命中区" label 的直觉 */
+.duplicates-item > input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+}
 .duplicates-item-body { flex: 1; min-width: 0; }
 .duplicates-item-title {
   font-size: 13px;

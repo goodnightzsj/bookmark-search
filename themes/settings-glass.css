@@ -129,10 +129,6 @@ body {
   transition: box-shadow 260ms var(--motion-spring), transform 260ms var(--motion-spring);
 }
 
-/* Liquid-glass 版式：卡片轻微水平错位，模拟浮动玻璃片层叠 */
-.card:nth-child(even) { transform: translateX(6px); }
-.card:nth-child(odd)  { transform: translateX(-6px); }
-
 .card:hover {
   transform: translateY(-2px);
   box-shadow:
@@ -140,16 +136,6 @@ body {
     0 16px 40px rgba(44, 62, 80, 0.18),
     0 40px 80px rgba(44, 62, 80, 0.24),
     var(--glass-inner-highlight);
-}
-.card:nth-child(even):hover { transform: translate(6px, -2px); }
-.card:nth-child(odd):hover  { transform: translate(-6px, -2px); }
-
-@media (max-width: 720px) {
-  /* 窄屏恢复对齐，避免小屏破坏布局 */
-  .card:nth-child(even),
-  .card:nth-child(odd) { transform: none; }
-  .card:nth-child(even):hover,
-  .card:nth-child(odd):hover { transform: translateY(-2px); }
 }
 
 .stat-card,

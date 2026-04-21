@@ -5,6 +5,8 @@ import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpda
 import { bindDuplicatesEvents } from './settings-duplicates.js';
 import { bindDeadlinkEvents } from './settings-deadlinks.js';
 import { enhanceAllCustomSelects } from './custom-select.js';
+// bs-dialog 自挂 window.__bsConfirm / __bsAlert，供各子模块使用
+import './bs-dialog.js';
 
 console.log("[Settings] settings.js 开始加载 (主入口)");
 

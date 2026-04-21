@@ -161,9 +161,10 @@ export function bindHistoryEvents() {
   if (clearHistoryBtn) {
     clearHistoryBtn.addEventListener('click', async () => {
       console.log("[Settings] 清空历史记录");
-      if (!confirm('确定要清空所有书签更新历史记录吗？')) {
-        return;
-      }
+      const confirmed = await (window.__bsConfirm
+        ? window.__bsConfirm('确定要清空所有书签更新历史记录吗？', { tone: 'danger', confirmText: '清空' })
+        : Promise.resolve(confirm('确定要清空所有书签更新历史记录吗？')));
+      if (!confirmed) return;
 
       try {
         // 通知 background 清空历史（同步内存和存储）
@@ -175,7 +176,8 @@ export function bindHistoryEvents() {
         console.log("[Settings] 历史记录已清空");
       } catch (error) {
         console.error("[Settings] 清空历史记录失败:", error);
-        alert('清空失败：' + error.message);
+        if (window.__bsAlert) window.__bsAlert('清空失败：' + error.message, { tone: 'danger' });
+        else alert('清空失败：' + error.message);
       }
     });
   }
@@ -420,17 +422,19 @@ export function getExportableHistoryItems(items) {
 // 导出选中的书签
 async function exportSelectedBookmarks() {
   if (selectedItems.size === 0) {
-    alert('请先选择要导出的书签');
+    if (window.__bsAlert) window.__bsAlert('请先选择要导出的书签', { tone: 'warning' });
+    else alert('请先选择要导出的书签');
     return;
   }
-  
+
   // 获取选中的历史记录
   const selectedHistory = getExportableHistoryItems(
     currentHistory.filter(item => item && selectedItems.has(getHistoryItemKey(item)))
   );
-  
+
   if (selectedHistory.length === 0) {
-    alert('选中的记录中没有可导出的书签');
+    if (window.__bsAlert) window.__bsAlert('选中的记录中没有可导出的书签');
+    else alert('选中的记录中没有可导出的书签');
     return;
   }
 

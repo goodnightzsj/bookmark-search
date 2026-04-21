@@ -1143,3 +1143,92 @@
     transform: none !important;
   }
 }
+
+/* =============================================================
+ * overlay 内置 confirm 对话框：主题自适应（继承 overlay 变量）
+ * 用于 content.js 内删除确认，替代 window.confirm 的原生气泡
+ * ============================================================= */
+.bookmark-search-overlay .bs-inline-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  border-radius: inherit;
+}
+.bookmark-search-overlay .bs-inline-dialog-overlay.is-visible { opacity: 1; }
+.bookmark-search-overlay .bs-inline-dialog-box {
+  width: min(400px, calc(100% - 40px));
+  background: var(--overlay-card-bg, #ffffff);
+  color: var(--overlay-title, #0f1419);
+  border: 1px solid var(--overlay-border, rgba(0, 0, 0, 0.08));
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25);
+  transform: translateY(4px) scale(0.98);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  font-family: inherit;
+}
+.bookmark-search-overlay .bs-inline-dialog-overlay.is-visible .bs-inline-dialog-box {
+  transform: translateY(0) scale(1);
+}
+.bookmark-search-overlay .bs-inline-dialog-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.bookmark-search-overlay .bs-inline-dialog-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--overlay-subtitle, #5c6573);
+  margin-bottom: 18px;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.bookmark-search-overlay .bs-inline-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.bookmark-search-overlay .bs-inline-dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms linear, border-color 120ms linear;
+}
+.bookmark-search-overlay .bs-inline-dialog-btn-secondary {
+  background: transparent;
+  border-color: var(--overlay-border, rgba(0, 0, 0, 0.12));
+  color: inherit;
+}
+.bookmark-search-overlay .bs-inline-dialog-btn-secondary:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+.bookmark-search-overlay .bs-inline-dialog-btn-primary {
+  background: var(--overlay-accent, #5e6ad2);
+  color: #ffffff;
+}
+.bookmark-search-overlay .bs-inline-dialog-btn-primary:hover {
+  filter: brightness(1.05);
+}
+.bookmark-search-overlay .bs-inline-dialog-btn-danger {
+  background: #dc2626;
+}
+.bookmark-search-overlay .bs-inline-dialog-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.4);
+}

@@ -610,6 +610,61 @@ function createSearchUI() {
     imeSuppressEnterUntil = 0;
   });
 
+  // overlay 内置主题化确认框（替代 window.confirm），使用当前 overlay 的 data-bs-theme
+  function bsOverlayConfirm(message, opts) {
+    return new Promise((resolve) => {
+      const host = searchOverlay || document.body;
+      if (!host) { resolve(false); return; }
+      const backdrop = document.createElement('div');
+      backdrop.className = 'bs-inline-dialog-overlay';
+      const box = document.createElement('div');
+      box.className = 'bs-inline-dialog-box';
+      const title = document.createElement('div');
+      title.className = 'bs-inline-dialog-title';
+      title.textContent = (opts && opts.title) || '请确认';
+      const body = document.createElement('div');
+      body.className = 'bs-inline-dialog-body';
+      body.textContent = String(message || '');
+      const actions = document.createElement('div');
+      actions.className = 'bs-inline-dialog-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'bs-inline-dialog-btn bs-inline-dialog-btn-secondary';
+      cancelBtn.textContent = (opts && opts.cancelText) || '取消';
+      const okBtn = document.createElement('button');
+      okBtn.type = 'button';
+      okBtn.className = 'bs-inline-dialog-btn bs-inline-dialog-btn-primary'
+        + (opts && opts.tone === 'danger' ? ' bs-inline-dialog-btn-danger' : '');
+      okBtn.textContent = (opts && opts.confirmText) || '确定';
+      actions.appendChild(cancelBtn);
+      actions.appendChild(okBtn);
+      box.appendChild(title);
+      box.appendChild(body);
+      box.appendChild(actions);
+      backdrop.appendChild(box);
+      host.appendChild(backdrop);
+
+      let closed = false;
+      const finish = (val) => {
+        if (closed) return;
+        closed = true;
+        try { document.removeEventListener('keydown', onKey, true); } catch (e) {}
+        try { backdrop.parentNode && backdrop.parentNode.removeChild(backdrop); } catch (e) {}
+        resolve(!!val);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(true); }
+      };
+      document.addEventListener('keydown', onKey, true);
+      okBtn.addEventListener('click', () => finish(true));
+      cancelBtn.addEventListener('click', () => finish(false));
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(false); });
+      requestAnimationFrame(() => backdrop.classList.add('is-visible'));
+      setTimeout(() => cancelBtn.focus(), 0);
+    });
+  }
+
   // 点击遮罩关闭搜索框
   searchOverlay.addEventListener("click", (e) => {
     if (e.target !== searchOverlay) return;
@@ -2524,9 +2579,9 @@ function displayResults(results, options) {
     }
   }
 
-  // 启发式判断：Chrome _favicon 服务对无图标站点返回默认地球图标
-  // （灰/白圆+地球线条），img.onload 会正常触发使得 fallback 不生效。
-  // 通过 canvas 采样识别：4 角几乎透明 + 中心低饱和 + 全图颜色种类极少。
+  // 启发式判断：Chrome _favicon 服务对无图标站点返回默认占位（灰地球 / 书页 / 文档 等）
+  // 这些占位 img.onload 正常触发，原始 onerror 兜底不生效。
+  // 改为整体统计：颜色饱和度 + 色彩种类 + 色彩集中度，三个条件综合判断。
   function isLikelyDefaultGlobeFavicon(img) {
     if (!img || !img.naturalWidth || !img.naturalHeight) return false;
     try {
@@ -2544,29 +2599,39 @@ function displayResults(results, options) {
       } catch (e) {
         return false; // cross-origin tainting
       }
-      // 1) 四角必须基本透明（默认地球是圆形，四角空）
-      var corners = [0, (N - 1) * 4, (N * (N - 1)) * 4, (N * N - 1) * 4];
-      var transparentCorners = 0;
-      for (var ci = 0; ci < corners.length; ci++) {
-        if (data[corners[ci] + 3] < 40) transparentCorners++;
-      }
-      if (transparentCorners < 3) return false;
-      // 2) 中心颜色低饱和（默认是灰 / 浅蓝灰）
-      var cIdx = ((N >> 1) * N + (N >> 1)) * 4;
-      var cR = data[cIdx], cG = data[cIdx + 1], cB = data[cIdx + 2], cA = data[cIdx + 3];
-      if (cA < 60) return false;
-      var cMax = Math.max(cR, cG, cB), cMin = Math.min(cR, cG, cB);
-      var sat = cMax > 0 ? (cMax - cMin) / cMax : 0;
-      if (sat > 0.35) return false;
-      // 3) 色彩种类稀少（地球图案本质是单色线条 + 渐变）
+      var opaquePixels = 0;
+      var satSum = 0;
       var colors = Object.create(null);
       var uniq = 0;
+      var topCount = 0;
+      var topKey = -1;
       for (var i = 0; i < data.length; i += 4) {
-        if (data[i + 3] < 32) continue;
-        var key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
-        if (!colors[key]) { colors[key] = 1; uniq++; if (uniq > 6) return false; }
+        var a = data[i + 3];
+        if (a < 40) continue;
+        opaquePixels++;
+        var r = data[i], g = data[i + 1], b = data[i + 2];
+        var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        var mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        satSum += mx > 0 ? (mx - mn) / mx : 0;
+        var key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+        if (colors[key]) {
+          colors[key]++;
+        } else {
+          colors[key] = 1;
+          uniq++;
+        }
+        if (colors[key] > topCount) { topCount = colors[key]; topKey = key; }
       }
-      return uniq <= 4;
+      if (opaquePixels < 10) return false; // 图全透明（异常）不当默认
+      var avgSat = satSum / opaquePixels;
+      var topRatio = topCount / opaquePixels;
+      // 判据：
+      //   1) 平均饱和度低（单色占位的典型特征）
+      //   2) 色彩种类 ≤ 8（线稿/渐变默认图标色彩稀疏）
+      //   3) 或单一主色占比 ≥ 65%（纯色填充型）
+      if (avgSat < 0.2 && uniq <= 8) return true;
+      if (avgSat < 0.3 && topRatio >= 0.65) return true;
+      return false;
     } catch (e) {
       return false;
     }
@@ -2815,13 +2880,13 @@ function openAllMultiSelected() {
   hideSearch();
 }
 
-function deleteAllMultiSelected() {
+async function deleteAllMultiSelected() {
   if (multiSelectedIds.size === 0) return;
   const ids = Array.from(multiSelectedIds);
-  if (!window.confirm(`确定删除选中的 ${ids.length} 条书签？此操作会同步删除浏览器书签。`)) return;
+  const ok = await bsOverlayConfirm(`确定删除选中的 ${ids.length} 条书签？此操作会同步删除浏览器书签。`, { tone: 'danger', confirmText: '删除' });
+  if (!ok) return;
   sendMessagePromise({ action: MESSAGE_ACTIONS.DELETE_BOOKMARKS_BATCH, ids })
     .then(() => {
-      // 从当前结果中移除
       filteredResults = filteredResults.filter((bm) => !multiSelectedIds.has(String(bm.id)));
       multiSelectedIds.clear();
       if (selectedIndex >= filteredResults.length) selectedIndex = filteredResults.length - 1;
@@ -3041,15 +3106,14 @@ function revealBookmarkInManager(bookmark) {
   hideSearch();
 }
 
-function deleteBookmarkWithConfirm(bookmark) {
+async function deleteBookmarkWithConfirm(bookmark) {
   const id = bookmark && bookmark.id ? String(bookmark.id) : '';
   const title = bookmark && bookmark.title ? String(bookmark.title) : '';
   if (!id) return;
-  const ok = window.confirm('确定删除「' + (title || bookmark.url) + '」？此操作会在浏览器书签中删除该条目。');
+  const ok = await bsOverlayConfirm('确定删除「' + (title || bookmark.url) + '」？此操作会在浏览器书签中删除该条目。', { tone: 'danger', confirmText: '删除' });
   if (!ok) return;
   sendMessagePromise({ action: MESSAGE_ACTIONS.DELETE_BOOKMARK, id })
     .then(() => {
-      // 从当前结果中移除该项并重渲
       filteredResults = filteredResults.filter((b) => String(b.id) !== id);
       if (selectedIndex >= filteredResults.length) selectedIndex = filteredResults.length - 1;
       displayResults(filteredResults);

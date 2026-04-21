@@ -705,6 +705,7 @@ export async function getRecentOpenedBookmarks({ limit = 10 } = {}) {
 /**
  * URL 归一化：用于重复书签识别
  * - 小写 hostname
+ * - 保留端口（同 IP / host 不同端口是不同服务，不应判为重复）
  * - 去掉 hash
  * - 去掉 URL 末尾多余斜杠（保留根路径 /）
  * - 保留 query string（同一页带不同参数算不同书签）
@@ -715,9 +716,15 @@ function normalizeUrlForDedup(url) {
   try {
     const u = new URL(safe);
     const host = (u.hostname || '').toLowerCase();
+    // 端口：非默认才保留（http 默认 80 / https 默认 443 不写入，减少 a://host/ 与 a://host:80/ 同源不同 key 的误判）
+    let port = u.port || '';
+    if ((u.protocol === 'http:' && port === '80') || (u.protocol === 'https:' && port === '443')) {
+      port = '';
+    }
+    const hostWithPort = port ? `${host}:${port}` : host;
     let path = u.pathname || '/';
     if (path.length > 1 && path.endsWith('/')) path = path.replace(/\/+$/, '') || '/';
-    return `${u.protocol}//${host}${path}${u.search}`;
+    return `${u.protocol}//${hostWithPort}${path}${u.search}`;
   } catch (e) {
     return safe.toLowerCase();
   }

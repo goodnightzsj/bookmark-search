@@ -229,7 +229,10 @@ function wireDeadlinkActions(container) {
       notifySettings('请先勾选要删除的书签', 'warning');
       return;
     }
-    if (!confirm(`确定删除选中的 ${ids.length} 条书签？`)) return;
+    const confirmed = await (window.__bsConfirm
+      ? window.__bsConfirm(`确定删除选中的 ${ids.length} 条书签？`, { tone: 'danger', confirmText: '删除' })
+      : Promise.resolve(confirm(`确定删除选中的 ${ids.length} 条书签？`)));
+    if (!confirmed) return;
     try {
       const resp = assertSuccessfulMessageResponse(
         await chrome.runtime.sendMessage({ action: MESSAGE_ACTIONS.DELETE_BOOKMARKS_BATCH, ids }),

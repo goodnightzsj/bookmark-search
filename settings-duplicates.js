@@ -150,7 +150,10 @@ async function deleteSelected(container) {
     notifySettings('请先勾选要删除的书签', 'warning');
     return;
   }
-  if (!confirm(`确定删除选中的 ${ids.length} 条书签？浏览器书签中会被同步移除。`)) return;
+  const confirmed = await (window.__bsConfirm
+    ? window.__bsConfirm(`确定删除选中的 ${ids.length} 条书签？浏览器书签中会被同步移除。`, { tone: 'danger', confirmText: '删除' })
+    : Promise.resolve(confirm(`确定删除选中的 ${ids.length} 条书签？浏览器书签中会被同步移除。`)));
+  if (!confirmed) return;
 
   try {
     const resp = assertSuccessfulMessageResponse(

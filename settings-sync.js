@@ -186,9 +186,10 @@ export function bindSyncEvents() {
   const clearFaviconCacheBtn = document.getElementById('clearFaviconCache');
   if (clearFaviconCacheBtn) {
     clearFaviconCacheBtn.addEventListener('click', async () => {
-      if (!confirm('确定要清除扩展内置的 icon / favicon 缓存吗？\n\n清除后，下次搜索时图标会重新从浏览器缓存或网络抓取，首次可能略慢。')) {
-        return;
-      }
+      const confirmed = await (window.__bsConfirm
+        ? window.__bsConfirm('确定要清除扩展内置的 icon / favicon 缓存吗？\n清除后，下次搜索时图标会重新从浏览器缓存或网络抓取，首次可能略慢。', { confirmText: '清除' })
+        : Promise.resolve(confirm('确定要清除扩展内置的 icon / favicon 缓存吗？')));
+      if (!confirmed) return;
       const btn = clearFaviconCacheBtn;
       const label = btn.querySelector('.btn-text');
       const originalText = label ? label.textContent : '';
