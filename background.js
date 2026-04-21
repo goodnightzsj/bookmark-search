@@ -5,18 +5,23 @@ import { ALARM_NAMES, MESSAGE_ACTIONS } from './constants.js';
 import { idbGet, idbSet } from './idb-service.js';
 import { SPECIAL_PROTOCOLS } from './utils.js';
 import { ensureInit } from './lifecycle.js';
-import { installBadgeListeners } from './background-badge.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('Background');
 log.info('Service Worker 启动');
 
-// 扩展图标 badge：当前页是否已收藏
-installBadgeListeners();
-
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
   log.info("扩展已安装/更新:", details.reason);
+  // v2.x 起不再在扩展 icon 上标识书签状态；升级后清掉旧版残留的 per-tab icon / badge
+  try {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all((tabs || []).map(async (t) => {
+      if (!t || typeof t.id !== 'number') return;
+      try { await chrome.action.setBadgeText({ tabId: t.id, text: '' }); } catch (e) {}
+      try { await chrome.action.setIcon({ tabId: t.id, path: { 16: 'icon16.png', 48: 'icon48.png', 128: 'icon128.png' } }); } catch (e) {}
+    }));
+  } catch (e) {}
   await ensureInit();
 });
 
