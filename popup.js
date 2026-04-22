@@ -48,11 +48,17 @@ function setBookmarkButtonDisabled(disabled) {
 
 async function refreshBookmarkButtonState() {
   const btn = document.getElementById('toggleBookmark');
-  if (!btn || !currentTab || !currentTab.url) return;
+  if (!btn) return;
+  const label = btn.querySelector('.btn-text');
+  // 特殊页面 / 无 URL：重置到初态 label，避免显示上次的"已收藏/已取消收藏"残影
+  if (!currentTab || !currentTab.url) {
+    if (label) label.textContent = '收藏此页';
+    btn.dataset.bookmarked = '0';
+    return;
+  }
   try {
     const results = await chrome.bookmarks.search({ url: currentTab.url });
     const bookmarked = Array.isArray(results) && results.length > 0;
-    const label = btn.querySelector('.btn-text');
     if (label) label.textContent = bookmarked ? '取消收藏' : '收藏此页';
     btn.dataset.bookmarked = bookmarked ? '1' : '0';
   } catch (e) {}

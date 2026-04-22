@@ -106,6 +106,9 @@ export function openResultModal(opts = {}) {
   }
 
   const onKey = (e) => {
+    // 让位原则：如果上面还叠着 bs-dialog（confirm/alert），Escape 应该先关那层；
+    // bs-dialog 叠在 modal 上时，z-index 更高，事件应由它消费，modal 不插手。
+    if (document.querySelector('.bs-dialog-overlay.is-visible')) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
