@@ -1782,6 +1782,18 @@ function updateSelection(options) {
 
 	  if (token !== faviconRenderToken) return;
 
+	  // 统一兜底工具：任何无法拿到真实 favicon 的 domain，都把该 domain 对应的所有 img 换成 monogram
+	  // （而不是留灰色 defaultIcon 作为最终态）
+	  function fallbackToMonogramForDomain(domain) {
+	    if (!domain) return;
+	    const images = domainToImages[domain];
+	    if (!Array.isArray(images) || images.length === 0) return;
+	    const safeDomain = normalizeFaviconDomain(domain) || domain;
+	    const monogram = buildMonogramDataUrl(safeDomain);
+	    if (!monogram) return;
+	    applyFaviconToImages(images, monogram, token);
+	  }
+
 	  // 应用 IDB 命中 + 收集仍未命中的 domain
 	  const missing = [];
 	  const failureCooldownDomains = Object.create(null);
@@ -1796,6 +1808,8 @@ function updateSelection(options) {
 	    if (isPersistedFailureEntry(persistedEntry)) {
 	      failureCooldownDomains[domain] = persistedEntry.retryAt;
 	      faviconDebugLog('failure cooldown hit', { domain: domain, retryAt: persistedEntry.retryAt });
+	      // Bug fix: 冷却期的 domain 应该直接显示 monogram，而不是残留默认灰圆
+	      fallbackToMonogramForDomain(domain);
 	      continue;
 	    }
 	    missing.push(domain);
@@ -1808,7 +1822,11 @@ function updateSelection(options) {
 	    const domain = missing[i];
 	    const pageUrl = domainToPageUrl[domain] || ("https://" + domain);
 	    const extUrl = buildExtensionFaviconUrl(pageUrl, 32);
-	    if (!extUrl) continue;
+	    if (!extUrl) {
+	      // Bug fix: _favicon URL 构建失败（chrome.runtime 不可用等极端场景）也要兜底 monogram
+	      fallbackToMonogramForDomain(domain);
+	      continue;
+	    }
 	    setFaviconCache(domain, extUrl);
 	    applyFaviconToImages(domainToImages[domain], extUrl, token);
 	    // 持久化 pageUrl（不持久化 extUrl，因为里面含扩展 ID 不稳定）
@@ -1839,6 +1857,9 @@ function updateSelection(options) {
 	            if (safeUrl.startsWith('http://') || safeUrl.startsWith('https://')) {
 	              queuePersistFavicon(domain, safeUrl);
 	            }
+	          } else {
+	            // Bug fix: 私有主机找不到 favicon 时兜底 monogram，不残留 defaultIcon
+	            fallbackToMonogramForDomain(domain);
 	          }
 	          resolve();
 	        }, { allowBrowserCache: false, allowExternal: false, allowLocal: true });
