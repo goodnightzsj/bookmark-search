@@ -2318,7 +2318,36 @@ function escapeRegExp(source) {
   return String(source || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// 将 text 中命中 currentQueryTokens 的片段包裹成 <mark>，其余用 text 节点
+// 片段上下文高亮参数
+const HIGHLIGHT_LONG_THRESHOLD = 80; // 文本短于该长度：全量渲染，不做窗口化
+const HIGHLIGHT_CONTEXT_PAD = 20;    // 命中前后各保留多少字符作为上下文
+const HIGHLIGHT_ELLIPSIS = '…';
+
+// 渲染指定窗口 [winStart, winEnd) 的文本，内部的 matches 用 <mark> 包裹
+function renderSegmentsInto(frag, text, winStart, winEnd, matches) {
+  let cursor = winStart;
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    if (m.end <= winStart) continue;
+    if (m.start >= winEnd) break;
+    const mStart = Math.max(m.start, winStart);
+    const mEnd = Math.min(m.end, winEnd);
+    if (cursor < mStart) {
+      frag.appendChild(document.createTextNode(text.slice(cursor, mStart)));
+    }
+    const mark = document.createElement('mark');
+    mark.className = 'bs-mark';
+    mark.textContent = text.slice(mStart, mEnd);
+    frag.appendChild(mark);
+    cursor = mEnd;
+  }
+  if (cursor < winEnd) {
+    frag.appendChild(document.createTextNode(text.slice(cursor, winEnd)));
+  }
+}
+
+// 将 text 中命中 currentQueryTokens 的片段包裹成 <mark>；
+// 文本超长时只展示命中位置 ±HIGHLIGHT_CONTEXT_PAD 字符，窗口间用省略号隔开
 function renderHighlightedText(text) {
   const safeText = String(text == null ? '' : text);
   const tokens = Array.isArray(currentQueryTokens) ? currentQueryTokens.filter(Boolean) : [];
@@ -2328,24 +2357,55 @@ function renderHighlightedText(text) {
     frag.appendChild(document.createTextNode(safeText));
     return frag;
   }
+
+  // 先收集所有匹配位置
   const pattern = new RegExp('(' + tokens.map(escapeRegExp).join('|') + ')', 'gi');
-  let lastIdx = 0;
-  let match;
+  const matches = [];
   pattern.lastIndex = 0;
+  let match;
   while ((match = pattern.exec(safeText)) !== null) {
-    if (match.index > lastIdx) {
-      frag.appendChild(document.createTextNode(safeText.slice(lastIdx, match.index)));
-    }
-    const mark = document.createElement('mark');
-    mark.className = 'bs-mark';
-    mark.textContent = match[0];
-    frag.appendChild(mark);
-    lastIdx = pattern.lastIndex;
-    // 避免零宽匹配导致死循环
+    matches.push({ start: match.index, end: pattern.lastIndex });
+    // 零宽匹配保护
     if (match.index === pattern.lastIndex) pattern.lastIndex++;
   }
-  if (lastIdx < safeText.length) {
-    frag.appendChild(document.createTextNode(safeText.slice(lastIdx)));
+
+  // 短文本 / 无命中：全量渲染（保持原行为）
+  if (safeText.length <= HIGHLIGHT_LONG_THRESHOLD || matches.length === 0) {
+    renderSegmentsInto(frag, safeText, 0, safeText.length, matches);
+    return frag;
+  }
+
+  // 合并窗口：相邻或重叠的 [start-pad, end+pad] 段合为一个
+  const windows = [];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const s = Math.max(0, m.start - HIGHLIGHT_CONTEXT_PAD);
+    const e = Math.min(safeText.length, m.end + HIGHLIGHT_CONTEXT_PAD);
+    const last = windows[windows.length - 1];
+    if (last && s <= last.end) {
+      if (e > last.end) last.end = e;
+    } else {
+      windows.push({ start: s, end: e });
+    }
+  }
+
+  // 窗口已覆盖绝大部分文本（≥80%）→ 直接全量渲染，避免首尾省略号造成的阅读干扰
+  let covered = 0;
+  for (let i = 0; i < windows.length; i++) covered += windows[i].end - windows[i].start;
+  if (covered / safeText.length >= 0.8) {
+    renderSegmentsInto(frag, safeText, 0, safeText.length, matches);
+    return frag;
+  }
+
+  // 窗口片段串联 + 省略号
+  if (windows[0].start > 0) frag.appendChild(document.createTextNode(HIGHLIGHT_ELLIPSIS));
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i];
+    renderSegmentsInto(frag, safeText, w.start, w.end, matches);
+    if (i + 1 < windows.length) frag.appendChild(document.createTextNode(HIGHLIGHT_ELLIPSIS));
+  }
+  if (windows[windows.length - 1].end < safeText.length) {
+    frag.appendChild(document.createTextNode(HIGHLIGHT_ELLIPSIS));
   }
   return frag;
 }
