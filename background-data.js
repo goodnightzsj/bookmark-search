@@ -110,14 +110,41 @@ function buildSearchBigramIndex(documents) {
   return idx;
 }
 
+// 搜索路径只读：已建好就用；没建好就返回 null（caller 回退到全扫，~30ms@50k 可接受）。
+// 绝不在用户搜索路径里同步构建——50k 书签 sync build ~2.5s 会阻塞 SW 和所有消息处理。
 function ensureSearchBigramIndex(documents) {
-  if (searchBigramIndex) return searchBigramIndex;
-  searchBigramIndex = buildSearchBigramIndex(documents);
   return searchBigramIndex;
 }
 
+// 让 invalidate 同时推进 build token，任何正在跑的 chunked build 发现 token 变化即丢弃结果
+let searchIndexBuildToken = 0;
 function invalidateSearchIndex() {
   searchBigramIndex = null;
+  searchIndexBuildToken++;
+}
+
+// 分块异步构建：每 2000 doc 让一次事件循环，避免 SW 主线程被长时间阻塞
+async function buildSearchBigramIndexChunked(documents, token) {
+  const idx = new Map();
+  const list = Array.isArray(documents) ? documents : [];
+  const CHUNK = 2000;
+  for (let start = 0; start < list.length; start += CHUNK) {
+    if (token !== searchIndexBuildToken) return null;
+    const end = Math.min(start + CHUNK, list.length);
+    for (let i = start; i < end; i++) {
+      const doc = list[i];
+      if (!doc) continue;
+      addBigramsForDoc(idx, i, doc.title);
+      addBigramsForDoc(idx, i, doc.subtitle);
+      addBigramsForDoc(idx, i, doc.url);
+      addBigramsForDoc(idx, i, doc.pinyinFull);
+      addBigramsForDoc(idx, i, doc.pinyinInitials);
+    }
+    if (end < list.length) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  return (token === searchIndexBuildToken) ? idx : null;
 }
 
 // 书签变化历史
@@ -489,17 +516,24 @@ let searchIndexWarmupScheduled = false;
 function scheduleSearchIndexWarmup() {
   if (searchIndexWarmupScheduled) return;
   searchIndexWarmupScheduled = true;
-  const run = () => {
+  const run = async () => {
     searchIndexWarmupScheduled = false;
     const docs = getRuntimeDocuments();
     if (docs.length < 200) return; // 小库全量扫够快，不用索引
-    try { ensureSearchBigramIndex(docs); } catch (e) {}
+    try {
+      const token = searchIndexBuildToken;
+      const idx = await buildSearchBigramIndexChunked(docs, token);
+      if (idx && token === searchIndexBuildToken) {
+        searchBigramIndex = idx;
+      }
+    } catch (e) {}
   };
-  // SW 环境可能无 requestIdleCallback，fallback 到 setTimeout
+  // 不再延迟 500ms，分块构建本身就不阻塞主线程
   if (typeof requestIdleCallback === 'function') {
-    requestIdleCallback(run, { timeout: 2000 });
+    requestIdleCallback(() => run(), { timeout: 2000 });
   } else {
-    setTimeout(run, 500);
+    // 用 microtask 立即开始，首 chunk 在下一 tick 执行
+    Promise.resolve().then(run);
   }
 }
 
@@ -1833,6 +1867,34 @@ export function __getBackgroundDataInternalsForTests() {
     runtimeLastSyncTime,
     bookmarkHistory: Array.isArray(bookmarkHistory) ? bookmarkHistory.slice() : []
   };
+}
+
+// Bench/test 专用：直接喂 bookmark 列表 → 走 mapBookmarkToSearchDocument + 建索引，
+// 不经 chrome.bookmarks / chrome.storage / IDB。
+export function __seedRuntimeDocumentsFromBookmarksForTests(bookmarks) {
+  const docs = [];
+  const list = Array.isArray(bookmarks) ? bookmarks : [];
+  for (let i = 0; i < list.length; i++) {
+    const d = mapBookmarkToSearchDocument(list[i]);
+    if (d) docs.push(d);
+  }
+  setRuntimeDocuments(docs);
+  rebuildBookmarkIndex();
+  isCacheLoaded = true;
+  runtimeCacheTtlLoaded = true;
+  runtimeCacheTtlMinutes = 30;
+  runtimeLastSyncTime = Date.now();
+  return docs.length;
+}
+
+// bench 用：同步强制构建 bigram index（正式路径是 chunked async；bench 要测量 index 命中后的搜索延迟）
+export function __buildSearchBigramIndexSyncForTests() {
+  searchBigramIndex = buildSearchBigramIndex(getRuntimeDocuments());
+}
+
+// 暴露内部 searchDocuments 供 bench 直接调用（不经 searchBookmarks 的 storage 前置检查）
+export function __searchDocumentsForTests(query, limit) {
+  return searchDocuments(getRuntimeDocuments(), query, limit);
 }
 
 function resolveClearHistoryWaiters(result) {
