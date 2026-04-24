@@ -1,4 +1,4 @@
-import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks, findDuplicateBookmarks, getOpenStatsDigest } from './background-data.js';
+import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks, findDuplicateBookmarks, getOpenStatsDigest, getSpeedDialItems } from './background-data.js';
 import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES, FAVICON_CONFIG } from './constants.js';
@@ -574,6 +574,17 @@ export function handleMessage(request, sender, sendResponse) {
           sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
         }
       });
+    }
+
+    case MESSAGE_ACTIONS.GET_SPEED_DIAL: {
+      const limit = typeof request.limit === 'number' ? request.limit : undefined;
+      return initThen(() =>
+        getSpeedDialItems({ limit })
+          .then((items) => sendOkResponse(sendResponse, { items: Array.isArray(items) ? items : [] }))
+          .catch((error) => {
+            sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+          })
+      );
     }
 
     case MESSAGE_ACTIONS.PROBE_URL_REACHABILITY: {

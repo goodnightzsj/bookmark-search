@@ -41,6 +41,7 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, 'popup.html'),
         settings: resolve(__dirname, 'settings.html'),
+        newtab: resolve(__dirname, 'newtab.html'),
         background: resolve(__dirname, 'background.js'),
         content: resolve(__dirname, 'content.js'),
       },

@@ -338,6 +338,57 @@ function computeOpenStatsScoreBonus(url, nowTs) {
 }
 
 /**
+ * 新标签页 Speed Dial 数据源：按访问频次排 TOP，不够时用最近添加的书签补齐
+ * @param {{ limit?: number }} opts
+ */
+export async function getSpeedDialItems(opts = {}) {
+  const limit = Math.max(1, Math.min(24, Math.floor(opts.limit || 12)));
+
+  const docs = getRuntimeDocuments();
+  const docByUrl = new Map();
+  for (const doc of docs) {
+    if (doc && doc.url && !docByUrl.has(doc.url)) docByUrl.set(doc.url, doc);
+  }
+
+  const picked = [];
+  const usedUrls = new Set();
+
+  // 1) openStats 里 count > 0 的 URL，按 count × recency 排
+  const statEntries = [];
+  for (const [url, info] of openStatsByUrl.entries()) {
+    if (!info || !info.count) continue;
+    if (!docByUrl.has(url)) continue;
+    statEntries.push({ url, count: info.count, lastAt: info.lastAt || 0 });
+  }
+  statEntries.sort((a, b) => (b.count - a.count) || (b.lastAt - a.lastAt));
+  for (let i = 0; i < statEntries.length && picked.length < limit; i++) {
+    const entry = statEntries[i];
+    const bm = mapSearchDocumentToBookmark(docByUrl.get(entry.url));
+    if (!bm) continue;
+    picked.push({ ...bm, count: entry.count, lastAt: entry.lastAt, source: 'opens' });
+    usedUrls.add(entry.url);
+  }
+
+  // 2) 不足：用最近添加的书签补（dateAdded 倒序）
+  if (picked.length < limit) {
+    const recentDocs = docs
+      .filter((d) => d && d.url && !usedUrls.has(d.url))
+      .sort((a, b) => {
+        const av = (a && a.updatedAt) || 0;
+        const bv = (b && b.updatedAt) || 0;
+        return bv - av;
+      });
+    for (let i = 0; i < recentDocs.length && picked.length < limit; i++) {
+      const bm = mapSearchDocumentToBookmark(recentDocs[i]);
+      if (!bm) continue;
+      picked.push({ ...bm, count: 0, lastAt: 0, source: 'recent' });
+    }
+  }
+
+  return picked;
+}
+
+/**
  * 供设置页"访问热度"视图使用：TOP / 久未访问
  * @param {{ topN?: number, staleN?: number, staleDaysThreshold?: number }} opts
  */
