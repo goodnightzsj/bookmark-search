@@ -32,6 +32,12 @@
   --shadow-sm: 0 6px 16px rgba(44, 62, 80, 0.1);
   --scrollbar-thumb: rgba(255, 255, 255, 0.45);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.65);
+
+  /* 共享组件别名：dup-modal / bs-dialog / custom-select 用的通用变量 */
+  --card-bg: var(--glass-bg-elevated);
+  --surface-hover: rgba(255, 255, 255, 0.32);
+  --surface-active: rgba(255, 255, 255, 0.48);
+  --surface-subtle: rgba(255, 255, 255, 0.14);
 }
 
 /* glass 下 sidebar：保持和其他主题一致的胶囊结构（无边框 + 仅背景变化），

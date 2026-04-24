@@ -33,6 +33,13 @@
   --radius-sm: 0;
   --scrollbar-thumb: rgba(10, 10, 10, 0.4);
   --scrollbar-thumb-hover: rgba(10, 10, 10, 0.75);
+
+  /* 共享组件别名：dup-modal / bs-dialog / custom-select 等 */
+  --card-bg: var(--paper);
+  --border: var(--border-color);
+  --surface-hover: var(--bg-hover);
+  --surface-active: var(--bg-subtle);
+  --surface-subtle: var(--bg-subtle);
 }
 
 body {

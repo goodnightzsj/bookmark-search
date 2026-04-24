@@ -22,6 +22,12 @@
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
   --scrollbar-thumb: rgba(94, 106, 210, 0.32);
   --scrollbar-thumb-hover: rgba(94, 106, 210, 0.55);
+
+  /* 共享组件别名（dup-modal / bs-dialog / custom-select 等） */
+  --text-tertiary: var(--text-muted);
+  --surface-hover: #f5f7fa;
+  --surface-active: #eef1f5;
+  --surface-subtle: rgba(148, 163, 184, 0.06);
 }
 
 body {
