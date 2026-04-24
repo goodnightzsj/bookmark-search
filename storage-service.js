@@ -157,16 +157,6 @@ export async function setStorageOrThrow(data) {
 }
 
 /**
- * 获取单个值（快捷方法）
- * @param {string} key - 键名
- * @returns {Promise<*>} 对应的值
- */
-export async function getValue(key) {
-  const result = await getStorage(key);
-  return result[key];
-}
-
-/**
  * 获取单个值（读取失败时抛错）
  * @param {string} key - 键名
  * @returns {Promise<*>}
@@ -174,14 +164,4 @@ export async function getValue(key) {
 export async function getValueOrThrow(key) {
   const result = await getStorageOrThrow(key);
   return result[key];
-}
-
-/**
- * 设置单个值（快捷方法）
- * @param {string} key - 键名
- * @param {*} value - 值
- * @returns {Promise<boolean>} 是否成功
- */
-export async function setValue(key, value) {
-  return setStorage({ [key]: value });
 }

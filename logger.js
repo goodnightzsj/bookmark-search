@@ -83,7 +83,3 @@ export function createLogger(namespace) {
     }
   };
 }
-
-export function __setDebugForTests(enabled) {
-  applyDebugFlag(enabled === true);
-}
