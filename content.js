@@ -1083,19 +1083,29 @@ function stopFocusEnforcer() {
 }
 
 // 切换搜索界面显示/隐藏
+// 记录上次 toggle 时间，用于 150ms 窗口去重
+// onCommand 同一次触发会发 1~2 个 TOGGLE_SEARCH（先试 sendMessage 失败后 inject 再发一次），
+// 用户快速双击 / Chrome 边界下也可能短时间触发两次，不防抖会出现"闪一下就关"的观感
+let lastToggleAt = 0;
 function toggleSearch() {
   console.log("[Content] toggleSearch 被调用");
-  
+  const nowTs = Date.now();
+  if (nowTs - lastToggleAt < 150) {
+    console.log("[Content] toggleSearch 被节流忽略（<150ms 内重复触发）");
+    return;
+  }
+  lastToggleAt = nowTs;
+
   const displayValue = searchOverlay ? searchOverlay.style.display : "不存在";
   console.log("[Content] searchOverlay 状态:", `display="${displayValue}"`);
-  
-  // 检查是否应该显示：不存在、display为none或空字符串
-  const shouldShow = !searchOverlay || 
-                     searchOverlay.style.display === "none" || 
+
+  // 检查是否应该显示：不存在、display 为 none 或空字符串
+  const shouldShow = !searchOverlay ||
+                     searchOverlay.style.display === "none" ||
                      searchOverlay.style.display === "";
-  
+
   console.log("[Content] 判断结果: shouldShow =", shouldShow);
-  
+
   if (shouldShow) {
     console.log("[Content] 准备显示搜索框");
     showSearch();
