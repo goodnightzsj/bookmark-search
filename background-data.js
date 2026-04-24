@@ -13,6 +13,7 @@ const log = createLogger('Background');
 // 常量定义
 const MAX_HISTORY_ITEMS = 1000;  // 历史记录最大条数（~300KB/1000 条，chrome.storage.local 足够）
 const IDB_KEY_RECENT_OPENED_ROOTS = 'recentOpenedRoots:v1';  // 最近打开过的根域名快照（用于 warmup 优先级，防 SW 重启丢失）
+const IDB_KEY_OPEN_STATS = 'openStats:v1';  // 每 URL 打开次数 + 最近打开时间，用于搜索加权排序
 const DOCUMENT_SOURCE_TYPE = 'bookmark';
 const BOOKMARK_CACHE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 默认主缓存 TTL：30 分钟
 const STALE_REFRESH_MIN_GAP_MS = 30 * 1000; // 过期触发全量刷新的最小间隔
@@ -252,6 +253,146 @@ function persistRecentOpenedRootsToIdb(nowTs = Date.now()) {
   return recentOpenedRootsPersistChain;
 }
 
+// ----------------------------------------------------------------
+// 每 URL 打开统计：{ count, lastAt }，用于搜索结果按"频次 × 时效衰减"加权
+// ----------------------------------------------------------------
+const openStatsByUrl = new Map();
+const OPEN_STATS_MAX = 3000;                       // 上限：3000 条 URL（~100 KB）
+const OPEN_STATS_WINDOW_MS = 180 * 24 * 60 * 60 * 1000; // 180 天未访问自动剪枝
+const OPEN_STATS_DECAY_TAU_MS = 14 * 24 * 60 * 60 * 1000; // 14 天衰减常量（半衰期 ≈ 10 天）
+const OPEN_STATS_MAX_SCORE_BONUS = 200;            // 频次分上限，防止一条超级热门书签挤掉所有其它
+let openStatsPersistChain = Promise.resolve();
+
+function buildOpenStatsSnapshot() {
+  const entries = [];
+  for (const [url, info] of openStatsByUrl.entries()) {
+    if (!url || !info || typeof info.lastAt !== 'number') continue;
+    const count = (typeof info.count === 'number' && Number.isFinite(info.count) && info.count >= 0) ? Math.floor(info.count) : 0;
+    if (count <= 0) continue;
+    entries.push({ url, count, lastAt: info.lastAt });
+  }
+  return entries;
+}
+
+function restoreOpenStatsFromSnapshot(snapshot) {
+  openStatsByUrl.clear();
+  const list = Array.isArray(snapshot) ? snapshot : [];
+  const now = Date.now();
+  const cutoff = now - OPEN_STATS_WINDOW_MS;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (!item || typeof item !== 'object') continue;
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    if (!url) continue;
+    const lastAt = (typeof item.lastAt === 'number' && Number.isFinite(item.lastAt)) ? item.lastAt : 0;
+    if (!lastAt || lastAt < cutoff) continue;
+    const count = (typeof item.count === 'number' && Number.isFinite(item.count) && item.count > 0) ? Math.floor(item.count) : 0;
+    if (count <= 0) continue;
+    openStatsByUrl.set(url, { count, lastAt });
+  }
+}
+
+function persistOpenStatsToIdb() {
+  const snapshot = buildOpenStatsSnapshot();
+  openStatsPersistChain = openStatsPersistChain
+    .catch(() => {})
+    .then(() => idbSet(IDB_KEY_OPEN_STATS, snapshot))
+    .catch((error) => {
+      log.warn('open_stats_persist_failed', { message: error && error.message ? error.message : String(error) });
+    });
+  return openStatsPersistChain;
+}
+
+function bumpOpenStatsForUrl(url, nowTs) {
+  const href = typeof url === 'string' ? url.trim() : '';
+  if (!href) return;
+  const prev = openStatsByUrl.get(href) || { count: 0, lastAt: 0 };
+  openStatsByUrl.set(href, {
+    count: (prev.count || 0) + 1,
+    lastAt: (typeof nowTs === 'number' && nowTs > 0) ? nowTs : Date.now()
+  });
+  pruneOpenStats();
+}
+
+function pruneOpenStats() {
+  if (openStatsByUrl.size <= OPEN_STATS_MAX) return;
+  // 按 "最近访问越久远越先淘汰"（LRU），保留新的
+  const entries = Array.from(openStatsByUrl.entries());
+  entries.sort((a, b) => (b[1].lastAt || 0) - (a[1].lastAt || 0));
+  for (let i = OPEN_STATS_MAX; i < entries.length; i++) {
+    openStatsByUrl.delete(entries[i][0]);
+  }
+}
+
+// 搜索加权：频次 × exp(-Δt/τ)，结果越新越频繁加成越大；上限 OPEN_STATS_MAX_SCORE_BONUS
+function computeOpenStatsScoreBonus(url, nowTs) {
+  const href = typeof url === 'string' ? url : '';
+  if (!href) return 0;
+  const info = openStatsByUrl.get(href);
+  if (!info || !info.count) return 0;
+  const dt = Math.max(0, (nowTs || Date.now()) - (info.lastAt || 0));
+  const decay = Math.exp(-dt / OPEN_STATS_DECAY_TAU_MS);
+  const raw = info.count * decay;
+  // 分数越大在 topK 插入时越靠前（scoreDoc 里是 score 减；这里返回"应减去的值"）
+  return Math.min(OPEN_STATS_MAX_SCORE_BONUS, Math.floor(raw * 10));
+}
+
+/**
+ * 供设置页"访问热度"视图使用：TOP / 久未访问
+ * @param {{ topN?: number, staleN?: number, staleDaysThreshold?: number }} opts
+ */
+export function getOpenStatsDigest(opts = {}) {
+  const topN = Math.max(1, Math.min(50, Math.floor(opts.topN || 20)));
+  const staleN = Math.max(0, Math.min(50, Math.floor(opts.staleN || 20)));
+  const staleThresholdMs = (typeof opts.staleDaysThreshold === 'number' && opts.staleDaysThreshold > 0)
+    ? opts.staleDaysThreshold * 24 * 60 * 60 * 1000
+    : 30 * 24 * 60 * 60 * 1000; // 默认 30 天未访问算 stale
+
+  const now = Date.now();
+  const all = [];
+  for (const [url, info] of openStatsByUrl.entries()) {
+    if (!info || !info.count) continue;
+    all.push({ url, count: info.count, lastAt: info.lastAt || 0 });
+  }
+
+  const docs = getRuntimeDocuments();
+  const docByUrl = new Map();
+  for (const doc of docs) {
+    if (doc && doc.url && !docByUrl.has(doc.url)) docByUrl.set(doc.url, doc);
+  }
+
+  // TOP: 按 count 倒序，附加 title/path
+  const top = all
+    .filter((x) => docByUrl.has(x.url))
+    .sort((a, b) => (b.count - a.count) || (b.lastAt - a.lastAt))
+    .slice(0, topN)
+    .map((x) => {
+      const doc = docByUrl.get(x.url);
+      const bm = mapSearchDocumentToBookmark(doc);
+      return bm ? { ...bm, count: x.count, lastAt: x.lastAt } : null;
+    })
+    .filter(Boolean);
+
+  // 久未访问：有 lastAt 但距今超过阈值；docs 里实际存在的书签
+  const stale = all
+    .filter((x) => docByUrl.has(x.url) && (now - x.lastAt) >= staleThresholdMs)
+    .sort((a, b) => a.lastAt - b.lastAt) // 越老越靠前
+    .slice(0, staleN)
+    .map((x) => {
+      const doc = docByUrl.get(x.url);
+      const bm = mapSearchDocumentToBookmark(doc);
+      return bm ? { ...bm, count: x.count, lastAt: x.lastAt } : null;
+    })
+    .filter(Boolean);
+
+  return {
+    totalTracked: all.length,
+    top,
+    stale,
+    staleDaysThreshold: Math.floor(staleThresholdMs / 86400000)
+  };
+}
+
 
 function rebuildBookmarkIndex() {
   const next = new Map();
@@ -410,6 +551,7 @@ function searchDocuments(documents, query, limit) {
 
   const max = typeof limit === 'number' && limit > 0 ? limit : 10;
   const topK = [];
+  const searchStartedAt = Date.now(); // 打开统计衰减用，一次搜索内复用
 
   // 倒排索引缩圈：把上万书签 × 每 token indexOf 的全量扫描，压缩到候选集合上
   // 小库（< 200）直接扫，索引收益不够
@@ -473,6 +615,11 @@ function searchDocuments(documents, query, limit) {
 
     if (!matched) return;
     if (tokens.length === 1 && titleLower === queryLower) score -= 200;
+
+    // 点击加权：频次 × 时效衰减。score 越小越靠前，因此减去
+    // 相当于给"最近频繁打开的书签"加优先级；旧访问衰减后影响很小。
+    const bonus = computeOpenStatsScoreBonus(doc.url, searchStartedAt);
+    if (bonus > 0) score -= bonus;
 
     if (topK.length < max) {
       let insertIdx = topK.length;
@@ -815,6 +962,13 @@ export async function recordBookmarkOpen(url) {
   if (!root) return;
 
   const nowTs = Date.now();
+
+  // 1) 每 URL 打开统计：用于搜索加权
+  bumpOpenStatsForUrl(href, nowTs);
+  // 持久化到 IDB（串行 chain，不阻塞当前请求）
+  persistOpenStatsToIdb();
+
+  // 2) favicon warmup 用的根域名 map
   const prev = recentOpenedRootMap.get(root) || { count: 0, lastAt: 0, sampleUrl: '' };
   const next = {
     count: (prev.count || 0) + 1,
@@ -1376,6 +1530,16 @@ async function loadCacheFromStorageOnce() {
     log.warn("从 IndexedDB 读取最近打开域名快照失败:", error);
   }
 
+  // 恢复 per-URL 打开统计（加权搜索用）
+  try {
+    const snap = await idbGet(IDB_KEY_OPEN_STATS);
+    if (Array.isArray(snap) && snap.length > 0) {
+      restoreOpenStatsFromSnapshot(snap);
+    }
+  } catch (error) {
+    log.warn('open_stats_restore_failed', { message: error && error.message ? error.message : String(error) });
+  }
+
   // chrome.storage.local: only metadata + history (no full bookmark list)
   const storageRead = await getStorageWithStatus([
     STORAGE_KEYS.BOOKMARK_HISTORY,
@@ -1858,6 +2022,8 @@ export function __resetBackgroundDataForTests() {
   recentOpenedRootMap.clear();
   recentWarmupDomains.clear();
   recentOpenedRootsPersistChain = Promise.resolve();
+  openStatsByUrl.clear();
+  openStatsPersistChain = Promise.resolve();
   setRuntimeDocuments([]);
   rebuildBookmarkIndex();
 }

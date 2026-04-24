@@ -1,4 +1,4 @@
-import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks, findDuplicateBookmarks } from './background-data.js';
+import { getWarmupDomainMap, refreshBookmarks, searchBookmarks, clearHistory, recordBookmarkOpen, getRecentOpenedBookmarks, findDuplicateBookmarks, getOpenStatsDigest } from './background-data.js';
 import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES, FAVICON_CONFIG } from './constants.js';
@@ -561,6 +561,20 @@ export function handleMessage(request, sender, sendResponse) {
             sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
           })
       );
+
+    case MESSAGE_ACTIONS.GET_OPEN_STATS_DIGEST: {
+      const topN = typeof request.topN === 'number' ? request.topN : undefined;
+      const staleN = typeof request.staleN === 'number' ? request.staleN : undefined;
+      const staleDaysThreshold = typeof request.staleDaysThreshold === 'number' ? request.staleDaysThreshold : undefined;
+      return initThen(() => {
+        try {
+          const digest = getOpenStatsDigest({ topN, staleN, staleDaysThreshold });
+          sendOkResponse(sendResponse, digest);
+        } catch (error) {
+          sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INTERNAL_ERROR, normalizeUnknownError(error));
+        }
+      });
+    }
 
     case MESSAGE_ACTIONS.PROBE_URL_REACHABILITY: {
       // SW 里探测 URL 可达性。算法：

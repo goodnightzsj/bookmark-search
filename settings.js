@@ -4,6 +4,7 @@ import { loadSyncSettings, loadBookmarkStats, bindSyncEvents } from './settings-
 import { loadUpdateHistory, bindHistoryEvents, clearUpdateNotification, showUpdateNotification } from './settings-history.js';
 import { bindDuplicatesEvents } from './settings-duplicates.js';
 import { bindDeadlinkEvents } from './settings-deadlinks.js';
+import { bindOpenStatsEvents } from './settings-openstats.js';
 import { enhanceAllCustomSelects } from './custom-select.js';
 // bs-dialog 自挂 window.__bsConfirm / __bsAlert，供各子模块使用
 import './bs-dialog.js';
@@ -83,6 +84,7 @@ function bindAllEvents() {
   bindHistoryEvents();
   bindDuplicatesEvents();
   bindDeadlinkEvents();
+  bindOpenStatsEvents();
   bindSidebarNav();
 }
 

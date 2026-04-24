@@ -39,7 +39,8 @@ export const MESSAGE_ACTIONS = {
   REVEAL_BOOKMARK: 'revealBookmark',
   FIND_DUPLICATE_BOOKMARKS: 'findDuplicateBookmarks',
   TOGGLE_CURRENT_BOOKMARK: 'toggleCurrentBookmark',
-  PROBE_URL_REACHABILITY: 'probeUrlReachability'
+  PROBE_URL_REACHABILITY: 'probeUrlReachability',
+  GET_OPEN_STATS_DIGEST: 'getOpenStatsDigest'
 };
 
 export const MESSAGE_ACTION_VALUES = Object.freeze(Object.values(MESSAGE_ACTIONS));
