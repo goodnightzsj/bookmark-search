@@ -1349,9 +1349,31 @@ function updateSelection(options) {
 	  bar.classList.toggle('is-active', !!visible);
 	}
 
+	// 扩展重载 / 更新 / 卸载后，老内容脚本的 runtime 会被失效；chrome.runtime.id 变 undefined。
+	// 此时任何 sendMessage 都会抛 "Extension context invalidated."，没有办法恢复，
+	// 只能停止一切与 background 的通信并静默，不再刷 console warn。
+	let extensionContextAlive = true;
+	function isExtensionContextAlive() {
+	  if (!extensionContextAlive) return false;
+	  try {
+	    if (chrome && chrome.runtime && chrome.runtime.id) return true;
+	  } catch (e) {}
+	  extensionContextAlive = false;
+	  return false;
+	}
+	function isExtensionContextError(err) {
+	  const msg = err && err.message ? String(err.message) : String(err || '');
+	  return msg.indexOf('Extension context invalidated') !== -1;
+	}
+
 	function sendMessagePromise(message, timeoutMs) {
 	  const limit = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 30000;
 	  return new Promise((resolve, reject) => {
+	    if (!isExtensionContextAlive()) {
+	      // 扩展已重载，所有后续消息直接失败，不尝试真发
+	      reject(new Error('Extension context invalidated.'));
+	      return;
+	    }
 	    let settled = false;
 	    const timer = setTimeout(() => {
 	      if (!settled) { settled = true; reject(new Error('sendMessage timeout')); }
@@ -1363,12 +1385,14 @@ function updateSelection(options) {
 	        clearTimeout(timer);
 	        const lastError = chrome.runtime && chrome.runtime.lastError;
 	        if (lastError) {
+	          if (isExtensionContextError(lastError)) extensionContextAlive = false;
 	          reject(lastError);
 	          return;
 	        }
 	        resolve(response);
 	      });
 	    } catch (error) {
+	      if (isExtensionContextError(error)) extensionContextAlive = false;
 	      if (!settled) { settled = true; clearTimeout(timer); reject(error); }
 	    }
 	  });
@@ -1436,9 +1460,17 @@ function updateSelection(options) {
 	  return candidates;
 	}
 
+	// 当前页是否 HTTPS；HTTPS 下直接拉 http:// 的 favicon 会被浏览器 Mixed Content 拦截，
+	// 必须提前过滤掉，不然 console 会刷 warning 且多一次无用请求
+	function isParentPageHttps() {
+	  try { return window.location.protocol === 'https:'; } catch (e) { return false; }
+	}
+
 	function appendUniqueCandidate(list, url) {
 	  const safe = typeof url === 'string' ? url.trim() : '';
 	  if (!safe) return;
+	  // HTTPS 页面上跳过 http:// 资源（含私有主机 http://192.168.x.x/favicon.svg）
+	  if (isParentPageHttps() && safe.toLowerCase().indexOf('http://') === 0) return;
 	  if (list.indexOf(safe) === -1) list.push(safe);
 	}
 
@@ -1595,6 +1627,8 @@ function updateSelection(options) {
 
 	  faviconPersistFlushPromise = sendMessagePromise({ action: MESSAGE_ACTIONS.SET_FAVICONS, entries })
 	    .catch((error) => {
+	      // 扩展升级/卸载时 context 会失效，这是正常生命周期不需 warn 刷屏
+	      if (isExtensionContextError(error)) return;
 	      console.warn("[Content] SET_FAVICONS 失败:", error);
 	    })
 	    .finally(() => {
@@ -1680,7 +1714,9 @@ function updateSelection(options) {
 	    const favicons = response.favicons;
 	    return favicons && typeof favicons === 'object' ? favicons : {};
 	  } catch (error) {
-	    console.warn("[Content] GET_FAVICONS 失败:", error);
+	    if (!isExtensionContextError(error)) {
+	      console.warn("[Content] GET_FAVICONS 失败:", error);
+	    }
 	    return {};
 	  }
 	}
@@ -2163,6 +2199,7 @@ function updateSelection(options) {
 
 	    await flushFaviconPersistQueue();
 	  } catch (error) {
+	    if (isExtensionContextError(error)) return;
 	    console.warn("[Content] favicon 预热失败:", error);
 	  } finally {
 	    faviconWarmupInProgress = false;
@@ -2218,7 +2255,7 @@ async function searchBookmarksInBackground(query) {
 	    if (token !== backgroundSearchToken) return;
 	    setProgressVisible(false);
 
-	    console.error("[Content] 后台搜索失败:", error);
+	    if (!isExtensionContextError(error)) console.error("[Content] 后台搜索失败:", error);
 	    filteredResults = [];
 	    selectedIndex = -1;
 	    cachedResultItems = null;

@@ -416,6 +416,36 @@ input.form-input::placeholder {
 input.form-input[readonly] {
   cursor: default;
 }
+/* feature-tag 的 NEW 变体：accent 渐变 + NEW 圆点，用在"关于"版块亮当前版本新增项 */
+.feature-tag-new {
+  position: relative;
+  background: color-mix(in srgb, var(--accent, #5e6ad2) 14%, transparent) !important;
+  color: var(--accent, #5e6ad2) !important;
+  border-color: color-mix(in srgb, var(--accent, #5e6ad2) 30%, transparent) !important;
+  font-weight: 600 !important;
+  padding-left: 20px !important;
+}
+.feature-tag-new::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #5e6ad2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #5e6ad2) 25%, transparent);
+}
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .feature-tag-new {
+    background: rgba(94, 106, 210, 0.14) !important;
+    color: #5e6ad2 !important;
+    border-color: rgba(94, 106, 210, 0.3) !important;
+  }
+  .feature-tag-new::before { box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.25); }
+}
+
 /* 校验失败的 input：红色描边 + 轻微脉冲，不抢焦点 */
 .form-input.is-invalid,
 .form-input.is-invalid:focus {

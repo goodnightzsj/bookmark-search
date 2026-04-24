@@ -2,7 +2,7 @@
 
 按 `Ctrl/Cmd+Space` 在当前页直接呼出搜索框。多词匹配标题、URL、文件夹路径；按数字键直达前 9 条；右键或 `Alt+Enter` 呼出操作菜单（复制链接 / 在新窗口打开 / 在书签管理器显示 / 删除）。书签与浏览器自动保持同步，离线也能用。
 
-当前版本：`v2.0.0`
+当前版本：`v2.1.0`
 
 ## 🧭 一句话介绍
 
@@ -193,6 +193,32 @@ Popup页面会显示最后同步时间和下次同步时间，让用户随时了
 - [ ] 使用统计面板（搜索次数 / 命中率 / 最常搜词）
 
 ## 📝 更新日志
+
+### v2.1.0 - Dashboard 新标签页 · 智能检索增强
+
+**产品功能**
+- 🏠 **新标签页 Dashboard**：`chrome_url_overrides` 接管新标签页。时间感知问候 + 大细体时钟 + 搜索框 + 基于访问统计的 Speed Dial 12 格 + 4 套渐变壁纸（dawn/day/sunset/night）按时间自动切换
+- 🔥 **访问加权搜索**：每次打开书签记录 `{count, lastAt}`，搜索排序叠加 `count × exp(-Δt/14d)` 奖励（半衰期 10 天，上限 200 分），常用书签自然浮到前面
+- 📊 **访问热度视图**：设置 → 维护，查看「TOP 20 最常访问」与「30 天未访问」，帮助梳理长期闲置
+- 🔎 **搜索引擎回退**（默认关闭）：书签零命中时回车可跳转 Google / Bing / DuckDuckGo / 百度 / Kagi / Startpage / 自定义 `{q}` 模板
+- ✂️ **片段上下文高亮**：长 URL / 长 title 自动缩为命中位置 ±20 字符窗口（`…关键词 命中 上下文…`），窗口之间用省略号拼接
+- 🧹 **重复书签清理 + 失效链接检测**：独立 modal 展示，zigzag host 并发探测，结果缓存；HEAD→GET+Range 两阶段，只有 404/410 判死链，其它归"可疑"降低误杀
+- 🧠 **拼音 + 首字母搜索**：索引已经内置 `pinyin / pinyinInitials`，输入 "zhihu" 或 "zh" 都能命中「知乎」
+- 📖 **独立 select / dialog / modal 组件**：原生下拉改写为 portal 定位 combobox，删除弹窗 bsConfirm / bsAlert 替代 `window.confirm`；跨 4 主题统一
+- 🔑 **快捷键风格 shortcuts**：`/` 聚焦、`Cmd/Ctrl+K` 聚焦（Dashboard）、`↑↓` 选择、`Enter` 打开、`Escape` 清空
+
+**性能**
+- ⚡ **异步分块 bigram 索引**：原同步 build 会在 50k 书签下阻塞 SW **2.5 秒**。改为每 2000 doc `setTimeout(0)` 让出；搜索时索引未就绪直接走全扫兜底（50k 下 77ms）。**首次搜索延迟 2.5s → 77ms（33×）**
+- 🪫 **失效检测并发可配置**：默认 16 并发，设置页支持 4 / 8 / 16 / 24 / 32 / 48；zigzag host 调度保证单站同时最多 1 个请求
+
+**体验修复**
+- 🔕 **Extension context invalidated 静默**：扩展升级后老 content script 的报错不再刷屏，context 检测失效立即短路所有消息
+- 🚫 **Mixed Content 过滤**：HTTPS 页面下跳过 `http://` 私网 favicon 请求（含 `192.168.x.x` 这类），不触发浏览器 Mixed Content warning
+- 🎨 **主题变量补全**：4 个 settings 主题补上共享 token（`--card-bg` / `--surface-hover` / `--text-*`），暗色主题下 modal 不再"白底白卡片"
+- 🎯 **焦点加固**：Shadow DOM 深度 activeElement / iframe 主动 blur / 全屏 exitFullscreen / 三阶段 focusEnforcer / `scheduleFocusOnWindowRegain` 窗口回焦监听
+- 🧭 **自定义 select 层级提升**：menu portal 到 body + z-index 9999，不再被卡片遮挡
+- 💬 **toggleSearch 150ms 节流**：避免地址栏/DevTools 聚焦时 Ctrl+Space 触发 overlay "闪一下就关"
+- 🧪 **测试覆盖**：从 29 条扩到 50 条，覆盖 `handleMessage` 路由与 `PROBE_URL_REACHABILITY` 两阶段探测语义
 
 ### v2.0.0 - Overlay 重写 + 主题系统全量重设计
 
