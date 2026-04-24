@@ -21,7 +21,8 @@ export const STORAGE_KEYS = {
   LAST_MIGRATION_AT: 'lastMigrationAt',
   LAST_MIGRATION_ERROR: 'lastMigrationError',
   NEEDS_REBUILD: 'needsRebuild',
-  DEADLINK_CONCURRENCY: 'deadlinkConcurrency'
+  DEADLINK_CONCURRENCY: 'deadlinkConcurrency',
+  SEARCH_ENGINE_FALLBACK: 'searchEngineFallback'
 };
 
 // 默认值
@@ -39,7 +40,8 @@ const DEFAULTS = {
   [STORAGE_KEYS.LAST_MIGRATION_AT]: null,
   [STORAGE_KEYS.LAST_MIGRATION_ERROR]: null,
   [STORAGE_KEYS.NEEDS_REBUILD]: false,
-  [STORAGE_KEYS.DEADLINK_CONCURRENCY]: 16
+  [STORAGE_KEYS.DEADLINK_CONCURRENCY]: 16,
+  [STORAGE_KEYS.SEARCH_ENGINE_FALLBACK]: { enabled: false, engine: 'google', customUrl: '' }
 };
 
 /**

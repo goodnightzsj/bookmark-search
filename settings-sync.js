@@ -20,7 +20,8 @@ export async function loadSyncSettings() {
       STORAGE_KEYS.SYNC_INTERVAL,
       STORAGE_KEYS.LAST_SYNC_TIME,
       STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES,
-      STORAGE_KEYS.DEADLINK_CONCURRENCY
+      STORAGE_KEYS.DEADLINK_CONCURRENCY,
+      STORAGE_KEYS.SEARCH_ENGINE_FALLBACK
     ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
     const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
@@ -51,6 +52,22 @@ export async function loadSyncSettings() {
       deadlinkConcurrencySelect.value = String(conc);
       console.log("[Settings] 失效检测并发:", conc);
     }
+
+    // 搜索引擎回退
+    const engineEnabledSel = document.getElementById('searchEngineEnabled');
+    const engineSel = document.getElementById('searchEngineEngine');
+    const customUrlInput = document.getElementById('searchEngineCustomUrl');
+    const customRow = document.getElementById('searchEngineCustomRow');
+    const engineRow = document.getElementById('searchEngineEngineRow');
+    const feCfg = (result[STORAGE_KEYS.SEARCH_ENGINE_FALLBACK] && typeof result[STORAGE_KEYS.SEARCH_ENGINE_FALLBACK] === 'object')
+      ? result[STORAGE_KEYS.SEARCH_ENGINE_FALLBACK]
+      : { enabled: false, engine: 'google', customUrl: '' };
+    if (engineEnabledSel) engineEnabledSel.value = feCfg.enabled ? 'on' : 'off';
+    if (engineSel) engineSel.value = typeof feCfg.engine === 'string' ? feCfg.engine : 'google';
+    if (customUrlInput) customUrlInput.value = typeof feCfg.customUrl === 'string' ? feCfg.customUrl : '';
+    // 显示/隐藏"引擎选择"和"自定义 URL"两行
+    if (engineRow) engineRow.style.display = feCfg.enabled ? '' : 'none';
+    if (customRow) customRow.style.display = (feCfg.enabled && (engineSel && engineSel.value === 'custom')) ? '' : 'none';
 
     // 显示最后同步时间
     if (result[STORAGE_KEYS.LAST_SYNC_TIME]) {
@@ -207,6 +224,88 @@ export function bindSyncEvents() {
         notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
       }
     });
+  }
+
+  // 搜索引擎回退
+  const ENGINE_KEYS = ['google', 'bing', 'duckduckgo', 'baidu', 'kagi', 'startpage', 'custom'];
+  const engineEnabledSel = document.getElementById('searchEngineEnabled');
+  const engineSel = document.getElementById('searchEngineEngine');
+  const customUrlInput = document.getElementById('searchEngineCustomUrl');
+  const customRow = document.getElementById('searchEngineCustomRow');
+  const engineRow = document.getElementById('searchEngineEngineRow');
+
+  async function readCurrentFallback() {
+    const r = await getStorageOrThrow(STORAGE_KEYS.SEARCH_ENGINE_FALLBACK);
+    const cur = r && r[STORAGE_KEYS.SEARCH_ENGINE_FALLBACK];
+    return (cur && typeof cur === 'object')
+      ? { enabled: cur.enabled === true, engine: typeof cur.engine === 'string' ? cur.engine : 'google', customUrl: typeof cur.customUrl === 'string' ? cur.customUrl : '' }
+      : { enabled: false, engine: 'google', customUrl: '' };
+  }
+
+  async function persistFallback(patch) {
+    const cur = await readCurrentFallback();
+    const next = { ...cur, ...patch };
+    await setStorageOrThrow({ [STORAGE_KEYS.SEARCH_ENGINE_FALLBACK]: next });
+  }
+
+  function syncEngineRowVisibility() {
+    const enabled = engineEnabledSel && engineEnabledSel.value === 'on';
+    const engine = engineSel ? engineSel.value : 'google';
+    if (engineRow) engineRow.style.display = enabled ? '' : 'none';
+    if (customRow) customRow.style.display = (enabled && engine === 'custom') ? '' : 'none';
+  }
+
+  if (engineEnabledSel) {
+    engineEnabledSel.addEventListener('change', async (e) => {
+      const enabled = e.target.value === 'on';
+      try {
+        await persistFallback({ enabled });
+        syncEngineRowVisibility();
+        notifySettings(enabled ? '已启用搜索引擎回退' : '已关闭搜索引擎回退');
+      } catch (error) {
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    });
+  }
+
+  if (engineSel) {
+    engineSel.addEventListener('change', async (e) => {
+      const engine = e.target.value;
+      if (!ENGINE_KEYS.includes(engine)) return;
+      try {
+        await persistFallback({ engine });
+        syncEngineRowVisibility();
+      } catch (error) {
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    });
+  }
+
+  if (customUrlInput) {
+    let saveTimer = null;
+    const commit = async () => {
+      const url = String(customUrlInput.value || '').trim();
+      // 校验：含 {q} 且 http(s) 协议；空值允许保存（用户清空暂存）
+      if (url && (!/^https?:\/\//i.test(url) || url.indexOf('{q}') === -1)) {
+        customUrlInput.classList.add('is-invalid');
+        notifySettings('自定义 URL 需以 http(s):// 开头且包含 {q} 占位符', 'warning');
+        return;
+      }
+      customUrlInput.classList.remove('is-invalid');
+      try {
+        await persistFallback({ customUrl: url });
+      } catch (error) {
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    };
+    customUrlInput.addEventListener('input', () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(commit, 400); // debounce 400ms
+    });
+    customUrlInput.addEventListener('blur', commit);
   }
 
   // 清除 favicon 缓存

@@ -62,6 +62,20 @@ export const FAVICON_CONFIG = Object.freeze({
   FAILURE_TTL_MAX_MS: 24 * 60 * 60 * 1000
 });
 
+/**
+ * 搜索引擎回退 —— 书签空结果时跳到外部搜索引擎。
+ * 模板内用 {q} 占位用户查询词（URL 编码后注入）。
+ */
+export const SEARCH_ENGINE_PRESETS = Object.freeze({
+  google:     { label: 'Google',     url: 'https://www.google.com/search?q={q}' },
+  bing:       { label: 'Bing',       url: 'https://www.bing.com/search?q={q}' },
+  duckduckgo: { label: 'DuckDuckGo', url: 'https://duckduckgo.com/?q={q}' },
+  baidu:      { label: '百度',        url: 'https://www.baidu.com/s?wd={q}' },
+  kagi:       { label: 'Kagi',       url: 'https://kagi.com/search?q={q}' },
+  startpage:  { label: 'Startpage',  url: 'https://www.startpage.com/do/search?query={q}' },
+  custom:     { label: '自定义',      url: '' }
+});
+
 export const WARMUP_CONFIG = Object.freeze({
   RECENT_OPEN_ROOT_MAX: 200,
   RECENT_OPEN_ROOT_WINDOW_MS: 60 * 60 * 1000,

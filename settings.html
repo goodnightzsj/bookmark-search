@@ -215,6 +215,50 @@
               </div>
             </div>
 
+            <div class="setting-row">
+              <div class="setting-meta">
+                <label class="setting-title form-label" for="searchEngineEnabled">
+                  搜索引擎回退
+                  <span class="help-tip" tabindex="0" aria-label="什么是搜索引擎回退？" title="搜索列表中无书签命中时，允许一键用 Enter 跳到配置的搜索引擎查询同一个关键词。查询词会发送给选中的搜索引擎，请根据隐私偏好启用。">ⓘ</span>
+                </label>
+                <p class="setting-description">书签里没命中时，直接按 Enter 在选定的搜索引擎里查。默认关闭；启用后查询词会发给对应引擎。</p>
+              </div>
+              <div class="setting-control">
+                <select id="searchEngineEnabled" class="form-input" data-custom-select="true">
+                  <option value="off" selected>关闭</option>
+                  <option value="on">启用</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-row" id="searchEngineEngineRow">
+              <div class="setting-meta">
+                <label class="setting-title form-label" for="searchEngineEngine">搜索引擎</label>
+                <p class="setting-description">选择默认引擎；自定义 URL 用 <code>{q}</code> 占位查询词。</p>
+              </div>
+              <div class="setting-control">
+                <select id="searchEngineEngine" class="form-input" data-custom-select="true">
+                  <option value="google" selected>Google</option>
+                  <option value="bing">Bing</option>
+                  <option value="duckduckgo">DuckDuckGo</option>
+                  <option value="baidu">百度</option>
+                  <option value="kagi">Kagi</option>
+                  <option value="startpage">Startpage</option>
+                  <option value="custom">自定义…</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-row" id="searchEngineCustomRow" style="display: none;">
+              <div class="setting-meta">
+                <label class="setting-title form-label" for="searchEngineCustomUrl">自定义 URL</label>
+                <p class="setting-description">必须含 <code>{q}</code> 占位符，例：<code>https://search.example.com/?query={q}</code>。</p>
+              </div>
+              <div class="setting-control">
+                <input type="url" id="searchEngineCustomUrl" class="form-input" placeholder="https://…/?q={q}" spellcheck="false" autocomplete="off" />
+              </div>
+            </div>
+
           </div>
         </section>
 

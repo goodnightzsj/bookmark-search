@@ -500,6 +500,109 @@
   opacity: 0.3;
 }
 
+/* ============================================================
+ * 搜索引擎回退：书签零结果时的 CTA row，键盘 Enter 直达
+ * ============================================================ */
+.bookmark-fallback-search {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: clamp(14px, 3vw, 18px) clamp(16px, 3vw, 20px);
+  margin: 12px clamp(8px, 2vw, 14px);
+  border-radius: 12px;
+  background: var(--overlay-item-hover);
+  border: 1px solid var(--overlay-item-border, transparent);
+  color: var(--overlay-title);
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  position: relative;
+  overflow: hidden;
+}
+.bookmark-fallback-search::before {
+  /* 细亮边缘装饰 */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg,
+    var(--overlay-accent, #5e6ad2) 0%,
+    color-mix(in srgb, var(--overlay-accent, #5e6ad2) 60%, transparent) 100%);
+  opacity: 0.85;
+}
+.bookmark-fallback-search:hover {
+  background: var(--overlay-item-selected, var(--overlay-item-hover));
+  transform: translateX(1px);
+}
+.bookmark-fallback-search:active {
+  transform: translateX(0) scale(0.995);
+}
+
+.bookmark-fallback-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--overlay-accent, #5e6ad2) 14%, transparent);
+  color: var(--overlay-accent, #5e6ad2);
+}
+.bookmark-fallback-icon svg { display: block; }
+
+.bookmark-fallback-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bookmark-fallback-line {
+  font-size: clamp(13px, 2.2vw, 14px);
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--overlay-subtitle, var(--overlay-title));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmark-fallback-prefix { color: var(--overlay-subtitle, var(--overlay-title)); }
+.bookmark-fallback-engine {
+  color: var(--overlay-title);
+  font-weight: 700;
+}
+.bookmark-fallback-query {
+  color: var(--overlay-accent, #5e6ad2);
+  font-weight: 600;
+}
+.bookmark-fallback-query::before { content: '\201C'; margin-right: 1px; }
+.bookmark-fallback-query::after  { content: '\201D'; margin-left: 1px; }
+
+.bookmark-fallback-kbd {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  min-width: 42px;
+  height: 22px;
+  font-family: var(--bs-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--overlay-subtitle, var(--overlay-title));
+  background: var(--overlay-bg, transparent);
+  border: 1px solid var(--overlay-item-border, rgba(0, 0, 0, 0.12));
+  border-radius: 5px;
+}
+
+/* 没有 color-mix 支持的浏览器兜底（比如老 Safari） */
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .bookmark-fallback-icon { background: var(--overlay-item-hover); }
+}
+
 /* 多选态：item 左侧加 accent 竖条 + 对勾 */
 .bookmark-item.is-multi-selected {
   background: var(--overlay-item-selected);

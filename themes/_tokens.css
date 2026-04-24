@@ -416,6 +416,18 @@ input.form-input::placeholder {
 input.form-input[readonly] {
   cursor: default;
 }
+/* 校验失败的 input：红色描边 + 轻微脉冲，不抢焦点 */
+.form-input.is-invalid,
+.form-input.is-invalid:focus {
+  border-color: var(--danger, #dc2626) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #dc2626) 22%, transparent);
+}
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .form-input.is-invalid,
+  .form-input.is-invalid:focus {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+  }
+}
 
 /* 自定义 checkbox (history-checkbox)：方块 + 勾号 SVG */
 .history-checkbox {

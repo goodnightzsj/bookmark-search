@@ -431,6 +431,69 @@
 	    } catch (e) {}
 	  }
 
+	  // 搜索引擎回退配置：{ enabled, engine, customUrl }
+	  // 在 overlay 初始化时读一次；storage change 时刷新
+	  const SEARCH_ENGINE_PRESETS = {
+	    google:     { label: 'Google',     url: 'https://www.google.com/search?q={q}' },
+	    bing:       { label: 'Bing',       url: 'https://www.bing.com/search?q={q}' },
+	    duckduckgo: { label: 'DuckDuckGo', url: 'https://duckduckgo.com/?q={q}' },
+	    baidu:      { label: '百度',        url: 'https://www.baidu.com/s?wd={q}' },
+	    kagi:       { label: 'Kagi',       url: 'https://kagi.com/search?q={q}' },
+	    startpage:  { label: 'Startpage',  url: 'https://www.startpage.com/do/search?query={q}' }
+	  };
+	  let searchEngineConfig = { enabled: false, engine: 'google', customUrl: '' };
+	  async function loadSearchEngineConfig() {
+	    try {
+	      const result = await chrome.storage.local.get('searchEngineFallback');
+	      const raw = result && result.searchEngineFallback;
+	      if (raw && typeof raw === 'object') {
+	        searchEngineConfig = {
+	          enabled: raw.enabled === true,
+	          engine: typeof raw.engine === 'string' ? raw.engine : 'google',
+	          customUrl: typeof raw.customUrl === 'string' ? raw.customUrl : ''
+	        };
+	      }
+	    } catch (e) {}
+	  }
+	  // 设置页改 engine / enabled 后，content 需同步
+	  try {
+	    if (chrome.storage && chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+	      chrome.storage.onChanged.addListener((changes, area) => {
+	        if (area !== 'local' || !changes || !changes.searchEngineFallback) return;
+	        const v = changes.searchEngineFallback.newValue;
+	        if (v && typeof v === 'object') {
+	          searchEngineConfig = {
+	            enabled: v.enabled === true,
+	            engine: typeof v.engine === 'string' ? v.engine : 'google',
+	            customUrl: typeof v.customUrl === 'string' ? v.customUrl : ''
+	          };
+	        } else {
+	          searchEngineConfig = { enabled: false, engine: 'google', customUrl: '' };
+	        }
+	      });
+	    }
+	  } catch (e) {}
+
+	  function resolveSearchEngineInfo() {
+	    const cfg = searchEngineConfig || {};
+	    if (!cfg.enabled) return null;
+	    if (cfg.engine === 'custom') {
+	      const tpl = typeof cfg.customUrl === 'string' ? cfg.customUrl.trim() : '';
+	      if (!tpl || tpl.indexOf('{q}') === -1) return null;
+	      if (!/^https?:\/\//i.test(tpl)) return null;
+	      return { label: '自定义', url: tpl };
+	    }
+	    return SEARCH_ENGINE_PRESETS[cfg.engine] || null;
+	  }
+
+	  function buildSearchEngineUrl(query) {
+	    const info = resolveSearchEngineInfo();
+	    if (!info) return '';
+	    const safe = typeof query === 'string' ? query.trim() : '';
+	    if (!safe) return '';
+	    return info.url.replace(/\{q\}/g, encodeURIComponent(safe));
+	  }
+
 	  function applyThemeToOverlay() {
 	    if (!searchOverlay) return;
 	    searchOverlay.setAttribute('data-bs-theme', currentTheme);
@@ -440,6 +503,7 @@
 	  validateMessageActionsConfig();
 		  loadThemeSetting();
 	  loadDebugSettings();
+	  loadSearchEngineConfig();
 
   try {
 
@@ -1218,6 +1282,9 @@ function handleKeydown(e) {
       if (selectedIndex >= 0 && filteredResults[selectedIndex]) {
         // 按住 Ctrl/Cmd 时在当前页打开，否则在新标签打开
         openBookmark(filteredResults[selectedIndex], !(e.ctrlKey || e.metaKey));
+      } else if (isSearchEngineFallbackAvailable()) {
+        // 空结果 + 回退已启用：Enter 直接跳搜索引擎
+        triggerSearchEngineFallback();
       }
       break;
   }
@@ -2410,6 +2477,88 @@ function renderHighlightedText(text) {
   return frag;
 }
 
+// 书签空结果时附加的"在 X 搜索"引导。整体是一个可点击 row，
+// 点击 / 敲 Enter 都会打开新 tab；键盘 Enter 由 handleKeydown 处理（依赖 isSearchEngineFallbackAvailable）
+function renderSearchEngineFallback() {
+  if (!resultsContainer) return false;
+  const info = resolveSearchEngineInfo();
+  if (!info) return false;
+  const q = searchInput ? String(searchInput.value || '').trim() : '';
+  if (!q) return false;
+
+  const row = document.createElement('div');
+  row.className = 'bookmark-fallback-search';
+  row.setAttribute('role', 'button');
+  row.setAttribute('tabindex', '-1');
+  row.dataset.bsFallback = '1';
+
+  // 左侧 search icon
+  const iconWrap = document.createElement('span');
+  iconWrap.className = 'bookmark-fallback-icon';
+  iconWrap.setAttribute('aria-hidden', 'true');
+  iconWrap.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>';
+
+  // 主文案 + query
+  const textWrap = document.createElement('div');
+  textWrap.className = 'bookmark-fallback-text';
+  const line1 = document.createElement('div');
+  line1.className = 'bookmark-fallback-line';
+  const prefix = document.createElement('span');
+  prefix.className = 'bookmark-fallback-prefix';
+  prefix.textContent = '在 ';
+  const engineName = document.createElement('strong');
+  engineName.className = 'bookmark-fallback-engine';
+  engineName.textContent = info.label;
+  const midfix = document.createElement('span');
+  midfix.className = 'bookmark-fallback-prefix';
+  midfix.textContent = ' 搜索 ';
+  const queryEl = document.createElement('span');
+  queryEl.className = 'bookmark-fallback-query';
+  queryEl.textContent = q;
+  line1.appendChild(prefix);
+  line1.appendChild(engineName);
+  line1.appendChild(midfix);
+  line1.appendChild(queryEl);
+  textWrap.appendChild(line1);
+
+  // 键盘提示
+  const kbd = document.createElement('kbd');
+  kbd.className = 'bookmark-fallback-kbd';
+  kbd.textContent = 'Enter';
+
+  row.appendChild(iconWrap);
+  row.appendChild(textWrap);
+  row.appendChild(kbd);
+
+  row.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    triggerSearchEngineFallback();
+  });
+
+  resultsContainer.appendChild(row);
+  return true;
+}
+
+function isSearchEngineFallbackAvailable() {
+  if (filteredResults.length > 0) return false;
+  if (!resolveSearchEngineInfo()) return false;
+  const q = searchInput ? String(searchInput.value || '').trim() : '';
+  return !!q;
+}
+
+function triggerSearchEngineFallback() {
+  const q = searchInput ? String(searchInput.value || '').trim() : '';
+  const url = buildSearchEngineUrl(q);
+  if (!url) return;
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    try { window.location.href = url; } catch (e2) {}
+  }
+  hideSearch();
+}
+
 function renderPathBreadcrumb(container, pathValue) {
   container.textContent = '';
   const raw = typeof pathValue === 'string' ? pathValue : '';
@@ -2449,10 +2598,14 @@ function displayResults(results, options) {
   searchInput.setAttribute('aria-expanded', results.length > 0 ? 'true' : 'false');
   if (results.length === 0) {
     searchInput.setAttribute('aria-activedescendant', '');
-    const emptyMsg = document.createElement("div");
-    emptyMsg.className = "bookmark-empty";
-    emptyMsg.textContent = "未找到匹配的书签";
-    resultsContainer.appendChild(emptyMsg);
+    const fallbackAdded = renderSearchEngineFallback();
+    // 有回退行时不再显示大图占位；没有回退时显示原「未找到匹配的书签」占位
+    if (!fallbackAdded) {
+      const emptyMsg = document.createElement("div");
+      emptyMsg.className = "bookmark-empty";
+      emptyMsg.textContent = "未找到匹配的书签";
+      resultsContainer.appendChild(emptyMsg);
+    }
     return;
   }
 
