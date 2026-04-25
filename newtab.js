@@ -1,9 +1,10 @@
 /**
  * 新标签页 Dashboard
- * - 时间感知问候 + 大时钟
- * - 搜索框（直接走 SEARCH_BOOKMARKS 消息；复用 fallback 引擎配置）
+ * - 时间感知问候 + 大时钟（细分到每段时辰，并伴有副文案）
+ * - 搜索框：Ctrl+Space / `/` / Cmd+K 聚焦；IME 友好；favicon 失败兜底 monogram
  * - Speed Dial 12 格（基于 openStats TOP，不够用最近添加补齐）
- * - 时间感知渐变壁纸（dawn / day / sunset / night）
+ * - 时间感知渐变壁纸 + 主题感知（用户在设置里选 dark 主题时整体反色）
+ * - 接管首页可在设置里关掉 → 显示极简"已禁用"页
  */
 
 import { MESSAGE_ACTIONS, SEARCH_ENGINE_PRESETS } from './constants.js';
@@ -56,37 +57,167 @@ function openUrl(url, newTab = false) {
   window.location.href = url;
 }
 
-// ----------------------------------------------------------------
-// 时钟 + 问候 + 时间感知配色
-// ----------------------------------------------------------------
-function greetingFor(hour) {
-  if (hour >= 5 && hour < 11) return '早上好';
-  if (hour >= 11 && hour < 14) return '中午好';
-  if (hour >= 14 && hour < 18) return '下午好';
-  if (hour >= 18 && hour < 22) return '晚上好';
-  return '夜深了';
+function hostOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
 }
 
+// ----------------------------------------------------------------
+// favicon 兜底：默认 globe / 加载失败 → monogram
+// ----------------------------------------------------------------
+function hashHue(seed) {
+  const s = String(seed || '').toLowerCase();
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+  return Math.abs(h) % 360;
+}
+function monogramLetter(domain) {
+  const s = String(domain || '').trim().toLowerCase();
+  if (!s) return '?';
+  const cleaned = s.indexOf('www.') === 0 ? s.slice(4) : s;
+  const c = cleaned.charAt(0);
+  return /[a-z0-9]/i.test(c) ? c.toUpperCase() : (c || '?');
+}
+const monogramCache = Object.create(null);
+function buildMonogramDataUrl(domain) {
+  const key = String(domain || '').toLowerCase();
+  if (monogramCache[key]) return monogramCache[key];
+  const hue = hashHue(key);
+  const bg = `hsl(${hue},58%,48%)`;
+  const bgDark = `hsl(${hue},58%,36%)`;
+  const letter = monogramLetter(key);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    + `<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bgDark}"/></linearGradient></defs>`
+    + '<rect width="16" height="16" rx="4" fill="url(#g)"/>'
+    + `<text x="8" y="11.5" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="10" font-weight="700" fill="#ffffff">${letter}</text>`
+    + '</svg>';
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  monogramCache[key] = url;
+  return url;
+}
+
+// 检测 _favicon 返回的"默认占位"（灰地球 / 文档图标）
+function isLikelyDefaultFavicon(img) {
+  if (!img || !img.naturalWidth || !img.naturalHeight) return false;
+  try {
+    const N = 16;
+    const c = document.createElement('canvas');
+    c.width = N; c.height = N;
+    const ctx = c.getContext('2d', { willReadFrequently: false });
+    if (!ctx) return false;
+    ctx.clearRect(0, 0, N, N);
+    ctx.drawImage(img, 0, 0, N, N);
+    let data;
+    try { data = ctx.getImageData(0, 0, N, N).data; } catch (e) { return false; }
+    let opaque = 0, satSum = 0, top = 0;
+    const colors = Object.create(null);
+    let uniq = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      if (a < 40) continue;
+      opaque++;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      satSum += mx > 0 ? (mx - mn) / mx : 0;
+      const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+      if (colors[k]) colors[k]++; else { colors[k] = 1; uniq++; }
+      if (colors[k] > top) top = colors[k];
+    }
+    if (opaque < 10) return false;
+    const avgSat = satSum / opaque;
+    const topRatio = top / opaque;
+    if (avgSat < 0.2 && uniq <= 8) return true;
+    if (avgSat < 0.3 && topRatio >= 0.65) return true;
+    return false;
+  } catch (e) { return false; }
+}
+
+// 给 img 装上"加载完成 → 检测默认 → 失败兜底 monogram"的统一逻辑
+function applyFaviconWithFallback(img, pageUrl, domain) {
+  const dom = String(domain || hostOf(pageUrl) || '');
+  const monogram = buildMonogramDataUrl(dom);
+  const src = buildFaviconUrl(pageUrl, 32) || monogram;
+  let fallbackApplied = false;
+  function fallback() {
+    if (fallbackApplied) return;
+    fallbackApplied = true;
+    img.src = monogram;
+  }
+  img.addEventListener('error', fallback, { once: true });
+  img.addEventListener('load', () => {
+    if (fallbackApplied) return;
+    if (img.src.indexOf('/_favicon/') !== -1 && isLikelyDefaultFavicon(img)) {
+      fallback();
+    }
+  }, { once: true });
+  img.src = src;
+}
+
+// ----------------------------------------------------------------
+// 时钟 + 时段感知问候（细分到每个时辰，副文案随机）
+// ----------------------------------------------------------------
+const SUBTITLES_BY_TOD = {
+  earlymorning: ['新的一天开始了', '清晨好，慢慢来', '晨光中开个好头'],
+  morning:      ['今天有好事发生', '专注片刻就好', '开个好头'],
+  noon:         ['吃饱了再继续', '休息会儿，眼睛会感谢你', '一杯水，再看看屏幕'],
+  afternoon:    ['再战一会儿', '保持节奏', '屏幕之外阳光正好'],
+  evening:      ['辛苦了', '收个尾，准备下班', '抬头看看窗外'],
+  night:        ['今天过得怎么样', '该休息了', '愿你睡个好觉'],
+  latenight:    ['夜深了，注意眼睛', '少熬一会儿', '让大脑也下班吧']
+};
+function pickSubtitle(tod) {
+  const list = SUBTITLES_BY_TOD[tod] || SUBTITLES_BY_TOD.morning;
+  // 当天稳定：用 yyyy-mm-dd + tod 哈希取模，同一时段同一天看到同一句
+  const seed = new Date().toDateString() + ':' + tod;
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) { h = ((h << 5) - h) + seed.charCodeAt(i); h |= 0; }
+  return list[Math.abs(h) % list.length];
+}
+
+function greetingFor(hour, name) {
+  const prefix = name ? `${name}，` : '';
+  if (hour >= 5 && hour < 7) return prefix + '清晨好';
+  if (hour >= 7 && hour < 11) return prefix + '早上好';
+  if (hour >= 11 && hour < 13) return prefix + '中午好';
+  if (hour >= 13 && hour < 17) return prefix + '下午好';
+  if (hour >= 17 && hour < 19) return prefix + '傍晚好';
+  if (hour >= 19 && hour < 22) return prefix + '晚上好';
+  return prefix + '夜深了';
+}
 function timeOfDay(hour) {
-  if (hour >= 5 && hour < 11) return 'dawn';
-  if (hour >= 11 && hour < 17) return 'day';
-  if (hour >= 17 && hour < 20) return 'sunset';
-  return 'night';
+  if (hour >= 5 && hour < 7) return 'earlymorning';
+  if (hour >= 7 && hour < 11) return 'morning';
+  if (hour >= 11 && hour < 13) return 'noon';
+  if (hour >= 13 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 19) return 'evening';
+  if (hour >= 19 && hour < 22) return 'night';
+  return 'latenight';
 }
-
+function todPalette(tod) {
+  // 给 wallpaper 选粗粒度色调；与上面 7 个细分时段对应
+  if (tod === 'earlymorning' || tod === 'morning') return 'dawn';
+  if (tod === 'noon' || tod === 'afternoon') return 'day';
+  if (tod === 'evening') return 'sunset';
+  return 'night'; // night / latenight
+}
 function pad2(n) { return n < 10 ? '0' + n : String(n); }
-
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
+let lastTod = null;
 function tickClock() {
   const now = new Date();
   const h = now.getHours();
   const m = now.getMinutes();
+  const tod = timeOfDay(h);
+  const palette = todPalette(tod);
+
   const clockEl = document.getElementById('ntTime');
   if (clockEl) clockEl.textContent = `${pad2(h)}:${pad2(m)}`;
 
   const greetEl = document.getElementById('ntGreeting');
   if (greetEl) greetEl.textContent = greetingFor(h);
+
+  const subtitleEl = document.getElementById('ntSubtitle');
+  if (subtitleEl && lastTod !== tod) subtitleEl.textContent = pickSubtitle(tod);
 
   const dateEl = document.getElementById('ntDate');
   if (dateEl) {
@@ -97,7 +228,57 @@ function tickClock() {
     dateEl.textContent = `${y} 年 ${mo} 月 ${d} 日 · ${w}`;
   }
 
-  document.body.dataset.tod = timeOfDay(h);
+  // 主题感知：用户在设置里选了 dark 主题 → 全天暗色调，不再走时段
+  if (themePref === 'dark') {
+    document.body.dataset.tod = 'night';
+  } else {
+    document.body.dataset.tod = palette;
+  }
+  lastTod = tod;
+}
+
+// ----------------------------------------------------------------
+// 主题偏好（与 overlay / settings 同步）
+// ----------------------------------------------------------------
+let themePref = 'auto';
+async function loadThemePref() {
+  try {
+    const r = await chrome.storage.local.get('theme');
+    if (r && typeof r.theme === 'string') themePref = r.theme || 'auto';
+  } catch (e) {}
+}
+
+// ----------------------------------------------------------------
+// 接管开关
+// ----------------------------------------------------------------
+let newtabOverrideEnabled = true;
+async function loadOverridePref() {
+  try {
+    const r = await chrome.storage.local.get(STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED);
+    const v = r && r[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED];
+    if (v === false) newtabOverrideEnabled = false;
+  } catch (e) {}
+}
+
+function renderDisabledFallback() {
+  document.body.classList.add('nt-override-disabled');
+  const main = document.querySelector('.nt-main');
+  if (main) main.style.display = 'none';
+  const root = document.querySelector('body');
+  if (!root) return;
+  const fallback = document.createElement('div');
+  fallback.className = 'nt-disabled-card';
+  fallback.innerHTML = `
+    <div class="nt-disabled-title">已关闭新标签页接管</div>
+    <p class="nt-disabled-desc">在 <a id="ntGoSettings" href="#">扩展设置</a> 里重新启用。或者在地址栏输入网址。</p>
+  `;
+  root.appendChild(fallback);
+  const link = document.getElementById('ntGoSettings');
+  if (link) link.addEventListener('click', (e) => {
+    e.preventDefault();
+    try { chrome.runtime.openOptionsPage(); }
+    catch (err) { window.open(chrome.runtime.getURL('settings.html'), '_blank'); }
+  });
 }
 
 // ----------------------------------------------------------------
@@ -125,10 +306,11 @@ async function loadSpeedDial() {
     const hasOpens = items.some((i) => i.source === 'opens');
     if (titleEl) titleEl.textContent = hasOpens ? '常用书签' : '最近添加';
 
-    items.forEach((item) => {
+    items.forEach((item, idx) => {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'nt-dial-card';
+      card.style.setProperty('--enter-delay', (idx * 30) + 'ms');
       card.title = `${item.title || ''}\n${item.url || ''}`;
       card.dataset.url = item.url || '';
 
@@ -138,7 +320,6 @@ async function loadSpeedDial() {
       img.alt = '';
       img.loading = 'lazy';
       img.referrerPolicy = 'no-referrer';
-      img.src = buildFaviconUrl(item.url, 48);
       iconWrap.appendChild(img);
 
       const label = document.createElement('div');
@@ -148,13 +329,11 @@ async function loadSpeedDial() {
       card.appendChild(iconWrap);
       card.appendChild(label);
 
-      card.addEventListener('click', (e) => {
-        openUrl(item.url, e.metaKey || e.ctrlKey);
-      });
-      card.addEventListener('auxclick', (e) => {
-        // 鼠标中键打开新 tab
-        if (e.button === 1) { e.preventDefault(); openUrl(item.url, true); }
-      });
+      // 装上 favicon + 默认图检测兜底
+      applyFaviconWithFallback(img, item.url, hostOf(item.url));
+
+      card.addEventListener('click', (e) => openUrl(item.url, e.metaKey || e.ctrlKey));
+      card.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); openUrl(item.url, true); } });
 
       gridEl.appendChild(card);
     });
@@ -167,10 +346,6 @@ async function loadSpeedDial() {
   }
 }
 
-function hostOf(url) {
-  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
-}
-
 // ----------------------------------------------------------------
 // 搜索
 // ----------------------------------------------------------------
@@ -179,6 +354,10 @@ let currentSearchToken = 0;
 let filteredResults = [];
 let selectedIndex = -1;
 let searchEngineConfig = { enabled: false, engine: 'google', customUrl: '' };
+
+// IME 状态：和 overlay 一致
+let imeComposing = false;
+let imeSuppressEnterUntil = 0;
 
 async function loadSearchEngineConfig() {
   try {
@@ -249,9 +428,7 @@ function renderResults(items) {
         </div>
         <kbd class="nt-result-kbd">Enter</kbd>
       `;
-      row.addEventListener('click', () => {
-        openUrl(buildSearchEngineUrl(query), false);
-      });
+      row.addEventListener('click', () => openUrl(buildSearchEngineUrl(query), false));
       resultsEl.appendChild(row);
       selectedIndex = 0;
       filteredResults = [{ __fallback: true, url: buildSearchEngineUrl(query) }];
@@ -273,13 +450,24 @@ function renderResults(items) {
     row.setAttribute('role', 'option');
     row.dataset.index = String(idx);
 
-    row.innerHTML = `
-      <img class="nt-result-icon" src="${escapeHtml(buildFaviconUrl(bm.url, 32))}" alt="" loading="lazy" referrerpolicy="no-referrer">
-      <div class="nt-result-body">
-        <div class="nt-result-title">${escapeHtml(bm.title || '(无标题)')}</div>
-        <div class="nt-result-subtitle">${bm.path ? escapeHtml(bm.path) + ' · ' : ''}${escapeHtml(bm.url || '')}</div>
-      </div>
+    const iconImg = document.createElement('img');
+    iconImg.className = 'nt-result-icon';
+    iconImg.alt = '';
+    iconImg.loading = 'lazy';
+    iconImg.referrerPolicy = 'no-referrer';
+
+    const body = document.createElement('div');
+    body.className = 'nt-result-body';
+    body.innerHTML = `
+      <div class="nt-result-title">${escapeHtml(bm.title || '(无标题)')}</div>
+      <div class="nt-result-subtitle">${bm.path ? escapeHtml(bm.path) + ' · ' : ''}${escapeHtml(bm.url || '')}</div>
     `;
+
+    row.appendChild(iconImg);
+    row.appendChild(body);
+
+    applyFaviconWithFallback(iconImg, bm.url, hostOf(bm.url));
+
     row.addEventListener('click', (e) => openUrl(bm.url, e.metaKey || e.ctrlKey));
     row.addEventListener('mouseenter', () => { selectedIndex = idx; updateSelection(); });
     resultsEl.appendChild(row);
@@ -294,9 +482,7 @@ function updateSelection() {
   const resultsEl = document.getElementById('ntResults');
   if (!resultsEl) return;
   const rows = resultsEl.querySelectorAll('.nt-result');
-  rows.forEach((row, i) => {
-    row.classList.toggle('is-selected', i === selectedIndex);
-  });
+  rows.forEach((row, i) => row.classList.toggle('is-selected', i === selectedIndex));
   if (selectedIndex >= 0 && rows[selectedIndex]) {
     rows[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
@@ -305,17 +491,11 @@ function updateSelection() {
 async function handleSearch(query) {
   const token = ++currentSearchToken;
   const safe = String(query || '').trim();
-  if (!safe) {
-    clearResults();
-    return;
-  }
+  if (!safe) { clearResults(); return; }
   try {
     const resp = await sendMessagePromise({ action: MESSAGE_ACTIONS.SEARCH_BOOKMARKS, query: safe, limit: RESULTS_LIMIT });
     if (token !== currentSearchToken) return;
-    if (!resp || resp.success === false) {
-      renderResults([]);
-      return;
-    }
+    if (!resp || resp.success === false) { renderResults([]); return; }
     renderResults(Array.isArray(resp.results) ? resp.results : []);
     const dialEl = document.getElementById('ntDial');
     if (dialEl) dialEl.classList.add('is-dimmed');
@@ -329,12 +509,23 @@ function setupSearch() {
   const input = document.getElementById('ntQuery');
   if (!input) return;
 
+  // IME composition：和 overlay 同款，Enter 在 composition 中只是确认拼音不开网址
+  input.addEventListener('compositionstart', () => { imeComposing = true; });
+  input.addEventListener('compositionend', () => {
+    imeComposing = false;
+    // composition 结束后短窗口里抑制一次 Enter（macOS 内置 IME 偶尔伪造一个 Enter）
+    imeSuppressEnterUntil = Date.now() + 50;
+  });
+
   input.addEventListener('input', (e) => {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => handleSearch(e.target.value), 120);
   });
 
   input.addEventListener('keydown', (e) => {
+    // IME 期间方向 / Enter 全部交给 IME，不抢
+    if (imeComposing || e.isComposing || e.keyCode === 229) return;
+
     if (e.key === 'ArrowDown') {
       if (filteredResults.length > 0) {
         e.preventDefault();
@@ -348,14 +539,17 @@ function setupSearch() {
         updateSelection();
       }
     } else if (e.key === 'Enter') {
+      // composition 刚结束的伪 Enter：吞一次
+      if (imeSuppressEnterUntil && Date.now() < imeSuppressEnterUntil) {
+        e.preventDefault();
+        imeSuppressEnterUntil = 0;
+        return;
+      }
       e.preventDefault();
       if (selectedIndex >= 0 && filteredResults[selectedIndex]) {
         const item = filteredResults[selectedIndex];
-        if (item.__fallback) {
-          openUrl(item.url, false);
-        } else {
-          openUrl(item.url, e.metaKey || e.ctrlKey);
-        }
+        if (item.__fallback) openUrl(item.url, false);
+        else openUrl(item.url, e.metaKey || e.ctrlKey);
       }
     } else if (e.key === 'Escape') {
       if (input.value) {
@@ -365,18 +559,38 @@ function setupSearch() {
     }
   });
 
-  // "/" 快捷键聚焦（input 自己输入时忽略）
+  // 全局快捷键聚焦
   document.addEventListener('keydown', (e) => {
     if (e.target === input) return;
+    if (imeComposing || e.isComposing) return;
     if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       input.focus();
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
-      input.focus();
-      input.select();
+      input.focus(); input.select();
+    } else if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
+      // Ctrl/Cmd+Space：和扩展全局快捷键一致，但浏览器 chrome 会捕获 Cmd+Space（IME）
+      // 这里只能拦截到的部分情况下 focus 输入框
+      e.preventDefault();
+      input.focus(); input.select();
     }
   });
+}
+
+// 接收 background.js 转发的 TOGGLE_SEARCH（来自全局 Ctrl+Space）
+function setupRuntimeListener() {
+  try {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg && msg.action === MESSAGE_ACTIONS.TOGGLE_SEARCH) {
+        const input = document.getElementById('ntQuery');
+        if (input) { input.focus(); input.select(); }
+        try { sendResponse({ success: true }); } catch (e) {}
+        return false;
+      }
+      return false;
+    });
+  } catch (e) {}
 }
 
 // ----------------------------------------------------------------
@@ -386,17 +600,15 @@ function setupFooter() {
   const openSettings = document.getElementById('ntOpenSettings');
   if (openSettings) {
     openSettings.addEventListener('click', () => {
-      try { chrome.runtime.openOptionsPage(); } catch (e) {
-        window.open(chrome.runtime.getURL('settings.html'), '_blank');
-      }
+      try { chrome.runtime.openOptionsPage(); }
+      catch (e) { window.open(chrome.runtime.getURL('settings.html'), '_blank'); }
     });
   }
   const openManager = document.getElementById('ntOpenManager');
   if (openManager) {
     openManager.addEventListener('click', () => {
-      try { chrome.tabs.create({ url: 'chrome://bookmarks/' }); } catch (e) {
-        window.location.href = 'chrome://bookmarks/';
-      }
+      try { chrome.tabs.create({ url: 'chrome://bookmarks/' }); }
+      catch (e) { window.location.href = 'chrome://bookmarks/'; }
     });
   }
 }
@@ -405,22 +617,41 @@ function setupFooter() {
 // 启动
 // ----------------------------------------------------------------
 async function init() {
+  await Promise.all([loadOverridePref(), loadThemePref()]);
+
+  if (!newtabOverrideEnabled) {
+    renderDisabledFallback();
+    return;
+  }
+
   tickClock();
   setInterval(tickClock, 30_000);
 
-  await Promise.all([
-    loadSearchEngineConfig(),
-    loadSpeedDial()
-  ]);
+  // 入场动画解除：data-loaded 触发 main 元素的 fade-up
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.dataset.loaded = '1'));
+
+  await Promise.all([loadSearchEngineConfig(), loadSpeedDial()]);
 
   setupSearch();
   setupFooter();
+  setupRuntimeListener();
 
-  // storage 变更（切主题 / 改引擎 / 改 speed dial 源）时局部刷新
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' || !changes) return;
       if (changes.searchEngineFallback) loadSearchEngineConfig();
+      if (changes.theme) {
+        const v = changes.theme.newValue;
+        themePref = typeof v === 'string' ? v : 'auto';
+        tickClock();
+      }
+      if (changes[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]) {
+        // 改了接管开关后下次开新标签页才生效；当前页提示一下
+        const v = changes[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED].newValue;
+        if (v === false && !document.body.classList.contains('nt-override-disabled')) {
+          // 不强制刷新，只是给个轻提示
+        }
+      }
     });
   } catch (e) {}
 }

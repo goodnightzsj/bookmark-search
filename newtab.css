@@ -136,26 +136,60 @@ body {
 }
 .nt-greeting {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.08em;
-  color: var(--nt-text-soft);
-  text-transform: none;
+  color: var(--nt-text);
 }
 .nt-clock {
   font-family: var(--nt-font);
   font-weight: 200;
-  font-size: clamp(64px, 12vw, 108px);
+  font-size: clamp(72px, 13vw, 124px);
   line-height: 1;
   color: var(--nt-text);
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.08);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.1);
+  margin-top: 4px;
+}
+.nt-subtitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--nt-text-soft);
+  letter-spacing: 0.01em;
+  margin-top: 2px;
+  min-height: 1.4em;
 }
 .nt-date {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--nt-text-mute);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  margin-top: 6px;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 入场动画：load 后逐项 fade-up */
+.nt-hero,
+.nt-search,
+.nt-dial,
+.nt-footer {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 480ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 480ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+body[data-loaded="1"] .nt-hero { opacity: 1; transform: translateY(0); transition-delay: 40ms; }
+body[data-loaded="1"] .nt-search { opacity: 1; transform: translateY(0); transition-delay: 120ms; }
+body[data-loaded="1"] .nt-dial { opacity: 1; transform: translateY(0); transition-delay: 200ms; }
+body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transition-delay: 280ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-hero, .nt-search, .nt-dial, .nt-footer {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
 }
 
 /* ---------- 搜索 ---------- */
@@ -361,6 +395,16 @@ body {
               box-shadow 180ms ease;
   text-align: center;
   min-height: 100px;
+  /* 错峰入场（每张卡按 idx 累计 30ms 延迟，在 inline style 设的 --enter-delay） */
+  animation: nt-card-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(280ms + var(--enter-delay, 0ms));
+}
+@keyframes nt-card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-dial-card { animation: none !important; }
 }
 .nt-dial-card:hover {
   background: var(--nt-card-hover);
@@ -467,6 +511,37 @@ body {
   .nt-dial-card:hover,
   .nt-action-btn:hover { transform: none !important; }
 }
+
+/* ---------- 关闭接管时的极简占位页 ---------- */
+.nt-disabled-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  z-index: 1;
+}
+.nt-disabled-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--nt-text);
+  margin-bottom: 6px;
+}
+.nt-disabled-desc {
+  font-size: 13px;
+  color: var(--nt-text-soft);
+  max-width: 360px;
+  line-height: 1.6;
+}
+.nt-disabled-desc a {
+  color: var(--nt-accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.nt-disabled-desc a:hover { text-decoration: underline; }
 
 /* ---------- color-mix 不支持时的兜底 ---------- */
 @supports not (background: color-mix(in srgb, red 10%, blue)) {

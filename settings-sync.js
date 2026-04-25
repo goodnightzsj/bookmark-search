@@ -21,7 +21,8 @@ export async function loadSyncSettings() {
       STORAGE_KEYS.LAST_SYNC_TIME,
       STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES,
       STORAGE_KEYS.DEADLINK_CONCURRENCY,
-      STORAGE_KEYS.SEARCH_ENGINE_FALLBACK
+      STORAGE_KEYS.SEARCH_ENGINE_FALLBACK,
+      STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED
     ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
     const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
@@ -68,6 +69,13 @@ export async function loadSyncSettings() {
     // 显示/隐藏"引擎选择"和"自定义 URL"两行
     if (engineRow) engineRow.style.display = feCfg.enabled ? '' : 'none';
     if (customRow) customRow.style.display = (feCfg.enabled && (engineSel && engineSel.value === 'custom')) ? '' : 'none';
+
+    // 新标签页接管开关
+    const overrideSel = document.getElementById('newtabOverrideEnabled');
+    if (overrideSel) {
+      const v = result[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED];
+      overrideSel.value = v === false ? 'off' : 'on';
+    }
 
     // 显示最后同步时间
     if (result[STORAGE_KEYS.LAST_SYNC_TIME]) {
@@ -276,6 +284,21 @@ export function bindSyncEvents() {
       try {
         await persistFallback({ engine });
         syncEngineRowVisibility();
+      } catch (error) {
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    });
+  }
+
+  // 新标签页接管开关
+  const overrideSel = document.getElementById('newtabOverrideEnabled');
+  if (overrideSel) {
+    overrideSel.addEventListener('change', async (e) => {
+      const enabled = e.target.value !== 'off';
+      try {
+        await setStorageOrThrow({ [STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]: enabled });
+        notifySettings(enabled ? 'Dashboard 已启用，新建标签页会显示' : 'Dashboard 已关闭，新建标签页将显示极简占位');
       } catch (error) {
         await loadSyncSettings();
         notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');

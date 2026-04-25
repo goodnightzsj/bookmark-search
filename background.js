@@ -258,6 +258,21 @@ chrome.commands.onCommand.addListener(async (command) => {
 
     const tab = tabs && tabs[0];
     if (!tab || !tab.id) return;
+
+    // 我们自己接管的新标签页（chrome-extension://EXT_ID/newtab.html）：
+    // SPECIAL_PROTOCOLS 会把它当 chrome-extension:// 拒掉，但其实它是我们自己的扩展页，
+    // 让它收到 TOGGLE_SEARCH 消息把焦点拉到内置搜索框。
+    let ourNewtabUrl = '';
+    try { ourNewtabUrl = chrome.runtime.getURL('newtab.html'); } catch (e) {}
+    if (tab.url && ourNewtabUrl && tab.url.startsWith(ourNewtabUrl)) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: MESSAGE_ACTIONS.TOGGLE_SEARCH });
+      } catch (e) {
+        // newtab.js 还没准备好，忽略
+      }
+      return;
+    }
+
     if (tab.url && SPECIAL_PROTOCOLS.some(protocol => tab.url.startsWith(protocol))) {
       return;
     }
