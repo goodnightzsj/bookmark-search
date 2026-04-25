@@ -325,8 +325,18 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
 }
 .nt-search-wrap:focus-within {
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--nt-accent) 22%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--nt-accent) 28%, transparent),
+    0 8px 24px color-mix(in srgb, var(--nt-accent) 16%, transparent),
     var(--nt-shadow);
+  transform: translateY(-1px);
+}
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .nt-search-wrap:focus-within {
+    box-shadow:
+      0 0 0 3px rgba(94, 106, 210, 0.28),
+      0 8px 24px rgba(94, 106, 210, 0.16),
+      var(--nt-shadow);
+  }
 }
 .nt-search-icon {
   flex-shrink: 0;
@@ -523,10 +533,34 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
 }
 .nt-dial-card:hover {
   background: var(--nt-card-hover);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   box-shadow: var(--nt-shadow);
+  border-color: color-mix(in srgb, var(--nt-accent) 30%, var(--nt-card-border));
 }
-.nt-dial-card:active { transform: translateY(0); }
+.nt-dial-card:hover .nt-dial-icon {
+  transform: scale(1.05);
+}
+.nt-dial-icon {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nt-dial-card:active {
+  transform: translateY(-1px) scale(0.985);
+  transition-duration: 80ms;
+}
+.nt-dial-card:focus-visible {
+  outline: none;
+  border-color: var(--nt-accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--nt-accent) 28%, transparent),
+    var(--nt-shadow);
+}
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .nt-dial-card:hover { border-color: rgba(94, 106, 210, 0.3); }
+  .nt-dial-card:focus-visible {
+    border-color: var(--nt-accent);
+    box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.28), var(--nt-shadow);
+  }
+}
 
 .nt-dial-icon {
   width: 40px;
@@ -598,6 +632,11 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
   background: var(--nt-card-hover);
   color: var(--nt-text);
   transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--nt-accent) 24%, var(--nt-card-border));
+}
+.nt-action-btn:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 70ms;
 }
 .nt-action-btn:focus-visible {
   outline: none;

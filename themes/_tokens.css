@@ -72,18 +72,106 @@ body.theme-ready {
   opacity: 1;
 }
 
+/* popup info-row 通用 hover 微提示（颜色用 surface-hover 兼容所有主题） */
+body[data-page="popup"] .info-row {
+  border-radius: 6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  margin-left: -6px;
+  margin-right: -6px;
+  transition: background var(--bs-motion-fast);
+}
+body[data-page="popup"] .info-row:hover {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.08));
+}
+
 /* 状态指示点基线尺寸；颜色由各主题自己的 .status-indicator.active / .inactive 覆盖 */
 .status-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+  position: relative;
+}
+/* 状态点脉冲：success 状态时柔和呼吸，强化"活跃中"的感知 */
+.status-indicator.status-success::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0.55;
+  animation: bs-status-pulse 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes bs-status-pulse {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  60%  { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 
 /* focus-visible 统一可访问轮廓 */
 :focus-visible {
   outline: var(--bs-focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--bs-focus-ring-offset);
+}
+
+/* 通用按钮按下回弹（跨主题统一手感）。各主题已有 :hover 不被覆盖；
+   只补一条全局 :active 缩放，配 motion-spring 让"点了一下"有触感 */
+button:active:not(:disabled),
+.btn:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled),
+  .btn:active:not(:disabled),
+  [role="button"]:active:not(:disabled) {
+    transform: none !important;
+  }
+  .status-indicator.status-success::after {
+    animation: none !important;
+    opacity: 0;
+  }
+}
+
+/* 通用 loading 态按钮：JS 加 .is-loading，按钮内 icon 替换为旋转环 */
+.btn.is-loading,
+button.is-loading {
+  position: relative;
+  pointer-events: none;
+  color: transparent !important;
+}
+.btn.is-loading > *,
+button.is-loading > * {
+  visibility: hidden;
+}
+.btn.is-loading::after,
+button.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  visibility: visible;
+  color: var(--accent, #5e6ad2);
+  animation: bs-spin 0.7s linear infinite;
+}
+@keyframes bs-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.is-loading::after,
+  button.is-loading::after {
+    animation: none !important;
+    border-top-color: currentColor;
+    opacity: 0.6;
+  }
 }
 
 /* ============================================================

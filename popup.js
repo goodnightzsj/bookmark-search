@@ -210,6 +210,7 @@ function bindEvents() {
     toggleBtn.addEventListener('click', async () => {
       if (!currentTab || !currentTab.url) return;
       toggleBtn.disabled = true;
+      toggleBtn.classList.add('is-loading');
       try {
         const resp = assertSuccessfulMessageResponse(
           await chrome.runtime.sendMessage({
@@ -230,6 +231,7 @@ function bindEvents() {
         if (label) label.textContent = '操作失败';
         setTimeout(refreshBookmarkButtonState, 1500);
       } finally {
+        toggleBtn.classList.remove('is-loading');
         setTimeout(() => { toggleBtn.disabled = false; }, 300);
       }
     });
@@ -250,7 +252,8 @@ function bindEvents() {
     
     if (label) label.textContent = '刷新中...';
     btn.disabled = true;
-    
+    btn.classList.add('is-loading');
+
     try {
       // 发送消息给 background 刷新书签
       const result = assertSuccessfulMessageResponse(
@@ -262,6 +265,7 @@ function bindEvents() {
       // 刷新完成后一次性拉取所有状态
       await loadPopupStatus();
 
+      btn.classList.remove('is-loading');
       if (label) label.textContent = result && result.skipped ? '已排队' : '刷新成功';
       setTimeout(() => {
         if (label) label.textContent = originalText;
@@ -269,6 +273,7 @@ function bindEvents() {
       }, BUTTON_RESET_DELAY_MS);
     } catch (error) {
       console.error("[Popup] 刷新书签失败:", error);
+      btn.classList.remove('is-loading');
       if (label) label.textContent = '刷新失败';
       setTimeout(() => {
         if (label) label.textContent = originalText;
