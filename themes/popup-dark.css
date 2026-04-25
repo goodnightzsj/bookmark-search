@@ -1,23 +1,23 @@
-/* 深色 - Studio Dusk（暖色调暗黑） */
+/* 深色 - Gruvbox dark anchor（参考 morhetz/gruvbox：bg0 #282828 + fg1 #ebdbb2 + yellow #fabd2f） */
 :root {
   --popup-width: 340px;
-  --bg: #1a1715;
-  --surface: #1f1c1a;
-  --surface-elevated: #261f1c;
-  --surface-hover: #2e2622;
-  --border: rgba(255, 220, 180, 0.08);
-  --border-strong: rgba(255, 220, 180, 0.18);
-  --text-primary: #ede6dd;
-  --text-secondary: #b8a99a;
-  --text-tertiary: #80726a;
-  --accent: #ffb87a;
-  --accent-hover: #ffc89a;
-  --accent-soft: rgba(255, 184, 122, 0.14);
-  --accent-warm: #c8a8ff;
-  --status-active: #b6cc8a;
-  --status-warning: #ffc36b;
-  --status-inactive: #e57373;
-  --focus-ring: rgba(255, 184, 122, 0.38);
+  --bg: #282828;            /* gruvbox bg0 */
+  --surface: #32302f;       /* gruvbox bg0_s */
+  --surface-elevated: #3c3836;  /* gruvbox bg1 */
+  --surface-hover: #504945;     /* gruvbox bg2 */
+  --border: rgba(235, 219, 178, 0.08);
+  --border-strong: rgba(235, 219, 178, 0.18);
+  --text-primary: #ebdbb2;  /* gruvbox fg1 */
+  --text-secondary: #a89984;
+  --text-tertiary: #7c6f64;
+  --accent: #fabd2f;        /* gruvbox yellow */
+  --accent-hover: #d79921;  /* gruvbox yellow-dim */
+  --accent-soft: rgba(250, 189, 47, 0.14);
+  --accent-warm: #d3869b;   /* gruvbox magenta-dim 替代 */
+  --status-active: #b8bb26; /* gruvbox green */
+  --status-warning: #fabd2f;
+  --status-inactive: #fb4934;  /* gruvbox red */
+  --focus-ring: rgba(250, 189, 47, 0.4);
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -27,11 +27,8 @@
 body {
   width: var(--popup-width);
   font-family: var(--bs-font-stack);
-  /* Studio Dusk：暖琥珀台灯投光 + 焦糖暗调（与 settings-dark 同 palette） */
-  background:
-    radial-gradient(280px 200px at 80% 18%, rgba(255, 184, 122, 0.13), transparent 55%),
-    radial-gradient(240px 200px at 12% 88%, rgba(180, 90, 60, 0.08), transparent 60%),
-    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
+  /* Gruvbox：单色 bg0 平铺，无 radial 装饰 */
+  background: var(--bg);
   color: var(--text-primary);
   padding: 12px;
   -webkit-font-smoothing: antialiased;
@@ -177,20 +174,20 @@ body {
 
 .btn-primary {
   background: var(--accent);
-  color: #0f1014;
-  font-weight: 600;
-  /* accent rim light */
+  /* gruvbox bg0 文字配 yellow 底 */
+  color: #282828;
+  font-weight: 700;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    0 1px 0 rgba(255, 255, 255, 0.2) inset,
     0 -1px 0 rgba(0, 0, 0, 0.18) inset;
 }
 .btn-primary:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.32) inset,
+    0 1px 0 rgba(255, 255, 255, 0.22) inset,
     0 -1px 0 rgba(0, 0, 0, 0.2) inset,
-    0 4px 10px rgba(130, 170, 255, 0.22);
+    0 4px 10px rgba(0, 0, 0, 0.32);
 }
 .btn-primary:active { transform: translateY(0); }
 

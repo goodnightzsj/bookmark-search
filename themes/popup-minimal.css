@@ -1,4 +1,4 @@
-/* 极简 - Swiss Grid（纪律式排版） */
+/* 极简 - Swiss Grid × neubrutalism（Pantone 485 红 + 偏移实心阴影） */
 :root {
   --popup-width: 320px;
   --paper: #ffffff;
@@ -8,7 +8,8 @@
   --ink-4: #a3a3a3;
   --rule: #0a0a0a;
   --rule-soft: #d4d4d4;
-  --accent: #d64545;
+  /* Pantone 485 C：与 settings-minimal 同步 */
+  --accent: #DA291C;
   --focus-ring: rgba(10, 10, 10, 0.3);
   --bs-baseline: 4px;
 }
@@ -27,7 +28,8 @@ body {
 /* === HEADER === */
 .header {
   padding: 16px 16px 12px;
-  border-bottom: 1.5px solid var(--rule);
+  /* neubrutalism：3px 黑色实心底边，比 1.5px 更印刷出版物 */
+  border-bottom: 3px solid var(--rule);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -169,7 +171,8 @@ body {
 .btn {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--rule);
+  /* neubrutalism：2px 实心黑边 */
+  border: 2px solid var(--rule);
   border-radius: 0;
   background: var(--paper);
   color: var(--ink);
@@ -183,7 +186,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: background 120ms linear, color 120ms linear;
+  transition: transform 120ms linear, box-shadow 120ms linear, background 120ms linear, color 120ms linear;
 }
 
 .btn .icon { display: none; }
@@ -192,10 +195,33 @@ body {
   background: var(--ink);
   color: var(--paper);
   border-color: var(--ink);
+  /* neubrutalism 主按钮：3px offset 实心阴影（accent 红） */
+  box-shadow: 3px 3px 0 var(--accent);
 }
-.btn-primary:hover { background: var(--paper); color: var(--ink); }
+.btn-primary:hover {
+  background: var(--paper);
+  color: var(--ink);
+  transform: translate(1.5px, 1.5px);
+  box-shadow: 1.5px 1.5px 0 var(--accent);
+}
+.btn-primary:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--accent);
+}
 
-.btn-secondary:hover { background: var(--ink); color: var(--paper); }
+.btn-secondary {
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.btn-secondary:hover {
+  background: var(--ink);
+  color: var(--paper);
+  transform: translate(1.5px, 1.5px);
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+.btn-secondary:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--ink);
+}
 
 .btn:focus-visible {
   outline: none;

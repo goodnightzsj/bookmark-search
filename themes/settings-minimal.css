@@ -1,4 +1,4 @@
-/* 极简 - Swiss Grid（纪律式排版） */
+/* 极简 - Swiss Grid × neubrutalism（Pantone 485 红 + 直角 + 偏移实心阴影） */
 :root {
   --paper: #ffffff;
   --ink: #0a0a0a;
@@ -9,7 +9,8 @@
   --rule: #0a0a0a;
   --rule-soft: #d4d4d4;
   --rule-hairline: #ebebeb;
-  --accent: #d64545;
+  /* Pantone 485 C：Swiss/IBM 工业红，比 #d64545 更纯更"印刷感" */
+  --accent: #DA291C;
   --bg-body: var(--paper);
   --bg-surface: var(--paper);
   --bg-subtle: #fafafa;
@@ -91,8 +92,9 @@ body {
   background: var(--paper);
   border-radius: 0;
   margin-bottom: 32px;
+  /* neubrutalism 信号：3px 实心顶边，比 1.5px 更"印刷出版物" */
   border: none;
-  border-top: 1.5px solid var(--rule);
+  border-top: 3px solid var(--rule);
   box-shadow: none;
   overflow: visible;
 }
@@ -174,24 +176,28 @@ body {
 
 .theme-option {
   padding: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  /* neubrutalism：2px 黑边 + offset 实心阴影 */
+  border: 2px solid var(--ink);
+  border-radius: 0;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: transform 0.12s linear, box-shadow 0.12s linear;
   text-align: center;
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-xs);
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
 }
 
 .theme-option:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-subtle);
-  transform: translateY(-1px);
+  /* 模拟"按下"：阴影变浅 + 主体往右下移 */
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--ink);
 }
 
 .theme-option.active {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.12);
+  background: var(--paper);
+  /* 选中态：accent 红色阴影替黑 + 不偏移 */
+  transform: translate(0, 0);
+  box-shadow: 4px 4px 0 var(--accent);
+  border-color: var(--ink);
 }
 
 .theme-preview {
@@ -674,7 +680,8 @@ select.form-input {
   gap: 6px;
   padding: 8px 16px;
   background: var(--paper);
-  border: 1px solid var(--rule);
+  /* neubrutalism：2px 黑边 */
+  border: 2px solid var(--rule);
   border-radius: 0;
   color: var(--ink);
   font-family: inherit;
@@ -683,7 +690,7 @@ select.form-input {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background 120ms linear, color 120ms linear;
+  transition: transform 120ms linear, box-shadow 120ms linear, background 120ms linear, color 120ms linear;
 }
 
 .btn:hover {
@@ -697,6 +704,7 @@ select.form-input {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
+  box-shadow: none;
 }
 
 /* Swiss checkbox override：直角 + 纯黑 */
@@ -715,20 +723,37 @@ select.form-input {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--paper);
+  /* neubrutalism 主按钮：3px offset 实心阴影（accent 红，比黑色更突出主操作） */
+  box-shadow: 3px 3px 0 var(--accent);
 }
 
 .btn-primary:hover {
   background: var(--paper);
   color: var(--ink);
   border-color: var(--ink);
+  /* 按下视觉：主体下移 + 阴影收一半 */
+  transform: translate(1.5px, 1.5px);
+  box-shadow: 1.5px 1.5px 0 var(--accent);
+}
+
+.btn-primary:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--accent);
 }
 
 .btn-secondary {
   background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
 }
 .btn-secondary:hover {
   background: var(--ink);
   color: var(--paper);
+  transform: translate(1.5px, 1.5px);
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+.btn-secondary:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--ink);
 }
 
 .btn-sm {

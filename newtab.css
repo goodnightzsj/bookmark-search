@@ -62,34 +62,32 @@ body[data-mood="sunset"] .nt-wallpaper {
     linear-gradient(155deg, #fbd1bc 0%, #f09080 40%, #8e55b0 100%);
 }
 
-/* night = Studio Dusk 暖琥珀（dark 主题的 newtab，与 settings-dark / popup-dark 同 palette） */
+/* night = Gruvbox dark（dark 主题的 newtab，与 settings-dark / popup-dark 同 palette） */
 body[data-mood="night"] {
-  --nt-text: rgba(237, 230, 221, 0.94);
-  --nt-text-soft: rgba(184, 169, 154, 0.86);
-  --nt-text-mute: rgba(128, 114, 106, 0.7);
-  --nt-card: rgba(31, 28, 26, 0.6);
-  --nt-card-border: rgba(255, 220, 180, 0.14);
-  --nt-card-hover: rgba(46, 38, 34, 0.78);
-  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.42), 0 22px 56px rgba(0, 0, 0, 0.4);
-  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 14px rgba(0, 0, 0, 0.28);
-  --nt-kbd-bg: rgba(255, 220, 180, 0.06);
-  --nt-kbd-border: rgba(255, 220, 180, 0.18);
-  --nt-accent: #ffb87a;
+  --nt-text: #ebdbb2;       /* gruvbox fg1 */
+  --nt-text-soft: #a89984;
+  --nt-text-mute: #7c6f64;
+  --nt-card: rgba(60, 56, 54, 0.6);    /* gruvbox bg1 半透 */
+  --nt-card-border: rgba(235, 219, 178, 0.14);
+  --nt-card-hover: rgba(80, 73, 69, 0.78);  /* gruvbox bg2 */
+  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 22px 56px rgba(0, 0, 0, 0.45);
+  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.32), 0 4px 14px rgba(0, 0, 0, 0.32);
+  --nt-kbd-bg: rgba(235, 219, 178, 0.06);
+  --nt-kbd-border: rgba(235, 219, 178, 0.18);
+  --nt-accent: #fabd2f;     /* gruvbox yellow */
 }
 body[data-mood="night"] .nt-wallpaper {
-  background:
-    radial-gradient(1100px 800px at 80% 18%, rgba(255, 184, 122, 0.16) 0%, transparent 55%),
-    radial-gradient(900px 700px at 12% 88%, rgba(180, 90, 60, 0.12) 0%, transparent 60%),
-    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
+  /* Gruvbox：bg0 单色平铺，无装饰 */
+  background: #282828;
 }
 
 /* ============================================================
  * 主题专属 mood：用户在设置里选了具体主题时全天固定
  * ============================================================ */
 
-/* original：Linear-light 风（与 settings-original.css 配色一致） */
+/* original：editorial 工作站（deep moss accent，与 settings-original 配色一致） */
 body[data-mood="linear"] {
-  --nt-accent: #5e6ad2;
+  --nt-accent: #4f6c5e;
   --nt-text: #0f1419;
   --nt-text-soft: #4a5364;
   --nt-text-mute: #8a929d;
@@ -143,18 +141,61 @@ body[data-mood="glass"] .nt-subtitle {
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.35),
                0 12px 32px rgba(15, 23, 42, 0.18);
 }
+/* glass 模式：search/dial 加 lg-blur-lg 32px + spot specular 高光 + 折射 rim ring */
+body[data-mood="glass"] .nt-search-wrap,
+body[data-mood="glass"] .nt-results,
+body[data-mood="glass"] .nt-dial-card {
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+}
+body[data-mood="glass"] .nt-search-wrap,
+body[data-mood="glass"] .nt-dial-card {
+  position: relative;
+}
+body[data-mood="glass"] .nt-search-wrap::before,
+body[data-mood="glass"] .nt-dial-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(75% 55% at 14% 0%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 18%);
+  mix-blend-mode: screen;
+  opacity: 0.95;
+  z-index: 0;
+}
+body[data-mood="glass"] .nt-search-wrap::after,
+body[data-mood="glass"] .nt-dial-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.18),
+    inset -1px 0 0 rgba(15, 23, 42, 0.04);
+  z-index: 0;
+}
+body[data-mood="glass"] .nt-search-wrap > *,
+body[data-mood="glass"] .nt-dial-card > * { position: relative; z-index: 1; }
 
-/* minimal：Swiss Grid 极简白 */
+/* minimal：Swiss Grid × neubrutalism（Pantone 485 红 + 偏移实心阴影） */
 body[data-mood="minimal"] {
-  --nt-accent: #d64545;
+  /* Pantone 485 C 与 settings/popup-minimal 同步 */
+  --nt-accent: #DA291C;
   --nt-text: #0a0a0a;
   --nt-text-soft: #404040;
   --nt-text-mute: #737373;
   --nt-card: #ffffff;
-  --nt-card-border: #d4d4d4;
+  --nt-card-border: #0a0a0a;
   --nt-card-hover: #fafafa;
-  --nt-shadow: none;
-  --nt-shadow-soft: none;
+  /* offset 实心阴影代替模糊投影 */
+  --nt-shadow: 4px 4px 0 #0a0a0a;
+  --nt-shadow-soft: 2px 2px 0 #0a0a0a;
   --nt-kbd-bg: #ffffff;
   --nt-kbd-border: #0a0a0a;
 }
@@ -168,7 +209,7 @@ body[data-mood="minimal"] .nt-wallpaper::after {
   background-size: 16px 16px;
   opacity: 1;
 }
-/* minimal 模式：去掉圆角、去掉模糊，强调几何 */
+/* neubrutalism：直角 + 2px 实心黑边 + 4px offset 实心阴影 + 无模糊 */
 body[data-mood="minimal"] .nt-search-wrap,
 body[data-mood="minimal"] .nt-results,
 body[data-mood="minimal"] .nt-dial-card,
@@ -176,6 +217,19 @@ body[data-mood="minimal"] .nt-action-btn {
   border-radius: 0 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  border: 2px solid #0a0a0a !important;
+  box-shadow: 4px 4px 0 #0a0a0a !important;
+  transition: transform 120ms linear, box-shadow 120ms linear !important;
+}
+body[data-mood="minimal"] .nt-dial-card:hover,
+body[data-mood="minimal"] .nt-action-btn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #0a0a0a !important;
+}
+body[data-mood="minimal"] .nt-dial-card:active,
+body[data-mood="minimal"] .nt-action-btn:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 #0a0a0a !important;
 }
 body[data-mood="minimal"] .nt-clock {
   font-weight: 300;
@@ -187,14 +241,14 @@ body[data-mood="minimal"] .nt-dial-title {
   letter-spacing: 0.16em;
 }
 
-/* daylight：Cool Spring 薄荷 + 冷蓝（auto 跟随系统浅色，与 settings/popup-daylight 同 palette） */
+/* daylight：Risograph teal（auto 跟随系统浅色，与 settings/popup-daylight 同 palette） */
 body[data-mood="daylight"] {
-  --nt-accent: #0ea585;
+  --nt-accent: #3FA796;     /* Riso teal */
   --nt-text: #0f2331;
   --nt-text-soft: #44637a;
   --nt-text-mute: #7a93a8;
   --nt-card: rgba(255, 255, 255, 0.78);
-  --nt-card-border: rgba(180, 232, 220, 0.5);
+  --nt-card-border: rgba(63, 167, 150, 0.18);
   --nt-card-hover: rgba(255, 255, 255, 0.94);
   --nt-shadow: 0 1px 2px rgba(15, 35, 49, 0.04), 0 12px 36px rgba(15, 35, 49, 0.08);
   --nt-shadow-soft: 0 1px 2px rgba(15, 35, 49, 0.04), 0 4px 12px rgba(15, 35, 49, 0.06);
@@ -202,31 +256,30 @@ body[data-mood="daylight"] {
   --nt-kbd-border: rgba(15, 35, 49, 0.08);
 }
 body[data-mood="daylight"] .nt-wallpaper {
+  /* Riso 印刷感：teal 主 radial + 砖红错位副印（刻意非对称） */
   background:
-    radial-gradient(1100px 800px at 88% 8%, rgba(180, 232, 220, 0.55) 0%, transparent 55%),
-    radial-gradient(1000px 850px at 8% 92%, rgba(178, 215, 232, 0.55) 0%, transparent 55%),
+    radial-gradient(900px 720px at 78% 22%, rgba(63, 167, 150, 0.18), transparent 58%),
+    radial-gradient(560px 480px at 22% 78%, rgba(196, 69, 54, 0.08), transparent 60%),
     linear-gradient(180deg, #f0f8fb 0%, #e9f4f0 100%);
 }
 
-/* midnight：Deep Ocean 冰蓝 + 紫（auto 跟随系统深色，与 night Studio Dusk 暖色形成冷暖对比） */
+/* midnight = Vercel Geist dark（auto 跟随系统深色，与 Gruvbox 暖色 night 形成冷暖对比） */
 body[data-mood="midnight"] {
-  --nt-text: rgba(232, 240, 250, 0.94);
-  --nt-text-soft: rgba(167, 184, 208, 0.86);
-  --nt-text-mute: rgba(111, 131, 152, 0.7);
-  --nt-card: rgba(14, 26, 48, 0.6);
-  --nt-card-border: rgba(180, 200, 240, 0.14);
-  --nt-card-hover: rgba(20, 37, 68, 0.78);
-  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 22px 56px rgba(0, 0, 0, 0.4);
-  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 14px rgba(0, 0, 0, 0.28);
-  --nt-kbd-bg: rgba(180, 200, 240, 0.06);
-  --nt-kbd-border: rgba(180, 200, 240, 0.18);
-  --nt-accent: #6ed1ff;
+  --nt-text: #ededed;
+  --nt-text-soft: #888888;
+  --nt-text-mute: #666666;
+  --nt-card: rgba(17, 17, 17, 0.7);   /* geist accents-1 半透 */
+  --nt-card-border: #333333;
+  --nt-card-hover: rgba(26, 26, 26, 0.85);
+  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 22px 56px rgba(0, 0, 0, 0.5);
+  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.32), 0 4px 14px rgba(0, 0, 0, 0.32);
+  --nt-kbd-bg: rgba(255, 255, 255, 0.05);
+  --nt-kbd-border: #333333;
+  --nt-accent: #0070f3;     /* geist blue */
 }
 body[data-mood="midnight"] .nt-wallpaper {
-  background:
-    radial-gradient(1100px 800px at 22% 12%, rgba(110, 209, 255, 0.18) 0%, transparent 55%),
-    radial-gradient(900px 700px at 78% 88%, rgba(160, 110, 220, 0.2) 0%, transparent 55%),
-    linear-gradient(165deg, #08111d 0%, #0e1a35 50%, #1a1334 100%);
+  /* Geist：纯黑 #0a0a0a 平铺，无装饰 */
+  background: #0a0a0a;
 }
 
 /* ---------- reset / 版式 ---------- */
@@ -754,12 +807,12 @@ body[data-loading="1"] .nt-progress-bar { opacity: 1; }
 :root {
   --nt-loading-backdrop: rgba(15, 23, 42, 0.55);
 }
-body[data-mood="night"]    { --nt-loading-backdrop: rgba(26, 23, 21, 0.7); }
+body[data-mood="night"]    { --nt-loading-backdrop: rgba(40, 40, 40, 0.72); }   /* gruvbox bg0 */
 body[data-mood="linear"]   { --nt-loading-backdrop: rgba(15, 23, 42, 0.45); }
 body[data-mood="glass"]    { --nt-loading-backdrop: rgba(15, 23, 42, 0.5); }
 body[data-mood="minimal"]  { --nt-loading-backdrop: rgba(255, 255, 255, 0.85); }
 body[data-mood="daylight"] { --nt-loading-backdrop: rgba(15, 35, 49, 0.42); }
-body[data-mood="midnight"] { --nt-loading-backdrop: rgba(8, 17, 29, 0.7); }
+body[data-mood="midnight"] { --nt-loading-backdrop: rgba(10, 10, 10, 0.78); }   /* geist 纯黑 */
 body[data-mood="dawn"]     { --nt-loading-backdrop: rgba(80, 30, 15, 0.45); }
 body[data-mood="sunset"]   { --nt-loading-backdrop: rgba(80, 30, 80, 0.5); }
 body[data-mood="day"]      { --nt-loading-backdrop: rgba(15, 30, 80, 0.4); }

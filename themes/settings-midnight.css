@@ -1,30 +1,28 @@
-/* Midnight - Deep Ocean（auto-dark 隐藏主题，picker 不露出，与"深色"warm dusk 形成对比） */
+/* Midnight - Vercel Geist dark anchor（参考 vercel.com/geist：bg #0a0a0a + fg #ededed + blue #0070f3） */
 :root {
-  --bg: #08111d;
-  --bg-elevated: #0e1a30;
-  --surface: #0e1a30;
-  --surface-2: #142544;
-  --surface-3: #1c3055;
-  --border: rgba(180, 200, 240, 0.08);
-  --border-strong: rgba(180, 200, 240, 0.18);
-  --text-1: #e8f0fa;
-  --text-2: #a7b8d0;
-  --text-3: #6f8398;
-  --accent: #6ed1ff;            /* 冰川蓝（glacier blue） */
-  --accent-strong: #93deff;
-  --accent-soft: rgba(110, 209, 255, 0.14);
-  --focus-ring: rgba(110, 209, 255, 0.4);
-  --green: #4fd6b5;
-  --red: #ff6680;
-  --yellow: #ffc36b;
-  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.32);
-  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.25), 0 6px 16px rgba(0, 0, 0, 0.28);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+  --bg: #0a0a0a;            /* geist accents-0 */
+  --bg-elevated: #111111;   /* geist accents-1 */
+  --surface: #111111;
+  --surface-2: #1a1a1a;
+  --surface-3: #232323;
+  --border: #333333;        /* geist accents-2 */
+  --border-strong: #444444; /* geist accents-3 */
+  --text-1: #ededed;        /* geist accents-7 */
+  --text-2: #888888;        /* geist accents-5 */
+  --text-3: #666666;        /* geist accents-4 */
+  --accent: #0070f3;        /* geist blue（Vercel signature） */
+  --accent-strong: #1f8df3;
+  --accent-soft: rgba(0, 112, 243, 0.14);
+  --focus-ring: rgba(0, 112, 243, 0.4);
+  --green: #50e3c2;         /* geist cyan-green */
+  --red: #f56565;           /* geist red（接近 #ee0000，但留余地不那么刺） */
+  --yellow: #f5a623;        /* geist amber */
+  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.32), 0 6px 16px rgba(0, 0, 0, 0.36);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
 
-  /* 共享组件别名（_tokens.css 的 dup-modal / bs-dialog / bs-result-modal /
-     custom-select / bs-toast 等都用这套变量名；不加别名会回退到硬编码浅色） */
   --card-bg: var(--surface);
   --surface-hover: var(--surface-2);
   --surface-active: var(--surface-3);
@@ -37,11 +35,8 @@
 
 body {
   font-family: var(--bs-font-stack);
-  /* Deep Ocean：深海蓝紫渐变 + 冰川蓝 / 紫罗兰双 radial，神秘感拉满 */
-  background:
-    radial-gradient(1100px 800px at 22% 12%, rgba(110, 209, 255, 0.13), transparent 55%),
-    radial-gradient(950px 750px at 78% 88%, rgba(160, 110, 220, 0.14), transparent 55%),
-    linear-gradient(165deg, #08111d 0%, #0e1a35 50%, #1a1334 100%);
+  /* Geist：纯黑 #0a0a0a 平铺，无装饰；极简就是 Vercel 的设计哲学 */
+  background: var(--bg);
   background-attachment: fixed;
   color: var(--text-1);
   min-height: 100vh;
@@ -357,9 +352,9 @@ body::before {
               background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* dark chevron：柔和 accent（不发光） */
+/* geist chevron：accents-5 #888888 灰，与 Vercel 极简哲学一致 */
 select.form-input {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%2382aaff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23888888' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 select.form-input option {
@@ -396,8 +391,8 @@ select.form-input option {
   border-color: var(--accent);
 }
 .history-checkbox:checked::after {
-  /* 暗色主题下勾号用深色，和柔和亮蓝底形成对比 */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%230f1014' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E");
+  /* geist：白勾号配 #0070f3 蓝底，对比度最大 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E");
 }
 
 .shortcut-input {
@@ -695,9 +690,9 @@ select.form-input option {
 .btn-primary {
   background: var(--accent);
   border-color: transparent;
-  color: #0f1014;
+  /* geist：白字 + Vercel blue 底，复刻 vercel.com primary CTA */
+  color: #ffffff;
   font-weight: 600;
-  /* accent rim light：顶缘 1px 亮色，工程按键的光学暗示 */
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.25) inset,
     0 -1px 0 rgba(0, 0, 0, 0.15) inset,

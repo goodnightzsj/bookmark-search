@@ -1,34 +1,33 @@
-/* 深色 - Studio Dusk（暖色调暗黑，与 midnight 冷蓝深海形成对比） */
+/* 深色 - Gruvbox dark anchor（参考 morhetz/gruvbox：bg0 #282828 + fg1 #ebdbb2 + yellow #fabd2f） */
 :root {
-  --bg: #1a1715;
-  --bg-elevated: #1f1c1a;
-  --surface: #1f1c1a;
-  --surface-2: #261f1c;
-  --surface-3: #2e2622;
-  --border: rgba(255, 220, 180, 0.08);
-  --border-strong: rgba(255, 220, 180, 0.18);
-  --text-1: #ede6dd;
-  --text-2: #b8a99a;
-  --text-3: #80726a;
-  --accent: #ffb87a;             /* warm amber，暮色台灯 */
-  --accent-strong: #ffc89a;
-  --accent-soft: rgba(255, 184, 122, 0.14);
-  --focus-ring: rgba(255, 184, 122, 0.4);
-  --green: #b6cc8a;
-  --red: #e57373;
-  --yellow: #ffc36b;
-  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.32);
-  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.25), 0 6px 16px rgba(0, 0, 0, 0.28);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+  --bg: #282828;            /* gruvbox bg0 */
+  --bg-elevated: #32302f;   /* gruvbox bg0_s */
+  --surface: #32302f;
+  --surface-2: #3c3836;     /* gruvbox bg1 */
+  --surface-3: #504945;     /* gruvbox bg2 */
+  --border: rgba(235, 219, 178, 0.08);
+  --border-strong: rgba(235, 219, 178, 0.18);
+  --text-1: #ebdbb2;        /* gruvbox fg1 */
+  --text-2: #a89984;        /* gruvbox gray */
+  --text-3: #7c6f64;        /* gruvbox gray-darker */
+  --accent: #fabd2f;        /* gruvbox yellow */
+  --accent-strong: #d79921; /* gruvbox yellow-dim */
+  --accent-soft: rgba(250, 189, 47, 0.14);
+  --focus-ring: rgba(250, 189, 47, 0.4);
+  --green: #b8bb26;         /* gruvbox green */
+  --red: #fb4934;           /* gruvbox red */
+  --yellow: #fabd2f;
+  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --scrollbar-thumb: rgba(235, 219, 178, 0.14);
+  --scrollbar-thumb-hover: rgba(235, 219, 178, 0.3);
 
-  /* 共享组件别名（_tokens.css 的 dup-modal / bs-dialog / bs-result-modal /
-     custom-select / bs-toast 等都用这套变量名；不加别名会回退到硬编码浅色） */
+  /* 共享组件别名 */
   --card-bg: var(--surface);
   --surface-hover: var(--surface-2);
   --surface-active: var(--surface-3);
-  --surface-subtle: rgba(255, 255, 255, 0.04);
+  --surface-subtle: rgba(235, 219, 178, 0.04);
   --text-primary: var(--text-1);
   --text-secondary: var(--text-2);
   --text-tertiary: var(--text-3);
@@ -37,11 +36,8 @@
 
 body {
   font-family: var(--bs-font-stack);
-  /* Studio Dusk：暖色焦糖暗调 + 角落 amber 投光，像深夜书房一盏台灯 */
-  background:
-    radial-gradient(1100px 800px at 80% 18%, rgba(255, 184, 122, 0.13), transparent 55%),
-    radial-gradient(900px 700px at 12% 88%, rgba(180, 90, 60, 0.08), transparent 60%),
-    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
+  /* Gruvbox：单色 bg0 平铺，不做花哨 radial（gruvbox 哲学就是不要装饰） */
+  background: var(--bg);
   background-attachment: fixed;
   color: var(--text-1);
   min-height: 100vh;
@@ -357,9 +353,9 @@ body::before {
               background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* dark chevron：柔和 accent（不发光） */
+/* dark chevron：gruvbox yellow #fabd2f */
 select.form-input {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%2382aaff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23fabd2f' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 select.form-input option {
@@ -396,8 +392,8 @@ select.form-input option {
   border-color: var(--accent);
 }
 .history-checkbox:checked::after {
-  /* 暗色主题下勾号用深色，和柔和亮蓝底形成对比 */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%230f1014' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E");
+  /* gruvbox bg0 #282828 勾号配 yellow #fabd2f 底，最大对比度 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23282828' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.5L5 9l4.5-5.5'/%3E%3C/svg%3E");
 }
 
 .shortcut-input {
@@ -695,12 +691,12 @@ select.form-input option {
 .btn-primary {
   background: var(--accent);
   border-color: transparent;
-  color: #0f1014;
-  font-weight: 600;
-  /* accent rim light：顶缘 1px 亮色，工程按键的光学暗示 */
+  /* gruvbox bg0 文字配 yellow 底，复刻 gruvbox terminal 选中态 */
+  color: #282828;
+  font-weight: 700;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.25) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.15) inset,
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.18) inset,
     var(--shadow-sm);
 }
 
