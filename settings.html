@@ -268,14 +268,14 @@
               <div class="setting-meta">
                 <label class="setting-title form-label" for="newtabOverrideEnabled">
                   接管新标签页
-                  <span class="help-tip" tabindex="0" aria-label="什么是新标签页接管？" title="开启后，每次新建标签页或浏览器启动时显示扩展自带的 Dashboard（时钟 / 搜索 / 常用书签）。关闭后会显示极简占位页，已打开的页不立即变化，刷新或下次新建后生效。">ⓘ</span>
+                  <span class="help-tip" tabindex="0" aria-label="什么是新标签页接管？" title="开启后，每次新建标签页或浏览器启动时显示扩展自带的 Dashboard（时钟 / 搜索 / 常用书签）。关闭后扩展直接放弃接管，新标签页跳到空白页（about:blank），不再占位。">ⓘ</span>
                 </label>
-                <p class="setting-description">开启时新标签页是 Dashboard，关闭后显示极简占位页（不影响其它扩展接管）。</p>
+                <p class="setting-description">开启时新标签页是 Dashboard，关闭后扩展放弃接管，新标签页直接跳到空白页（about:blank），不再占位。</p>
               </div>
               <div class="setting-control">
                 <select id="newtabOverrideEnabled" class="form-input" data-custom-select="true">
                   <option value="on" selected>启用 Dashboard</option>
-                  <option value="off">关闭（极简占位）</option>
+                  <option value="off">关闭（不接管）</option>
                 </select>
               </div>
             </div>

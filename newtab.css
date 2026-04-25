@@ -966,36 +966,8 @@ body[data-loading="1"] .nt-loading-panel {
   .nt-loading-favicon { box-shadow: 0 4px 14px rgba(94, 106, 210, 0.24); }
 }
 
-/* ---------- 关闭接管时的极简占位页 ---------- */
-.nt-disabled-card {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 32px;
-  z-index: 1;
-}
-.nt-disabled-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--nt-text);
-  margin-bottom: 6px;
-}
-.nt-disabled-desc {
-  font-size: 13px;
-  color: var(--nt-text-soft);
-  max-width: 360px;
-  line-height: 1.6;
-}
-.nt-disabled-desc a {
-  color: var(--nt-accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.nt-disabled-desc a:hover { text-decoration: underline; }
+/* 关闭接管时的占位卡片 CSS 已移除：newtab.js 检测到关闭后直接 redirect
+   到 about:blank，不会再渲染任何 UI，所以 .nt-disabled-* 类已不再使用。 */
 
 /* ---------- color-mix 不支持时的兜底 ---------- */
 @supports not (background: color-mix(in srgb, red 10%, blue)) {

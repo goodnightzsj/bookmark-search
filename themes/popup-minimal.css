@@ -23,6 +23,9 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   letter-spacing: 0;
+  /* 左右 12px gutter（Swiss sections 仍 edge-to-edge，但与父容器留呼吸） */
+  padding: 0 12px;
+  margin: 0;
 }
 
 /* === HEADER === */

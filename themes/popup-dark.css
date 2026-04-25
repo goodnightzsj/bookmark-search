@@ -30,7 +30,9 @@ body {
   /* Gruvbox：单色 bg0 平铺，无 radial 装饰 */
   background: var(--bg);
   color: var(--text-primary);
-  padding: 12px;
+  /* Gruvbox bg #282828 与 surface #32302f 差仅 0x0a，14px gutter 比 12 更可见 */
+  padding: 14px;
+  margin: 0;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
 }
@@ -66,7 +68,8 @@ body {
   flex-direction: column;
   margin-bottom: 10px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  /* Gruvbox bg / surface 太相近，用 border-strong 让卡片轮廓清晰可见 */
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   overflow: hidden;
   padding: 0;

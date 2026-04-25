@@ -318,25 +318,13 @@ async function loadOverridePref() {
   } catch (e) {}
 }
 
-function renderDisabledFallback() {
-  document.body.classList.add('nt-override-disabled');
-  const main = document.querySelector('.nt-main');
-  if (main) main.style.display = 'none';
-  const root = document.querySelector('body');
-  if (!root) return;
-  const fallback = document.createElement('div');
-  fallback.className = 'nt-disabled-card';
-  fallback.innerHTML = `
-    <div class="nt-disabled-title">已关闭新标签页接管</div>
-    <p class="nt-disabled-desc">在 <a id="ntGoSettings" href="#">扩展设置</a> 里重新启用。或者在地址栏输入网址。</p>
-  `;
-  root.appendChild(fallback);
-  const link = document.getElementById('ntGoSettings');
-  if (link) link.addEventListener('click', (e) => {
-    e.preventDefault();
-    try { chrome.runtime.openOptionsPage(); }
-    catch (err) { window.open(chrome.runtime.getURL('settings.html'), '_blank'); }
-  });
+// 关闭接管 = 真正跳走，不留占位卡片。Chrome MV3 manifest chrome_url_overrides
+// 是静态声明，无法运行时取消，所以只能在 newtab.html 加载时立刻 redirect。
+// about:blank 是扩展能跳到的最接近"原生空白页"的目标（chrome://newtab/ 会被
+// chrome_url_overrides 再拦回这里造成死循环；chrome-search:// 受限拒绝）。
+function redirectAwayFromNewtab() {
+  try { window.location.replace('about:blank'); }
+  catch (e) { window.location.href = 'about:blank'; }
 }
 
 // ----------------------------------------------------------------
@@ -694,12 +682,13 @@ function setupFooter() {
 // 启动
 // ----------------------------------------------------------------
 async function init() {
-  await Promise.all([loadOverridePref(), loadThemePref()]);
-
+  // 优先读 override 开关，关闭就立即跳走，不渲染任何 UI（避免一闪而过的占位）
+  await loadOverridePref();
   if (!newtabOverrideEnabled) {
-    renderDisabledFallback();
+    redirectAwayFromNewtab();
     return;
   }
+  await loadThemePref();
 
   tickClock();
   setInterval(tickClock, 30_000);
@@ -729,11 +718,9 @@ async function init() {
         tickClock();
       }
       if (changes[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]) {
-        // 改了接管开关后下次开新标签页才生效；当前页提示一下
+        // 设置页改了接管开关，当前已渲染的 newtab 立刻跳走，不再占位
         const v = changes[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED].newValue;
-        if (v === false && !document.body.classList.contains('nt-override-disabled')) {
-          // 不强制刷新，只是给个轻提示
-        }
+        if (v === false) redirectAwayFromNewtab();
       }
     });
   } catch (e) {}
