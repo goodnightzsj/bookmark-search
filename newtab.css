@@ -193,7 +193,16 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
 }
 
 /* ---------- 搜索 ---------- */
-.nt-search { width: 100%; max-width: 640px; position: relative; }
+.nt-search {
+  width: 100%;
+  max-width: 640px;
+  position: relative;
+  /* 把整个 search 列抬到 dial 之上，保证 absolute 定位的 .nt-results 不被
+     下方 Speed Dial 卡片（带 backdrop-filter 的 stacking context）遮挡 */
+  z-index: 20;
+}
+/* 输入聚焦时再往上抬一档，让结果稳压在所有兄弟元素之上 */
+.nt-search:focus-within { z-index: 40; }
 .nt-search-wrap {
   position: relative;
   display: flex;
