@@ -381,16 +381,21 @@ async function loadSearchEngineConfig() {
   } catch (e) {}
 }
 
+// newtab 的搜索引擎兜底语义和 overlay 不同：
+//   overlay：用户在设置里启用 enabled 才显示（默认关闭，避免无意中把查询泄露给搜索引擎）
+//   newtab：作为 launcher 类页面，搜索引擎兜底是默认行为（类似 Chrome 原生新标签页就内置 Google 搜索）
+//          没配置时用 Google；用户在设置里改了引擎/自定义 URL 也跟着用
 function resolveSearchEngine() {
   const c = searchEngineConfig;
-  if (!c.enabled) return null;
   if (c.engine === 'custom') {
     const tpl = (c.customUrl || '').trim();
-    if (!tpl || tpl.indexOf('{q}') === -1) return null;
-    if (!/^https?:\/\//i.test(tpl)) return null;
-    return { label: '自定义', url: tpl };
+    if (tpl && tpl.indexOf('{q}') !== -1 && /^https?:\/\//i.test(tpl)) {
+      return { label: '自定义', url: tpl };
+    }
+    // 自定义但 URL 无效：退回 Google（newtab 必有兜底）
+    return SEARCH_ENGINE_PRESETS.google;
   }
-  return SEARCH_ENGINE_PRESETS[c.engine] || null;
+  return SEARCH_ENGINE_PRESETS[c.engine] || SEARCH_ENGINE_PRESETS.google;
 }
 
 function buildSearchEngineUrl(q) {
@@ -416,47 +421,15 @@ function renderResults(items) {
   const resultsEl = document.getElementById('ntResults');
   if (!resultsEl) return;
   resultsEl.innerHTML = '';
-  filteredResults = Array.isArray(items) ? items : [];
 
-  if (filteredResults.length === 0) {
-    const query = document.getElementById('ntQuery').value.trim();
-    const info = resolveSearchEngine();
-    if (info && query) {
-      const row = document.createElement('div');
-      row.className = 'nt-result nt-result-fallback';
-      row.setAttribute('role', 'option');
-      row.dataset.index = '0';
-      row.innerHTML = `
-        <div class="nt-result-icon nt-result-icon-search">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-        </div>
-        <div class="nt-result-body">
-          <div class="nt-result-title">在 <strong>${escapeHtml(info.label)}</strong> 搜索 <span class="nt-result-q">${escapeHtml(query)}</span></div>
-          <div class="nt-result-subtitle">按 Enter 直接跳转</div>
-        </div>
-        <kbd class="nt-result-kbd">Enter</kbd>
-      `;
-      row.addEventListener('click', () => openUrl(buildSearchEngineUrl(query), false));
-      resultsEl.appendChild(row);
-      selectedIndex = 0;
-      filteredResults = [{ __fallback: true, url: buildSearchEngineUrl(query) }];
-    } else {
-      const empty = document.createElement('div');
-      empty.className = 'nt-result-empty';
-      empty.textContent = '未找到匹配的书签';
-      resultsEl.appendChild(empty);
-      selectedIndex = -1;
-    }
-    resultsEl.classList.add('is-visible');
-    updateSelection();
-    return;
-  }
+  const bookmarkResults = Array.isArray(items) ? items : [];
+  const query = (document.getElementById('ntQuery').value || '').trim();
 
-  filteredResults.forEach((bm, idx) => {
+  // 渲染书签结果
+  bookmarkResults.forEach((bm) => {
     const row = document.createElement('div');
     row.className = 'nt-result';
     row.setAttribute('role', 'option');
-    row.dataset.index = String(idx);
 
     const iconImg = document.createElement('img');
     iconImg.className = 'nt-result-icon';
@@ -475,13 +448,59 @@ function renderResults(items) {
     row.appendChild(body);
 
     applyFaviconWithFallback(iconImg, bm.url, hostOf(bm.url));
-
-    row.addEventListener('click', (e) => openUrl(bm.url, e.metaKey || e.ctrlKey));
-    row.addEventListener('mouseenter', () => { selectedIndex = idx; updateSelection(); });
     resultsEl.appendChild(row);
   });
 
-  selectedIndex = 0;
+  // 追加搜索引擎兜底行：query 非空就显示（newtab 永远兜底，与 overlay 不同）
+  let fallbackEntry = null;
+  if (query) {
+    const info = resolveSearchEngine();
+    const fallbackUrl = info ? buildSearchEngineUrl(query) : '';
+    if (info && fallbackUrl) {
+      fallbackEntry = { __fallback: true, url: fallbackUrl, query, label: info.label };
+      const row = document.createElement('div');
+      row.className = 'nt-result nt-result-fallback';
+      row.setAttribute('role', 'option');
+      row.innerHTML = `
+        <div class="nt-result-icon nt-result-icon-search">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        </div>
+        <div class="nt-result-body">
+          <div class="nt-result-title">在 <strong>${escapeHtml(info.label)}</strong> 搜索 <span class="nt-result-q">${escapeHtml(query)}</span></div>
+          <div class="nt-result-subtitle">${bookmarkResults.length > 0 ? '在结果里没找到？继续到搜索引擎' : '按 Enter 直接跳转'}</div>
+        </div>
+        <kbd class="nt-result-kbd">Enter</kbd>
+      `;
+      resultsEl.appendChild(row);
+    }
+  }
+
+  // 合并选中索引数组：先书签结果，再 fallback
+  filteredResults = bookmarkResults.slice();
+  if (fallbackEntry) filteredResults.push(fallbackEntry);
+
+  // 给所有 row 标 index + click + hover；fallback 行永远是最后一个
+  const rows = resultsEl.querySelectorAll('.nt-result');
+  rows.forEach((row, idx) => {
+    row.dataset.index = String(idx);
+    row.addEventListener('click', (e) => {
+      const item = filteredResults[idx];
+      if (!item) return;
+      if (item.__fallback) openUrl(item.url, false);
+      else openUrl(item.url, e.metaKey || e.ctrlKey);
+    });
+    row.addEventListener('mouseenter', () => { selectedIndex = idx; updateSelection(); });
+  });
+
+  if (filteredResults.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'nt-result-empty';
+    empty.textContent = '未找到匹配的书签';
+    resultsEl.appendChild(empty);
+    selectedIndex = -1;
+  } else {
+    selectedIndex = 0;
+  }
   resultsEl.classList.add('is-visible');
   updateSelection();
 }
