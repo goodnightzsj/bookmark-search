@@ -2,11 +2,13 @@
  * 新标签页 Dashboard：主题感知调色 + 大时钟 + 搜索 + Speed Dial
  *
  * body[data-mood] 决定整页基调：
- *   - auto 主题：dawn / day / sunset / night（按时段）
- *   - original 主题 → linear（Linear-light 风，indigo accent）
- *   - dark 主题 → night
- *   - glass 主题 → glass（青绿→珊瑚，毛玻璃质感）
+ *   - auto 主题 + 系统浅色 → daylight（Cool Spring 薄荷+冷蓝）
+ *   - auto 主题 + 系统深色 → midnight（Deep Ocean 冰蓝+紫）
+ *   - original 主题 → linear（Sunrise paper，indigo accent）
+ *   - dark 主题 → night（Studio Dusk 暖琥珀，与 midnight 形成冷暖对比）
+ *   - glass 主题 → glass（lavender→sky-blue 马卡龙）
  *   - minimal 主题 → minimal（纯白 + 黑墨 + 红 accent，Swiss Grid）
+ *   - dawn / day / sunset 时段调色板保留（防御兜底，本身不再被路由触发）
  * =============================================================== */
 
 :root {
@@ -60,24 +62,25 @@ body[data-mood="sunset"] .nt-wallpaper {
     linear-gradient(155deg, #fbd1bc 0%, #f09080 40%, #8e55b0 100%);
 }
 
+/* night = Studio Dusk 暖琥珀（dark 主题的 newtab，与 settings-dark / popup-dark 同 palette） */
 body[data-mood="night"] {
-  --nt-text: rgba(240, 244, 255, 0.94);
-  --nt-text-soft: rgba(240, 244, 255, 0.66);
-  --nt-text-mute: rgba(240, 244, 255, 0.44);
-  --nt-card: rgba(22, 28, 50, 0.55);
-  --nt-card-border: rgba(255, 255, 255, 0.14);
-  --nt-card-hover: rgba(30, 40, 70, 0.76);
-  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 22px 56px rgba(0, 0, 0, 0.35);
-  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 14px rgba(0, 0, 0, 0.25);
-  --nt-kbd-bg: rgba(255, 255, 255, 0.08);
-  --nt-kbd-border: rgba(255, 255, 255, 0.14);
-  --nt-accent: #8ab4ff;
+  --nt-text: rgba(237, 230, 221, 0.94);
+  --nt-text-soft: rgba(184, 169, 154, 0.86);
+  --nt-text-mute: rgba(128, 114, 106, 0.7);
+  --nt-card: rgba(31, 28, 26, 0.6);
+  --nt-card-border: rgba(255, 220, 180, 0.14);
+  --nt-card-hover: rgba(46, 38, 34, 0.78);
+  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.42), 0 22px 56px rgba(0, 0, 0, 0.4);
+  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --nt-kbd-bg: rgba(255, 220, 180, 0.06);
+  --nt-kbd-border: rgba(255, 220, 180, 0.18);
+  --nt-accent: #ffb87a;
 }
 body[data-mood="night"] .nt-wallpaper {
   background:
-    radial-gradient(1100px 800px at 20% 10%, #2b1f4a 0%, transparent 60%),
-    radial-gradient(900px 700px at 85% 80%, #1e3a5f 0%, transparent 55%),
-    linear-gradient(165deg, #0c1026 0%, #1a1f3e 50%, #2b1e44 100%);
+    radial-gradient(1100px 800px at 80% 18%, rgba(255, 184, 122, 0.16) 0%, transparent 55%),
+    radial-gradient(900px 700px at 12% 88%, rgba(180, 90, 60, 0.12) 0%, transparent 60%),
+    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
 }
 
 /* ============================================================
@@ -182,6 +185,48 @@ body[data-mood="minimal"] .nt-clock {
 body[data-mood="minimal"] .nt-dial-title {
   font-weight: 700;
   letter-spacing: 0.16em;
+}
+
+/* daylight：Cool Spring 薄荷 + 冷蓝（auto 跟随系统浅色，与 settings/popup-daylight 同 palette） */
+body[data-mood="daylight"] {
+  --nt-accent: #0ea585;
+  --nt-text: #0f2331;
+  --nt-text-soft: #44637a;
+  --nt-text-mute: #7a93a8;
+  --nt-card: rgba(255, 255, 255, 0.78);
+  --nt-card-border: rgba(180, 232, 220, 0.5);
+  --nt-card-hover: rgba(255, 255, 255, 0.94);
+  --nt-shadow: 0 1px 2px rgba(15, 35, 49, 0.04), 0 12px 36px rgba(15, 35, 49, 0.08);
+  --nt-shadow-soft: 0 1px 2px rgba(15, 35, 49, 0.04), 0 4px 12px rgba(15, 35, 49, 0.06);
+  --nt-kbd-bg: rgba(231, 241, 236, 0.85);
+  --nt-kbd-border: rgba(15, 35, 49, 0.08);
+}
+body[data-mood="daylight"] .nt-wallpaper {
+  background:
+    radial-gradient(1100px 800px at 88% 8%, rgba(180, 232, 220, 0.55) 0%, transparent 55%),
+    radial-gradient(1000px 850px at 8% 92%, rgba(178, 215, 232, 0.55) 0%, transparent 55%),
+    linear-gradient(180deg, #f0f8fb 0%, #e9f4f0 100%);
+}
+
+/* midnight：Deep Ocean 冰蓝 + 紫（auto 跟随系统深色，与 night Studio Dusk 暖色形成冷暖对比） */
+body[data-mood="midnight"] {
+  --nt-text: rgba(232, 240, 250, 0.94);
+  --nt-text-soft: rgba(167, 184, 208, 0.86);
+  --nt-text-mute: rgba(111, 131, 152, 0.7);
+  --nt-card: rgba(14, 26, 48, 0.6);
+  --nt-card-border: rgba(180, 200, 240, 0.14);
+  --nt-card-hover: rgba(20, 37, 68, 0.78);
+  --nt-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 22px 56px rgba(0, 0, 0, 0.4);
+  --nt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --nt-kbd-bg: rgba(180, 200, 240, 0.06);
+  --nt-kbd-border: rgba(180, 200, 240, 0.18);
+  --nt-accent: #6ed1ff;
+}
+body[data-mood="midnight"] .nt-wallpaper {
+  background:
+    radial-gradient(1100px 800px at 22% 12%, rgba(110, 209, 255, 0.18) 0%, transparent 55%),
+    radial-gradient(900px 700px at 78% 88%, rgba(160, 110, 220, 0.2) 0%, transparent 55%),
+    linear-gradient(165deg, #08111d 0%, #0e1a35 50%, #1a1334 100%);
 }
 
 /* ---------- reset / 版式 ---------- */
@@ -709,13 +754,15 @@ body[data-loading="1"] .nt-progress-bar { opacity: 1; }
 :root {
   --nt-loading-backdrop: rgba(15, 23, 42, 0.55);
 }
-body[data-mood="night"]   { --nt-loading-backdrop: rgba(0, 0, 0, 0.65); }
-body[data-mood="linear"]  { --nt-loading-backdrop: rgba(15, 23, 42, 0.45); }
-body[data-mood="glass"]   { --nt-loading-backdrop: rgba(15, 23, 42, 0.5); }
-body[data-mood="minimal"] { --nt-loading-backdrop: rgba(255, 255, 255, 0.85); }
-body[data-mood="dawn"]    { --nt-loading-backdrop: rgba(80, 30, 15, 0.45); }
-body[data-mood="sunset"]  { --nt-loading-backdrop: rgba(80, 30, 80, 0.5); }
-body[data-mood="day"]     { --nt-loading-backdrop: rgba(15, 30, 80, 0.4); }
+body[data-mood="night"]    { --nt-loading-backdrop: rgba(26, 23, 21, 0.7); }
+body[data-mood="linear"]   { --nt-loading-backdrop: rgba(15, 23, 42, 0.45); }
+body[data-mood="glass"]    { --nt-loading-backdrop: rgba(15, 23, 42, 0.5); }
+body[data-mood="minimal"]  { --nt-loading-backdrop: rgba(255, 255, 255, 0.85); }
+body[data-mood="daylight"] { --nt-loading-backdrop: rgba(15, 35, 49, 0.42); }
+body[data-mood="midnight"] { --nt-loading-backdrop: rgba(8, 17, 29, 0.7); }
+body[data-mood="dawn"]     { --nt-loading-backdrop: rgba(80, 30, 15, 0.45); }
+body[data-mood="sunset"]   { --nt-loading-backdrop: rgba(80, 30, 80, 0.5); }
+body[data-mood="day"]      { --nt-loading-backdrop: rgba(15, 30, 80, 0.4); }
 
 .nt-loading-overlay {
   position: fixed;

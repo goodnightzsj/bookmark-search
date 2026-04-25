@@ -34,21 +34,29 @@ export const THEMES = {
   }
 };
 
-// auto 主题解析出的浅色/深色基准
-export const AUTO_DARK_THEME = 'dark';
-export const AUTO_LIGHT_THEME = 'original';
+// auto 主题解析出的浅色/深色基准 —— 隐藏主题，不在 picker 露出
+// daylight: cool spring（冷蓝 + 薄荷），与"经典"sunrise 暖色形成对比
+// midnight: deep ocean（深海蓝紫），与"深色"warm studio dusk 形成对比
+export const AUTO_DARK_THEME = 'midnight';
+export const AUTO_LIGHT_THEME = 'daylight';
 
 // 默认主题
 export const DEFAULT_THEME = 'original';
 
+// 所有可加载的主题列表（含隐藏主题）。picker 只渲染 THEMES 里的 5 个；
+// theme-loader.js 用此列表来 disable 非当前主题的 <link>
+export const ALL_LOADABLE_THEMES = ['original', 'minimal', 'glass', 'dark', 'daylight', 'midnight'];
+
 // 将 'auto' 解析为实际用于加载 CSS 的主题名
 export function resolveActiveTheme(themeName, matchesDark) {
+  if (themeName === 'auto') {
+    const prefersDark = typeof matchesDark === 'boolean'
+      ? matchesDark
+      : !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+    return prefersDark ? AUTO_DARK_THEME : AUTO_LIGHT_THEME;
+  }
   if (!THEMES[themeName]) return DEFAULT_THEME;
-  if (themeName !== 'auto') return themeName;
-  const prefersDark = typeof matchesDark === 'boolean'
-    ? matchesDark
-    : !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
-  return prefersDark ? AUTO_DARK_THEME : AUTO_LIGHT_THEME;
+  return themeName;
 }
 
 // 本地缓存键（用于快速加载，避免 storage API 延迟）

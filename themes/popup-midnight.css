@@ -1,23 +1,23 @@
-/* 深色 - Studio Dusk（暖色调暗黑） */
+/* Midnight - Deep Ocean（auto-dark，picker 不露出） */
 :root {
   --popup-width: 340px;
-  --bg: #1a1715;
-  --surface: #1f1c1a;
-  --surface-elevated: #261f1c;
-  --surface-hover: #2e2622;
-  --border: rgba(255, 220, 180, 0.08);
-  --border-strong: rgba(255, 220, 180, 0.18);
-  --text-primary: #ede6dd;
-  --text-secondary: #b8a99a;
-  --text-tertiary: #80726a;
-  --accent: #ffb87a;
-  --accent-hover: #ffc89a;
-  --accent-soft: rgba(255, 184, 122, 0.14);
+  --bg: #08111d;
+  --surface: #0e1a30;
+  --surface-elevated: #142544;
+  --surface-hover: #1c3055;
+  --border: rgba(180, 200, 240, 0.08);
+  --border-strong: rgba(180, 200, 240, 0.18);
+  --text-primary: #e8f0fa;
+  --text-secondary: #a7b8d0;
+  --text-tertiary: #6f8398;
+  --accent: #6ed1ff;
+  --accent-hover: #93deff;
+  --accent-soft: rgba(110, 209, 255, 0.14);
   --accent-warm: #c8a8ff;
-  --status-active: #b6cc8a;
+  --status-active: #4fd6b5;
   --status-warning: #ffc36b;
-  --status-inactive: #e57373;
-  --focus-ring: rgba(255, 184, 122, 0.38);
+  --status-inactive: #ff6680;
+  --focus-ring: rgba(110, 209, 255, 0.38);
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -27,11 +27,11 @@
 body {
   width: var(--popup-width);
   font-family: var(--bs-font-stack);
-  /* Studio Dusk：暖琥珀台灯投光 + 焦糖暗调（与 settings-dark 同 palette） */
+  /* Deep Ocean：深海蓝紫渐变 + 双 radial */
   background:
-    radial-gradient(280px 200px at 80% 18%, rgba(255, 184, 122, 0.13), transparent 55%),
-    radial-gradient(240px 200px at 12% 88%, rgba(180, 90, 60, 0.08), transparent 60%),
-    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
+    radial-gradient(280px 200px at 22% 12%, rgba(110, 209, 255, 0.13), transparent 55%),
+    radial-gradient(260px 200px at 78% 88%, rgba(160, 110, 220, 0.14), transparent 55%),
+    linear-gradient(165deg, #08111d 0%, #0e1a35 50%, #1a1334 100%);
   color: var(--text-primary);
   padding: 12px;
   -webkit-font-smoothing: antialiased;

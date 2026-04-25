@@ -1,21 +1,21 @@
-/* 深色 - Studio Dusk（暖色调暗黑，与 midnight 冷蓝深海形成对比） */
+/* Midnight - Deep Ocean（auto-dark 隐藏主题，picker 不露出，与"深色"warm dusk 形成对比） */
 :root {
-  --bg: #1a1715;
-  --bg-elevated: #1f1c1a;
-  --surface: #1f1c1a;
-  --surface-2: #261f1c;
-  --surface-3: #2e2622;
-  --border: rgba(255, 220, 180, 0.08);
-  --border-strong: rgba(255, 220, 180, 0.18);
-  --text-1: #ede6dd;
-  --text-2: #b8a99a;
-  --text-3: #80726a;
-  --accent: #ffb87a;             /* warm amber，暮色台灯 */
-  --accent-strong: #ffc89a;
-  --accent-soft: rgba(255, 184, 122, 0.14);
-  --focus-ring: rgba(255, 184, 122, 0.4);
-  --green: #b6cc8a;
-  --red: #e57373;
+  --bg: #08111d;
+  --bg-elevated: #0e1a30;
+  --surface: #0e1a30;
+  --surface-2: #142544;
+  --surface-3: #1c3055;
+  --border: rgba(180, 200, 240, 0.08);
+  --border-strong: rgba(180, 200, 240, 0.18);
+  --text-1: #e8f0fa;
+  --text-2: #a7b8d0;
+  --text-3: #6f8398;
+  --accent: #6ed1ff;            /* 冰川蓝（glacier blue） */
+  --accent-strong: #93deff;
+  --accent-soft: rgba(110, 209, 255, 0.14);
+  --focus-ring: rgba(110, 209, 255, 0.4);
+  --green: #4fd6b5;
+  --red: #ff6680;
   --yellow: #ffc36b;
   --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.32);
   --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.25), 0 6px 16px rgba(0, 0, 0, 0.28);
@@ -37,11 +37,11 @@
 
 body {
   font-family: var(--bs-font-stack);
-  /* Studio Dusk：暖色焦糖暗调 + 角落 amber 投光，像深夜书房一盏台灯 */
+  /* Deep Ocean：深海蓝紫渐变 + 冰川蓝 / 紫罗兰双 radial，神秘感拉满 */
   background:
-    radial-gradient(1100px 800px at 80% 18%, rgba(255, 184, 122, 0.13), transparent 55%),
-    radial-gradient(900px 700px at 12% 88%, rgba(180, 90, 60, 0.08), transparent 60%),
-    linear-gradient(165deg, #1a1715 0%, #1f1c1a 50%, #261f1c 100%);
+    radial-gradient(1100px 800px at 22% 12%, rgba(110, 209, 255, 0.13), transparent 55%),
+    radial-gradient(950px 750px at 78% 88%, rgba(160, 110, 220, 0.14), transparent 55%),
+    linear-gradient(165deg, #08111d 0%, #0e1a35 50%, #1a1334 100%);
   background-attachment: fixed;
   color: var(--text-1);
   min-height: 100vh;

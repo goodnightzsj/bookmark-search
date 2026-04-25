@@ -1,4 +1,4 @@
-import { THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme, resolveActiveTheme } from './theme-service.js';
+import { THEMES, ALL_LOADABLE_THEMES, DEFAULT_THEME, THEME_CACHE_KEY, getCurrentTheme, saveTheme, resolveActiveTheme } from './theme-service.js';
 
 // 重新导出 getCurrentTheme 供外部使用
 export { getCurrentTheme };
@@ -55,8 +55,8 @@ function ensureAutoMediaListener() {
   } catch (e) {}
 }
 
-// 所有可加载的主题名（排除 'auto'——它解析为具体主题）
-const LOADABLE_THEMES = Object.keys(THEMES).filter((name) => name !== 'auto');
+// 所有可加载的主题名（含 daylight/midnight 这种"隐藏的 auto 解析目标"）
+const LOADABLE_THEMES = ALL_LOADABLE_THEMES;
 // themeName → HTMLLinkElement 的缓存；所有主题 CSS 预加载 + 通过 disabled 切换，消除切换闪动
 const themeLinkCache = new Map();
 

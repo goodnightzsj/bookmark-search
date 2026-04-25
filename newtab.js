@@ -9,6 +9,7 @@
 
 import { MESSAGE_ACTIONS, SEARCH_ENGINE_PRESETS } from './constants.js';
 import { STORAGE_KEYS } from './storage-service.js';
+import { resolveActiveTheme } from './theme-service.js';
 
 // ----------------------------------------------------------------
 // 工具
@@ -271,17 +272,24 @@ function tickClock() {
   }
 
   // 主题感知：根据用户在设置里选的主题映射到对应 mood
-  //   auto      → 走时间感知 4 模（dawn / day / sunset / night）
-  //   original  → linear 整洁专业
-  //   dark      → night 深色
-  //   glass     → glass 液态玻璃
+  //   auto      → 解析系统色模式：浅色 → daylight；深色 → midnight
+  //   original  → linear 整洁专业（Sunrise paper）
+  //   dark      → night 暖琥珀（Studio Dusk）
+  //   glass     → glass 液态玻璃（lavender→sky-blue）
   //   minimal   → minimal 纯白纪律
+  //   daylight/midnight → 直接对应 mood（防御兜底）
   let mood;
-  if (themePref === 'dark')          mood = 'night';
-  else if (themePref === 'original') mood = 'linear';
-  else if (themePref === 'glass')    mood = 'glass';
-  else if (themePref === 'minimal')  mood = 'minimal';
-  else /* auto / 未知 */             mood = palette;
+  if (themePref === 'dark')           mood = 'night';
+  else if (themePref === 'midnight')  mood = 'midnight';
+  else if (themePref === 'daylight')  mood = 'daylight';
+  else if (themePref === 'original')  mood = 'linear';
+  else if (themePref === 'glass')     mood = 'glass';
+  else if (themePref === 'minimal')   mood = 'minimal';
+  else if (themePref === 'auto') {
+    const resolved = resolveActiveTheme('auto');
+    mood = resolved === 'midnight' ? 'midnight' : 'daylight';
+  }
+  else /* 未知 */                     mood = palette;
 
   document.body.dataset.mood = mood;
   lastTod = tod;
@@ -695,6 +703,12 @@ async function init() {
 
   tickClock();
   setInterval(tickClock, 30_000);
+
+  // auto 主题：系统切换浅/深色时立即重渲 mood，避免等到下个 30s tick
+  try {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (themePref === 'auto') tickClock(); });
+  } catch (e) {}
 
   // 入场动画解除：data-loaded 触发 main 元素的 fade-up
   requestAnimationFrame(() => requestAnimationFrame(() => document.body.dataset.loaded = '1'));
