@@ -48,24 +48,29 @@
             </div>
           </div>
           <div class="theme-grid" id="themeGrid">
+            <!-- 经典：Linear-light，浅灰底 + indigo accent 在左上角投光 -->
             <div class="theme-option" data-theme="original">
-              <div class="theme-preview" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
-              <div class="theme-name">经典渐变</div>
+              <div class="theme-preview" style="background: radial-gradient(120% 100% at 30% 30%, rgba(94, 106, 210, 0.42) 0%, transparent 55%), linear-gradient(135deg, #ffffff 0%, #eef1f6 100%);"></div>
+              <div class="theme-name">经典</div>
             </div>
+            <!-- 极简：纯白 + 16px 细格栅 + 右下角红 accent 点 -->
             <div class="theme-option" data-theme="minimal">
-              <div class="theme-preview" style="background: #ffffff; border: 1px solid #e5e7eb;"></div>
+              <div class="theme-preview" style="background: radial-gradient(circle at 84% 84%, #d64545 0%, #d64545 9%, transparent 10%), repeating-linear-gradient(0deg, #ffffff 0 15px, #f5f5f5 15px 16px), #ffffff;"></div>
               <div class="theme-name">极简白</div>
             </div>
+            <!-- 毛玻璃：真实主题 palette 青绿 → 珊瑚（#2f5e6b → #c5656a）+ 双 radial -->
             <div class="theme-option" data-theme="glass">
-              <div class="theme-preview" style="background: linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%);"></div>
+              <div class="theme-preview" style="background: radial-gradient(80% 80% at 0% 0%, rgba(86, 176, 181, 0.85) 0%, transparent 60%), radial-gradient(80% 80% at 100% 100%, rgba(240, 148, 124, 0.78) 0%, transparent 55%), linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);"></div>
               <div class="theme-name">毛玻璃</div>
             </div>
+            <!-- 深色：实际 settings-dark.css 的 #121418 + 蓝紫角落投光 -->
             <div class="theme-option" data-theme="dark">
-              <div class="theme-preview" style="background: #0a0a0a;"></div>
+              <div class="theme-preview" style="background: radial-gradient(120% 100% at 70% 30%, rgba(130, 170, 255, 0.18) 0%, transparent 55%), linear-gradient(165deg, #121418 0%, #1a1f3e 100%);"></div>
               <div class="theme-name">深色</div>
             </div>
+            <!-- 跟随系统：左半浅 / 右半深，象征自动切换 -->
             <div class="theme-option" data-theme="auto">
-              <div class="theme-preview" style="background: linear-gradient(135deg, #fafafa 0%, #0a0a0a 100%);"></div>
+              <div class="theme-preview" style="background: linear-gradient(90deg, #f6f8fa 0%, #f6f8fa 50%, #121418 50%, #121418 100%);"></div>
               <div class="theme-name">跟随系统</div>
             </div>
           </div>
