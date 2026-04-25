@@ -29,7 +29,11 @@
 body {
   width: var(--popup-width);
   font-family: var(--bs-font-stack);
-  background: var(--bg-body);
+  /* Sunrise paper：暖米 + 冷青蓝双向 radial（与 settings-original 同 palette） */
+  background:
+    radial-gradient(220px 200px at 100% 0%, rgba(255, 223, 196, 0.55), transparent 60%),
+    radial-gradient(220px 200px at 0% 100%, rgba(204, 215, 240, 0.5), transparent 55%),
+    linear-gradient(180deg, #fdfcf8 0%, #f5f7fc 100%);
   color: var(--text-primary);
   font-feature-settings: "cv11", "ss01";
 }

@@ -37,11 +37,11 @@ body {
   /* glass 使用 rounded/humanist 字体栈，更贴合液态玻璃的柔和感 */
   font-family: var(--bs-font-rounded);
   letter-spacing: -0.005em;
-  /* 替换马卡龙 #E0C3FC→#8EC5FC（AI 通俗配色）：青绿 → 珊瑚，背后仍给 blur 留足色彩对比 */
+  /* 经典马卡龙 lavender → 天蓝（用户偏好），blur 后仍清新 */
   background:
-    radial-gradient(720px 520px at 0% 0%, rgba(86, 176, 181, 0.78), transparent 58%),
-    radial-gradient(620px 460px at 100% 100%, rgba(240, 148, 124, 0.7), transparent 55%),
-    linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);
+    radial-gradient(720px 520px at 0% 0%, rgba(224, 195, 252, 0.68), transparent 58%),
+    radial-gradient(620px 460px at 100% 100%, rgba(142, 197, 252, 0.65), transparent 55%),
+    linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%);
   color: var(--text-primary);
   margin: 0;
   padding: 16px;

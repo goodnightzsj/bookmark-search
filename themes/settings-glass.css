@@ -61,12 +61,12 @@
 body {
   font-family: var(--bs-font-rounded);
   letter-spacing: -0.005em;
-  /* 青绿 → 珊瑚 palette，跳出 #E0C3FC→#8EC5FC 马卡龙 AI 套路；blur 背后仍有强色彩层次 */
+  /* 经典马卡龙 lavender → 天蓝（用户偏好）；blur 上 + 半透白 radial 作"亮片" */
   background:
-    radial-gradient(900px 700px at 0% 0%, rgba(86, 176, 181, 0.8), transparent 55%),
-    radial-gradient(850px 620px at 100% 100%, rgba(240, 148, 124, 0.72), transparent 55%),
-    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
-    linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);
+    radial-gradient(900px 700px at 0% 0%, rgba(224, 195, 252, 0.7), transparent 55%),
+    radial-gradient(850px 620px at 100% 100%, rgba(142, 197, 252, 0.7), transparent 55%),
+    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.32), transparent 60%),
+    linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%);
   background-attachment: fixed;
   color: var(--text-primary);
   min-height: 100vh;

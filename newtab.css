@@ -99,10 +99,11 @@ body[data-mood="linear"] {
   --nt-kbd-border: rgba(15, 23, 42, 0.08);
 }
 body[data-mood="linear"] .nt-wallpaper {
+  /* Sunrise paper：与 settings-original / popup-original 同 palette 同步 */
   background:
-    radial-gradient(900px 700px at 12% 0%, rgba(94, 106, 210, 0.14) 0%, transparent 55%),
-    radial-gradient(1100px 800px at 90% 100%, rgba(230, 126, 60, 0.08) 0%, transparent 60%),
-    linear-gradient(180deg, #fafbfc 0%, #f3f5f9 100%);
+    radial-gradient(1100px 800px at 88% 8%, rgba(255, 223, 196, 0.55) 0%, transparent 55%),
+    radial-gradient(1000px 850px at 8% 92%, rgba(204, 215, 240, 0.5) 0%, transparent 55%),
+    linear-gradient(180deg, #fdfcf8 0%, #f5f7fc 100%);
 }
 
 /* glass：液态玻璃（青绿 → 珊瑚，与 settings-glass.css 同 palette） */
@@ -125,11 +126,12 @@ body[data-mood="glass"] {
   --nt-kbd-border: rgba(255, 255, 255, 0.6);
 }
 body[data-mood="glass"] .nt-wallpaper {
+  /* 经典马卡龙 lavender → 天蓝（用户偏好），与 settings-glass / popup-glass 同步 */
   background:
-    radial-gradient(900px 700px at 0% 0%, rgba(86, 176, 181, 0.8), transparent 55%),
-    radial-gradient(850px 620px at 100% 100%, rgba(240, 148, 124, 0.72), transparent 55%),
-    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
-    linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);
+    radial-gradient(900px 700px at 0% 0%, rgba(224, 195, 252, 0.7), transparent 55%),
+    radial-gradient(850px 620px at 100% 100%, rgba(142, 197, 252, 0.7), transparent 55%),
+    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.32), transparent 60%),
+    linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%);
 }
 /* glass 模式的页头文字：背景已经够强烈，给标题加白色微阴影增强可读性 */
 body[data-mood="glass"] .nt-greeting,
