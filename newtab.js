@@ -47,13 +47,28 @@ function buildFaviconUrl(pageUrl, size) {
   } catch (e) { return ''; }
 }
 
+function showNavigationLoading(label) {
+  // 启用顶部进度条 + 主体微 fade，给用户"操作已收到"的即时感知。
+  // 当前 newtab 页一旦 navigate 就会被销毁，无需手动收尾；超时兜底防止
+  // 罕见情况（网络拒绝 / 跳转被 service-worker 拦截）下视觉卡住
+  document.body.dataset.loading = '1';
+  if (label) document.body.dataset.loadingLabel = label;
+  setTimeout(() => {
+    document.body.dataset.loading = '';
+    delete document.body.dataset.loadingLabel;
+  }, 8000);
+}
+
 function openUrl(url, newTab = false) {
   if (!url) return;
   try { sendMessagePromise({ action: MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN, url }).catch(() => {}); } catch (e) {}
   if (newTab) {
+    // 在新 tab 打开时本页不变，不需要 loading 反馈
     try { chrome.tabs.create({ url, active: true }); return; } catch (e) {}
     try { window.open(url, '_blank', 'noopener,noreferrer'); return; } catch (e) {}
+    return;
   }
+  showNavigationLoading('打开中…');
   window.location.href = url;
 }
 

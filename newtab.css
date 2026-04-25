@@ -627,6 +627,97 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
   .nt-action-btn:hover { transform: none !important; }
 }
 
+/* ============================================================
+ * 回车跳转时的 loading 反馈
+ *  - 顶部 2.5px 进度条（mood-aware accent，indeterminate 滑动）
+ *  - 主体 .nt-main 轻微 fade + 1px blur，强化"操作已收到"的感知
+ *  - "打开中…" 角标，悬浮右下提示当前在 navigate
+ * ============================================================ */
+.nt-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 140ms ease;
+  background: color-mix(in srgb, var(--nt-accent, #5e6ad2) 14%, transparent);
+}
+body[data-loading="1"] .nt-progress-bar { opacity: 1; }
+.nt-progress-bar::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -30%;
+  width: 30%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--nt-accent, #5e6ad2) 50%,
+    transparent 100%);
+  animation: nt-progress-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes nt-progress-slide {
+  0%   { left: -30%; }
+  100% { left: 130%; }
+}
+
+/* 主体淡出（不要全透，需保留视觉完整性） */
+body[data-loading="1"] .nt-main,
+body[data-loading="1"] .nt-footer {
+  opacity: 0.55;
+  filter: blur(0.5px);
+  transition: opacity 220ms ease, filter 220ms ease;
+  pointer-events: none;
+}
+
+/* "打开中…" 浮标，centred 在视口下方，紧凑且可读 */
+body[data-loading="1"]::after {
+  content: attr(data-loading-label);
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  font-family: var(--nt-font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--nt-text);
+  background: var(--nt-card);
+  border: 1px solid var(--nt-card-border);
+  border-radius: 999px;
+  box-shadow: var(--nt-shadow-soft);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  z-index: 101;
+  animation: nt-loading-pop 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes nt-loading-pop {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* color-mix 兜底 */
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .nt-progress-bar {
+    background: rgba(94, 106, 210, 0.14);
+  }
+}
+
+/* prefers-reduced-motion：换成静态半透明色块，不滑动 */
+@media (prefers-reduced-motion: reduce) {
+  .nt-progress-bar::before {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+  body[data-loading="1"]::after { animation: none; }
+}
+
 /* ---------- 关闭接管时的极简占位页 ---------- */
 .nt-disabled-card {
   position: absolute;
