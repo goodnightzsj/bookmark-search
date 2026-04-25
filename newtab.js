@@ -62,6 +62,7 @@ function displayUrl(url) {
   }
 }
 
+let navLoadingTimer = null;
 function showNavigationLoading({ url, title }) {
   const titleEl = document.getElementById('ntLoadingTitle');
   const urlEl = document.getElementById('ntLoadingUrl');
@@ -74,8 +75,10 @@ function showNavigationLoading({ url, title }) {
     if (url) applyFaviconWithFallback(faviconEl, url, hostOf(url));
   }
   document.body.dataset.loading = '1';
-  // 8s 兜底：navigate 真被拦截时视觉不会永久卡住
-  setTimeout(() => {
+  // 兜底超时：连续触发时 reset，避免前一次的 timer 把后一次的 loading 提前清掉
+  if (navLoadingTimer) clearTimeout(navLoadingTimer);
+  navLoadingTimer = setTimeout(() => {
+    navLoadingTimer = null;
     if (document.body.dataset.loading === '1') document.body.dataset.loading = '';
   }, 8000);
 }
