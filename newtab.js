@@ -47,29 +47,53 @@ function buildFaviconUrl(pageUrl, size) {
   } catch (e) { return ''; }
 }
 
-function showNavigationLoading(label) {
-  // 启用顶部进度条 + 主体微 fade，给用户"操作已收到"的即时感知。
-  // 当前 newtab 页一旦 navigate 就会被销毁，无需手动收尾；超时兜底防止
-  // 罕见情况（网络拒绝 / 跳转被 service-worker 拦截）下视觉卡住
+// 把任意 URL 缩成"易读形态"：example.com/foo/bar，超长加省略号
+function displayUrl(url) {
+  try {
+    const u = new URL(url);
+    let host = (u.hostname || '').replace(/^www\./, '');
+    let path = u.pathname || '';
+    if (path === '/') path = '';
+    let s = host + path + (u.search || '');
+    if (s.length > 60) s = s.slice(0, 57) + '…';
+    return s;
+  } catch (e) {
+    return String(url || '').slice(0, 60);
+  }
+}
+
+function showNavigationLoading({ url, title }) {
+  const titleEl = document.getElementById('ntLoadingTitle');
+  const urlEl = document.getElementById('ntLoadingUrl');
+  const faviconEl = document.getElementById('ntLoadingFavicon');
+  if (titleEl) titleEl.textContent = title || '正在打开';
+  if (urlEl) urlEl.textContent = displayUrl(url);
+  if (faviconEl) {
+    // 跟搜索结果一致：先尝试 _favicon，失败/默认占位走 monogram
+    faviconEl.removeAttribute('src');
+    if (url) applyFaviconWithFallback(faviconEl, url, hostOf(url));
+  }
   document.body.dataset.loading = '1';
-  if (label) document.body.dataset.loadingLabel = label;
+  // 8s 兜底：navigate 真被拦截时视觉不会永久卡住
   setTimeout(() => {
-    document.body.dataset.loading = '';
-    delete document.body.dataset.loadingLabel;
+    if (document.body.dataset.loading === '1') document.body.dataset.loading = '';
   }, 8000);
 }
 
-function openUrl(url, newTab = false) {
+function openUrl(url, newTab = false, meta = {}) {
   if (!url) return;
   try { sendMessagePromise({ action: MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN, url }).catch(() => {}); } catch (e) {}
   if (newTab) {
-    // 在新 tab 打开时本页不变，不需要 loading 反馈
+    // 在新 tab 打开时本页不变，不需要 loading
     try { chrome.tabs.create({ url, active: true }); return; } catch (e) {}
     try { window.open(url, '_blank', 'noopener,noreferrer'); return; } catch (e) {}
     return;
   }
-  showNavigationLoading('打开中…');
-  window.location.href = url;
+  showNavigationLoading({ url, title: meta.title || '正在打开' });
+  // 同帧同步导航会让 loading 来不及渲染；用 rAF 让浏览器先 paint
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.location.href = url;
+  }));
 }
 
 function hostOf(url) {
@@ -355,7 +379,7 @@ async function loadSpeedDial() {
       // 装上 favicon + 默认图检测兜底
       applyFaviconWithFallback(img, item.url, hostOf(item.url));
 
-      card.addEventListener('click', (e) => openUrl(item.url, e.metaKey || e.ctrlKey));
+      card.addEventListener('click', (e) => openUrl(item.url, e.metaKey || e.ctrlKey, { title: '正在打开 ' + (item.title || '') }));
       card.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); openUrl(item.url, true); } });
 
       gridEl.appendChild(card);
@@ -501,8 +525,8 @@ function renderResults(items) {
     row.addEventListener('click', (e) => {
       const item = filteredResults[idx];
       if (!item) return;
-      if (item.__fallback) openUrl(item.url, false);
-      else openUrl(item.url, e.metaKey || e.ctrlKey);
+      if (item.__fallback) openUrl(item.url, false, { title: '在 ' + (item.label || '搜索引擎') + ' 搜索' });
+      else openUrl(item.url, e.metaKey || e.ctrlKey, { title: '正在打开 ' + (item.title || '') });
     });
     row.addEventListener('mouseenter', () => { selectedIndex = idx; updateSelection(); });
   });
@@ -590,8 +614,8 @@ function setupSearch() {
       e.preventDefault();
       if (selectedIndex >= 0 && filteredResults[selectedIndex]) {
         const item = filteredResults[selectedIndex];
-        if (item.__fallback) openUrl(item.url, false);
-        else openUrl(item.url, e.metaKey || e.ctrlKey);
+        if (item.__fallback) openUrl(item.url, false, { title: '在 ' + (item.label || '搜索引擎') + ' 搜索' });
+        else openUrl(item.url, e.metaKey || e.ctrlKey, { title: '正在打开 ' + (item.title || '') });
       }
     } else if (e.key === 'Escape') {
       if (input.value) {

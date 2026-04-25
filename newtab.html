@@ -10,6 +10,24 @@
   <div class="nt-wallpaper" aria-hidden="true"></div>
   <div class="nt-progress-bar" id="ntProgress" aria-hidden="true"></div>
 
+  <!-- 跳转 Loading 全屏遮罩：默认隐藏，body[data-loading="1"] 时显示 -->
+  <div class="nt-loading-overlay" id="ntLoadingOverlay" aria-hidden="true" role="status" aria-live="polite">
+    <div class="nt-loading-panel">
+      <div class="nt-loading-favicon-wrap">
+        <span class="nt-loading-pulse"></span>
+        <span class="nt-loading-pulse" style="animation-delay: 0.5s;"></span>
+        <img class="nt-loading-favicon" id="ntLoadingFavicon" alt="">
+      </div>
+      <div class="nt-loading-text">
+        <div class="nt-loading-title" id="ntLoadingTitle">正在打开</div>
+        <div class="nt-loading-url" id="ntLoadingUrl"></div>
+      </div>
+      <div class="nt-loading-dots" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
   <main class="nt-main">
     <header class="nt-hero">
       <div class="nt-greeting" id="ntGreeting">你好</div>

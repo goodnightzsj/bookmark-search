@@ -630,21 +630,20 @@ body[data-loaded="1"] .nt-footer { opacity: 1; transform: translateY(0); transit
 /* ============================================================
  * 回车跳转时的 loading 反馈
  *  - 顶部 2.5px 进度条（mood-aware accent，indeterminate 滑动）
- *  - 主体 .nt-main 轻微 fade + 1px blur，强化"操作已收到"的感知
- *  - "打开中…" 角标，悬浮右下提示当前在 navigate
+ *  - 全屏遮罩 + 居中面板（favicon + 双层脉冲环 + 域名 + 跳动点）
  * ============================================================ */
 .nt-progress-bar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: 2.5px;
-  z-index: 100;
+  height: 3px;
+  z-index: 200;
   pointer-events: none;
   opacity: 0;
   overflow: hidden;
   transition: opacity 140ms ease;
-  background: color-mix(in srgb, var(--nt-accent, #5e6ad2) 14%, transparent);
+  background: color-mix(in srgb, var(--nt-accent, #5e6ad2) 28%, transparent);
 }
 body[data-loading="1"] .nt-progress-bar { opacity: 1; }
 .nt-progress-bar::before {
@@ -664,58 +663,166 @@ body[data-loading="1"] .nt-progress-bar { opacity: 1; }
   100% { left: 130%; }
 }
 
-/* 主体淡出（不要全透，需保留视觉完整性） */
-body[data-loading="1"] .nt-main,
-body[data-loading="1"] .nt-footer {
-  opacity: 0.55;
-  filter: blur(0.5px);
-  transition: opacity 220ms ease, filter 220ms ease;
+/* 各 mood 给 loading 遮罩单独的 backdrop tint —— 浅色 mood 用深色，
+   深色 mood 用更深更朦胧 */
+:root {
+  --nt-loading-backdrop: rgba(15, 23, 42, 0.55);
+}
+body[data-mood="night"]   { --nt-loading-backdrop: rgba(0, 0, 0, 0.65); }
+body[data-mood="linear"]  { --nt-loading-backdrop: rgba(15, 23, 42, 0.45); }
+body[data-mood="glass"]   { --nt-loading-backdrop: rgba(15, 23, 42, 0.5); }
+body[data-mood="minimal"] { --nt-loading-backdrop: rgba(255, 255, 255, 0.85); }
+body[data-mood="dawn"]    { --nt-loading-backdrop: rgba(80, 30, 15, 0.45); }
+body[data-mood="sunset"]  { --nt-loading-backdrop: rgba(80, 30, 80, 0.5); }
+body[data-mood="day"]     { --nt-loading-backdrop: rgba(15, 30, 80, 0.4); }
+
+.nt-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nt-loading-backdrop);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              backdrop-filter 240ms ease;
+}
+body[data-loading="1"] .nt-loading-overlay {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-/* "打开中…" 浮标，centred 在视口下方，紧凑且可读 */
-body[data-loading="1"]::after {
-  content: attr(data-loading-label);
-  position: fixed;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  padding: 8px 16px;
-  font-family: var(--nt-font);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--nt-text);
+.nt-loading-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 36px 44px 28px;
+  border-radius: 22px;
   background: var(--nt-card);
   border: 1px solid var(--nt-card-border);
-  border-radius: 999px;
-  box-shadow: var(--nt-shadow-soft);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  z-index: 101;
-  animation: nt-loading-pop 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: var(--nt-shadow);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  min-width: 320px;
+  max-width: min(420px, 90vw);
+  text-align: center;
+  transform: translateY(8px) scale(0.96);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-@keyframes nt-loading-pop {
-  from { opacity: 0; transform: translate(-50%, 6px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
-
-/* color-mix 兜底 */
-@supports not (background: color-mix(in srgb, red 10%, blue)) {
-  .nt-progress-bar {
-    background: rgba(94, 106, 210, 0.14);
-  }
+body[data-loading="1"] .nt-loading-panel {
+  transform: translateY(0) scale(1);
 }
 
-/* prefers-reduced-motion：换成静态半透明色块，不滑动 */
+.nt-loading-favicon-wrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nt-loading-favicon {
+  position: relative;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--nt-kbd-bg);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--nt-accent, #5e6ad2) 24%, transparent);
+  animation: nt-fav-bob 1.6s ease-in-out infinite;
+}
+@keyframes nt-fav-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+.nt-loading-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border: 2.5px solid var(--nt-accent, #5e6ad2);
+  border-radius: 50%;
+  opacity: 0;
+  animation: nt-pulse-out 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+@keyframes nt-pulse-out {
+  0%   { transform: scale(0.55); opacity: 0.85; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+.nt-loading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+.nt-loading-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nt-text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.nt-loading-url {
+  font-family: var(--nt-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nt-text-soft);
+  word-break: break-all;
+  line-height: 1.4;
+  max-width: 100%;
+}
+
+.nt-loading-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.nt-loading-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nt-accent, #5e6ad2);
+  opacity: 0.4;
+  animation: nt-dot-bounce 1.2s ease-in-out infinite;
+}
+.nt-loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.nt-loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes nt-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%           { transform: translateY(-5px); opacity: 1; }
+}
+
+/* prefers-reduced-motion：保留视觉但停止动画 */
 @media (prefers-reduced-motion: reduce) {
   .nt-progress-bar::before {
     animation: none;
     left: 0;
     width: 100%;
-    opacity: 0.5;
+    opacity: 0.6;
   }
-  body[data-loading="1"]::after { animation: none; }
+  .nt-loading-favicon, .nt-loading-pulse, .nt-loading-dots span {
+    animation: none !important;
+  }
+  .nt-loading-pulse { opacity: 0.3; transform: scale(1.1); }
+}
+
+/* color-mix 不支持的兜底 */
+@supports not (background: color-mix(in srgb, red 10%, blue)) {
+  .nt-progress-bar { background: rgba(94, 106, 210, 0.28); }
+  .nt-loading-favicon { box-shadow: 0 4px 14px rgba(94, 106, 210, 0.24); }
 }
 
 /* ---------- 关闭接管时的极简占位页 ---------- */
