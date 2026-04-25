@@ -30,8 +30,7 @@ body {
   /* Gruvbox：单色 bg0 平铺，无 radial 装饰 */
   background: var(--bg);
   color: var(--text-primary);
-  /* Gruvbox bg #282828 与 surface #32302f 差仅 0x0a，14px gutter 比 12 更可见 */
-  padding: 14px;
+  padding: 12px;
   margin: 0;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
@@ -68,16 +67,17 @@ body {
   flex-direction: column;
   margin-bottom: 10px;
   background: var(--surface);
-  /* Gruvbox bg / surface 太相近，用 border-strong 让卡片轮廓清晰可见 */
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  padding: 0;
+  /* 与 popup-original 同结构：H padding 在 card 上，row H 0；这样行内容
+     与外部 card 容器边沿稳定留 16px 呼吸，行间 border-bottom 也自动 inset */
+  padding: 4px 16px;
   gap: 0;
 }
 
 .info-row {
-  padding: 10px 14px;
+  padding: 10px 0;
   display: flex;
   justify-content: space-between;
   align-items: center;

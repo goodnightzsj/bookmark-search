@@ -318,13 +318,23 @@ async function loadOverridePref() {
   } catch (e) {}
 }
 
-// 关闭接管 = 真正跳走，不留占位卡片。Chrome MV3 manifest chrome_url_overrides
-// 是静态声明，无法运行时取消，所以只能在 newtab.html 加载时立刻 redirect。
-// about:blank 是扩展能跳到的最接近"原生空白页"的目标（chrome://newtab/ 会被
-// chrome_url_overrides 再拦回这里造成死循环；chrome-search:// 受限拒绝）。
-function redirectAwayFromNewtab() {
-  try { window.location.replace('about:blank'); }
-  catch (e) { window.location.href = 'about:blank'; }
+// 关闭接管 = 跳到用户配置的目标 URL。
+// MV3 chrome_url_overrides 架构限制：扩展无法运行时让 newtab 回到系统默认或别
+// 的扩展接管（manifest 静态声明只要存在就一直生效）。所以只能 redirect 到一个
+// 用户能选的"最接近原生体验"的 URL：about:blank（默认）/ 搜索引擎主页 / 自定义。
+// 注意：chrome://newtab/ 会被自身 chrome_url_overrides 再拦回造成死循环；
+// chrome-search:// 是 Chrome 内部受限协议，扩展无权 navigate。
+async function redirectAwayFromNewtab() {
+  let target = 'about:blank';
+  try {
+    const r = await chrome.storage.local.get(STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT);
+    const v = r && r[STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT];
+    if (typeof v === 'string' && v.trim()) target = v.trim();
+  } catch (e) {}
+  // 仅放行 http/https/about: 协议；其它（chrome:// / file:// / javascript:）一律退回 about:blank
+  if (!/^(https?:|about:)/i.test(target)) target = 'about:blank';
+  try { window.location.replace(target); }
+  catch (e) { window.location.href = target; }
 }
 
 // ----------------------------------------------------------------

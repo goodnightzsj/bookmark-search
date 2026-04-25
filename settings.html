@@ -268,15 +268,35 @@
               <div class="setting-meta">
                 <label class="setting-title form-label" for="newtabOverrideEnabled">
                   接管新标签页
-                  <span class="help-tip" tabindex="0" aria-label="什么是新标签页接管？" title="开启后，每次新建标签页或浏览器启动时显示扩展自带的 Dashboard（时钟 / 搜索 / 常用书签）。关闭后扩展直接放弃接管，新标签页跳到空白页（about:blank），不再占位。">ⓘ</span>
+                  <span class="help-tip" tabindex="0" aria-label="什么是新标签页接管？" title="开启后，每次新建标签页或浏览器启动时显示扩展自带的 Dashboard（时钟 / 搜索 / 常用书签）。关闭后扩展不再渲染 Dashboard，但因为 Chrome MV3 manifest 的 chrome_url_overrides 是静态声明、安装后无法运行时取消，所以无法直接「让浏览器恢复系统默认或交给别的扩展」—— 只能在加载时立刻 redirect 到下方配置的目标 URL。要彻底放弃 newtab 接管，请到 chrome://extensions 禁用本扩展。">ⓘ</span>
                 </label>
-                <p class="setting-description">开启时新标签页是 Dashboard，关闭后扩展放弃接管，新标签页直接跳到空白页（about:blank），不再占位。</p>
+                <p class="setting-description">开启时新标签页是 Dashboard。关闭后跳到下方配置的目标 URL（默认 about:blank）。</p>
               </div>
               <div class="setting-control">
                 <select id="newtabOverrideEnabled" class="form-input" data-custom-select="true">
                   <option value="on" selected>启用 Dashboard</option>
-                  <option value="off">关闭（不接管）</option>
+                  <option value="off">关闭（跳到下方 URL）</option>
                 </select>
+              </div>
+            </div>
+
+            <div class="setting-row" id="newtabDisabledRedirectRow">
+              <div class="setting-meta">
+                <label class="setting-title form-label" for="newtabDisabledRedirect">
+                  关闭接管时跳转到
+                  <span class="help-tip" tabindex="0" aria-label="为什么不能直接恢复浏览器原生 newtab？" title="Chrome MV3 限制：manifest 一旦声明 chrome_url_overrides.newtab，安装期间扩展就稳定接管 newtab，无法在运行时让出给系统默认或其他扩展。这里你能选的只是「关闭后跳到哪个 URL」。要真正交还 newtab，请在 chrome://extensions 禁用 / 卸载本扩展。">ⓘ</span>
+                </label>
+                <p class="setting-description">仅当上方「关闭」时生效。允许 http(s):// 或 about:blank；其它协议（chrome:// / file:// / javascript:）会被忽略并退回 about:blank。</p>
+              </div>
+              <div class="setting-control">
+                <input
+                  id="newtabDisabledRedirect"
+                  type="text"
+                  class="form-input"
+                  inputmode="url"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="about:blank">
               </div>
             </div>
 

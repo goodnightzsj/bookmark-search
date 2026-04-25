@@ -23,7 +23,8 @@ export const STORAGE_KEYS = {
   NEEDS_REBUILD: 'needsRebuild',
   DEADLINK_CONCURRENCY: 'deadlinkConcurrency',
   SEARCH_ENGINE_FALLBACK: 'searchEngineFallback',
-  NEWTAB_OVERRIDE_ENABLED: 'newtabOverrideEnabled'
+  NEWTAB_OVERRIDE_ENABLED: 'newtabOverrideEnabled',
+  NEWTAB_DISABLED_REDIRECT: 'newtabDisabledRedirect'
 };
 
 // 默认值
@@ -43,7 +44,8 @@ const DEFAULTS = {
   [STORAGE_KEYS.NEEDS_REBUILD]: false,
   [STORAGE_KEYS.DEADLINK_CONCURRENCY]: 16,
   [STORAGE_KEYS.SEARCH_ENGINE_FALLBACK]: { enabled: false, engine: 'google', customUrl: '' },
-  [STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]: true
+  [STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]: true,
+  [STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT]: 'about:blank'
 };
 
 /**

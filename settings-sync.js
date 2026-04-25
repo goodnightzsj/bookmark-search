@@ -22,7 +22,8 @@ export async function loadSyncSettings() {
       STORAGE_KEYS.BOOKMARK_CACHE_TTL_MINUTES,
       STORAGE_KEYS.DEADLINK_CONCURRENCY,
       STORAGE_KEYS.SEARCH_ENGINE_FALLBACK,
-      STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED
+      STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED,
+      STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT
     ]);
     const syncIntervalSelect = document.getElementById('syncInterval');
     const bookmarkCacheTtlSelect = document.getElementById('bookmarkCacheTtl');
@@ -72,10 +73,17 @@ export async function loadSyncSettings() {
 
     // 新标签页接管开关
     const overrideSel = document.getElementById('newtabOverrideEnabled');
-    if (overrideSel) {
-      const v = result[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED];
-      overrideSel.value = v === false ? 'off' : 'on';
+    const overrideOff = result[STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED] === false;
+    if (overrideSel) overrideSel.value = overrideOff ? 'off' : 'on';
+
+    // 关闭接管时的跳转 URL（仅在 off 时显示该行）
+    const redirectInput = document.getElementById('newtabDisabledRedirect');
+    const redirectRow = document.getElementById('newtabDisabledRedirectRow');
+    if (redirectInput) {
+      const r = result[STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT];
+      redirectInput.value = typeof r === 'string' && r.trim() ? r : 'about:blank';
     }
+    if (redirectRow) redirectRow.style.display = overrideOff ? '' : 'none';
 
     // 显示最后同步时间
     if (result[STORAGE_KEYS.LAST_SYNC_TIME]) {
@@ -298,12 +306,47 @@ export function bindSyncEvents() {
       const enabled = e.target.value !== 'off';
       try {
         await setStorageOrThrow({ [STORAGE_KEYS.NEWTAB_OVERRIDE_ENABLED]: enabled });
-        notifySettings(enabled ? 'Dashboard 已启用，新建标签页会显示' : 'Dashboard 已关闭，新建标签页将显示极简占位');
+        // 切换显隐"关闭后跳转 URL"那一行
+        const redirectRow = document.getElementById('newtabDisabledRedirectRow');
+        if (redirectRow) redirectRow.style.display = enabled ? 'none' : '';
+        notifySettings(enabled
+          ? 'Dashboard 已启用，新建标签页会显示'
+          : 'Dashboard 已关闭，新建标签页将跳到下方配置的 URL');
       } catch (error) {
         await loadSyncSettings();
         notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
       }
     });
+  }
+
+  // 关闭接管时的跳转 URL（debounce 400ms 自动保存；仅放行 http(s) / about:）
+  const redirectInput = document.getElementById('newtabDisabledRedirect');
+  if (redirectInput) {
+    let redirectSaveTimer = null;
+    const commitRedirect = async () => {
+      let v = String(redirectInput.value || '').trim();
+      if (!v) v = 'about:blank';
+      // 校验：只允许 http(s):// 或 about:；其它一律退回 about:blank 并提示
+      if (!/^(https?:\/\/|about:)/i.test(v)) {
+        redirectInput.classList.add('is-invalid');
+        notifySettings('仅支持 http(s):// 或 about:blank；已退回 about:blank', 'warning');
+        v = 'about:blank';
+        redirectInput.value = v;
+      } else {
+        redirectInput.classList.remove('is-invalid');
+      }
+      try {
+        await setStorageOrThrow({ [STORAGE_KEYS.NEWTAB_DISABLED_REDIRECT]: v });
+      } catch (error) {
+        await loadSyncSettings();
+        notifySettings('设置失败：' + (error && error.message ? error.message : String(error)), 'error');
+      }
+    };
+    redirectInput.addEventListener('input', () => {
+      if (redirectSaveTimer) clearTimeout(redirectSaveTimer);
+      redirectSaveTimer = setTimeout(commitRedirect, 400);
+    });
+    redirectInput.addEventListener('blur', commitRedirect);
   }
 
   if (customUrlInput) {
