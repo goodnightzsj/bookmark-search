@@ -228,12 +228,20 @@ function tickClock() {
     dateEl.textContent = `${y} 年 ${mo} 月 ${d} 日 · ${w}`;
   }
 
-  // 主题感知：用户在设置里选了 dark 主题 → 全天暗色调，不再走时段
-  if (themePref === 'dark') {
-    document.body.dataset.tod = 'night';
-  } else {
-    document.body.dataset.tod = palette;
-  }
+  // 主题感知：根据用户在设置里选的主题映射到对应 mood
+  //   auto      → 走时间感知 4 模（dawn / day / sunset / night）
+  //   original  → linear 整洁专业
+  //   dark      → night 深色
+  //   glass     → glass 液态玻璃
+  //   minimal   → minimal 纯白纪律
+  let mood;
+  if (themePref === 'dark')          mood = 'night';
+  else if (themePref === 'original') mood = 'linear';
+  else if (themePref === 'glass')    mood = 'glass';
+  else if (themePref === 'minimal')  mood = 'minimal';
+  else /* auto / 未知 */             mood = palette;
+
+  document.body.dataset.mood = mood;
   lastTod = tod;
 }
 

@@ -1,8 +1,12 @@
 /* ===============================================================
- * 新标签页 Dashboard：时间感知壁纸 + 大时钟 + 搜索 + Speed Dial
- * - 壁纸用 body[data-tod] 切换四套渐变（dawn / day / sunset / night）
- * - 搜索框 / 卡片用 backdrop-filter 玻璃质感，夜间降低对比度
- * - 布局：桌面 max 960px 居中
+ * 新标签页 Dashboard：主题感知调色 + 大时钟 + 搜索 + Speed Dial
+ *
+ * body[data-mood] 决定整页基调：
+ *   - auto 主题：dawn / day / sunset / night（按时段）
+ *   - original 主题 → linear（Linear-light 风，indigo accent）
+ *   - dark 主题 → night
+ *   - glass 主题 → glass（青绿→珊瑚，毛玻璃质感）
+ *   - minimal 主题 → minimal（纯白 + 黑墨 + 红 accent，Swiss Grid）
  * =============================================================== */
 
 :root {
@@ -26,37 +30,37 @@
 }
 
 /* ---------- 时间感知配色 ---------- */
-body[data-tod="dawn"] {
+body[data-mood="dawn"] {
   --nt-accent: #ea7c4a;
 }
-body[data-tod="dawn"] .nt-wallpaper {
+body[data-mood="dawn"] .nt-wallpaper {
   background:
     radial-gradient(1200px 800px at 20% 10%, #ffd6ba 0%, transparent 60%),
     radial-gradient(900px 700px at 85% 85%, #ffb199 0%, transparent 60%),
     linear-gradient(140deg, #ffe7d6 0%, #ffd5b2 40%, #ffb199 100%);
 }
 
-body[data-tod="day"] {
+body[data-mood="day"] {
   --nt-accent: #2563eb;
 }
-body[data-tod="day"] .nt-wallpaper {
+body[data-mood="day"] .nt-wallpaper {
   background:
     radial-gradient(1200px 900px at 10% 0%, #d0e6ff 0%, transparent 60%),
     radial-gradient(1000px 800px at 90% 100%, #e9f2ff 0%, transparent 55%),
     linear-gradient(160deg, #a1c4fd 0%, #c2e9fb 60%, #e0f3ff 100%);
 }
 
-body[data-tod="sunset"] {
+body[data-mood="sunset"] {
   --nt-accent: #d9456e;
 }
-body[data-tod="sunset"] .nt-wallpaper {
+body[data-mood="sunset"] .nt-wallpaper {
   background:
     radial-gradient(1100px 800px at 15% 20%, #ffa78a 0%, transparent 55%),
     radial-gradient(900px 800px at 85% 80%, #c06af5 0%, transparent 50%),
     linear-gradient(155deg, #fbd1bc 0%, #f09080 40%, #8e55b0 100%);
 }
 
-body[data-tod="night"] {
+body[data-mood="night"] {
   --nt-text: rgba(240, 244, 255, 0.94);
   --nt-text-soft: rgba(240, 244, 255, 0.66);
   --nt-text-mute: rgba(240, 244, 255, 0.44);
@@ -69,11 +73,113 @@ body[data-tod="night"] {
   --nt-kbd-border: rgba(255, 255, 255, 0.14);
   --nt-accent: #8ab4ff;
 }
-body[data-tod="night"] .nt-wallpaper {
+body[data-mood="night"] .nt-wallpaper {
   background:
     radial-gradient(1100px 800px at 20% 10%, #2b1f4a 0%, transparent 60%),
     radial-gradient(900px 700px at 85% 80%, #1e3a5f 0%, transparent 55%),
     linear-gradient(165deg, #0c1026 0%, #1a1f3e 50%, #2b1e44 100%);
+}
+
+/* ============================================================
+ * 主题专属 mood：用户在设置里选了具体主题时全天固定
+ * ============================================================ */
+
+/* original：Linear-light 风（与 settings-original.css 配色一致） */
+body[data-mood="linear"] {
+  --nt-accent: #5e6ad2;
+  --nt-text: #0f1419;
+  --nt-text-soft: #4a5364;
+  --nt-text-mute: #8a929d;
+  --nt-card: rgba(255, 255, 255, 0.78);
+  --nt-card-border: rgba(15, 23, 42, 0.06);
+  --nt-card-hover: rgba(255, 255, 255, 0.96);
+  --nt-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 36px rgba(15, 23, 42, 0.08);
+  --nt-shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.05);
+  --nt-kbd-bg: #f0f2f5;
+  --nt-kbd-border: rgba(15, 23, 42, 0.08);
+}
+body[data-mood="linear"] .nt-wallpaper {
+  background:
+    radial-gradient(900px 700px at 12% 0%, rgba(94, 106, 210, 0.14) 0%, transparent 55%),
+    radial-gradient(1100px 800px at 90% 100%, rgba(230, 126, 60, 0.08) 0%, transparent 60%),
+    linear-gradient(180deg, #fafbfc 0%, #f3f5f9 100%);
+}
+
+/* glass：液态玻璃（青绿 → 珊瑚，与 settings-glass.css 同 palette） */
+body[data-mood="glass"] {
+  --nt-accent: #2563eb;
+  --nt-text: #1c2b3d;
+  --nt-text-soft: #5a6f84;
+  --nt-text-mute: rgba(32, 50, 71, 0.55);
+  --nt-card: rgba(255, 255, 255, 0.56);
+  --nt-card-border: rgba(255, 255, 255, 0.5);
+  --nt-card-hover: rgba(255, 255, 255, 0.78);
+  --nt-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 10px 28px rgba(44, 62, 80, 0.14),
+    0 30px 70px rgba(44, 62, 80, 0.2);
+  --nt-shadow-soft:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 6px 16px rgba(44, 62, 80, 0.1);
+  --nt-kbd-bg: rgba(255, 255, 255, 0.45);
+  --nt-kbd-border: rgba(255, 255, 255, 0.6);
+}
+body[data-mood="glass"] .nt-wallpaper {
+  background:
+    radial-gradient(900px 700px at 0% 0%, rgba(86, 176, 181, 0.8), transparent 55%),
+    radial-gradient(850px 620px at 100% 100%, rgba(240, 148, 124, 0.72), transparent 55%),
+    radial-gradient(520px 420px at 80% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+    linear-gradient(135deg, #2f5e6b 0%, #c5656a 100%);
+}
+/* glass 模式的页头文字：背景已经够强烈，给标题加白色微阴影增强可读性 */
+body[data-mood="glass"] .nt-greeting,
+body[data-mood="glass"] .nt-clock,
+body[data-mood="glass"] .nt-subtitle {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.35),
+               0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+/* minimal：Swiss Grid 极简白 */
+body[data-mood="minimal"] {
+  --nt-accent: #d64545;
+  --nt-text: #0a0a0a;
+  --nt-text-soft: #404040;
+  --nt-text-mute: #737373;
+  --nt-card: #ffffff;
+  --nt-card-border: #d4d4d4;
+  --nt-card-hover: #fafafa;
+  --nt-shadow: none;
+  --nt-shadow-soft: none;
+  --nt-kbd-bg: #ffffff;
+  --nt-kbd-border: #0a0a0a;
+}
+body[data-mood="minimal"] .nt-wallpaper {
+  /* 极简：不要色彩，用细条纹打底（垂直格栅 16px） */
+  background: #ffffff;
+}
+body[data-mood="minimal"] .nt-wallpaper::after {
+  background-image:
+    linear-gradient(to right, rgba(10, 10, 10, 0.025) 1px, transparent 1px);
+  background-size: 16px 16px;
+  opacity: 1;
+}
+/* minimal 模式：去掉圆角、去掉模糊，强调几何 */
+body[data-mood="minimal"] .nt-search-wrap,
+body[data-mood="minimal"] .nt-results,
+body[data-mood="minimal"] .nt-dial-card,
+body[data-mood="minimal"] .nt-action-btn {
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body[data-mood="minimal"] .nt-clock {
+  font-weight: 300;
+  letter-spacing: -0.05em;
+  text-shadow: none;
+}
+body[data-mood="minimal"] .nt-dial-title {
+  font-weight: 700;
+  letter-spacing: 0.16em;
 }
 
 /* ---------- reset / 版式 ---------- */
