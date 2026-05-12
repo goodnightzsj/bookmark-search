@@ -3,7 +3,7 @@ import { getMigrationStatus } from './migration-service.js';
 import { setupAutoSync } from './background-sync.js';
 import { MESSAGE_ACTIONS, MESSAGE_ACTION_VALUES, MESSAGE_ERROR_CODES, FAVICON_CONFIG } from './constants.js';
 import { idbDeleteByPrefix, idbGetMany, idbSetMany } from './idb-service.js';
-import { buildFaviconLookupKeys, buildFaviconServiceKey, isLikelyPrivateHost } from './utils.js';
+import { buildFaviconLookupKeys, buildFaviconServiceKey, isLikelyPrivateHost, isSafeNavigationUrl } from './utils.js';
 import { setStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 import { ensureInit } from './lifecycle.js';
 import { createLogger } from './logger.js';
@@ -515,8 +515,8 @@ export function handleMessage(request, sender, sendResponse) {
 
     case MESSAGE_ACTIONS.OPEN_BOOKMARK_IN_WINDOW: {
       const url = String((request && request.url) || '').trim();
-      if (!url) {
-        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'url required');
+      if (!url || !isSafeNavigationUrl(url)) {
+        sendErrorResponse(sendResponse, MESSAGE_ERROR_CODES.INVALID_PARAMS, 'safe http(s)/file/chrome url required');
         return false;
       }
       return initThen(async () => {

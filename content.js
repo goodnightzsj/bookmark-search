@@ -9,6 +9,19 @@
   console.log("[Content] content.js 开始加载");
   window.__BOOKMARK_SEARCH_LOADING__ = true;
 
+  // 打开/导航前的协议白名单：javascript:/data:/vbscript: 会在当前页面 origin
+  // 执行脚本（书签可能从 HTML 文件导入而带上这种 URL），一律拒绝。无 scheme
+  // 的相对 URL 不是脚本注入面，放行。
+  function isUnsafeNavUrl(rawUrl) {
+    const raw = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    if (!raw) return true;
+    // eslint-disable-next-line no-control-regex
+    const normalized = raw.replace(/[\x00-\x20]+/g, '').toLowerCase();
+    const m = /^([a-z][a-z0-9+.-]*):/.exec(normalized);
+    if (!m) return false;
+    return m[1] === 'javascript' || m[1] === 'data' || m[1] === 'vbscript';
+  }
+
   let searchContainer = null;
   let searchOverlay = null;
   let searchInput = null;
@@ -2587,7 +2600,7 @@ function isSearchEngineFallbackAvailable() {
 function triggerSearchEngineFallback() {
   const q = searchInput ? String(searchInput.value || '').trim() : '';
   const url = buildSearchEngineUrl(q);
-  if (!url) return;
+  if (!url || isUnsafeNavUrl(url)) return;
   try {
     window.open(url, '_blank', 'noopener,noreferrer');
   } catch (e) {
@@ -3189,7 +3202,7 @@ function updateMultiSelectBar() {
 
 function openAllMultiSelected() {
   if (multiSelectedIds.size === 0) return;
-  const toOpen = filteredResults.filter((bm) => bm && multiSelectedIds.has(String(bm.id)));
+  const toOpen = filteredResults.filter((bm) => bm && multiSelectedIds.has(String(bm.id)) && !isUnsafeNavUrl(bm.url));
   const ids = Array.from(multiSelectedIds);
   multiSelectedIds.clear();
   toOpen.forEach((bm) => {
@@ -3416,6 +3429,7 @@ function legacyCopy(text) {
 function openBookmarkInNewWindow(bookmark) {
   const url = bookmark && bookmark.url ? String(bookmark.url) : '';
   if (!url) return;
+  if (isUnsafeNavUrl(url)) { console.warn('[Content] 拒绝在新窗口打开不安全的书签 URL:', url); hideSearch(); return; }
   sendMessagePromise({ action: MESSAGE_ACTIONS.OPEN_BOOKMARK_IN_WINDOW, url }).catch(() => {
     try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) {}
   });
@@ -3449,6 +3463,7 @@ async function deleteBookmarkWithConfirm(bookmark) {
 function openBookmark(bookmark, newTab = true) {
   const url = bookmark && bookmark.url ? String(bookmark.url) : '';
   if (!url) return;
+  if (isUnsafeNavUrl(url)) { console.warn('[Content] 拒绝打开不安全的书签 URL:', url); hideSearch(); return; }
 
   // Best-effort: ensure favicon cache writes are kicked off before navigation / focus changes.
   flushFaviconPersistQueue();

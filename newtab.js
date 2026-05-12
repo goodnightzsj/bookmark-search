@@ -10,6 +10,7 @@
 import { MESSAGE_ACTIONS, SEARCH_ENGINE_PRESETS } from './constants.js';
 import { STORAGE_KEYS } from './storage-service.js';
 import { resolveActiveTheme } from './theme-service.js';
+import { isSafeNavigationUrl } from './utils.js';
 
 // ----------------------------------------------------------------
 // 工具
@@ -86,6 +87,7 @@ function showNavigationLoading({ url, title }) {
 
 function openUrl(url, newTab = false, meta = {}) {
   if (!url) return;
+  if (!isSafeNavigationUrl(url)) { console.warn('[NewTab] 拒绝打开不安全的 URL:', url); return; }
   try { sendMessagePromise({ action: MESSAGE_ACTIONS.TRACK_BOOKMARK_OPEN, url }).catch(() => {}); } catch (e) {}
   if (newTab) {
     // 在新 tab 打开时本页不变，不需要 loading

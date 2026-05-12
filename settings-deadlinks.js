@@ -11,7 +11,7 @@
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
-import { formatRelativeTime } from './utils.js';
+import { formatRelativeTime, isSafeNavigationUrl } from './utils.js';
 import { getStorageOrThrow, STORAGE_KEYS } from './storage-service.js';
 
 // 并发上限与合法取值：过高会对单站造成压力，过低太慢
@@ -289,6 +289,7 @@ function updateDlCount(bodyEl, actionsEl) {
 }
 
 function openBookmarkUrl(url) {
+  if (!isSafeNavigationUrl(url)) { console.warn('拒绝打开不安全的书签 URL:', url); return; }
   try {
     if (chrome && chrome.tabs && typeof chrome.tabs.create === 'function') {
       chrome.tabs.create({ url, active: true });

@@ -5,7 +5,7 @@
 import { MESSAGE_ACTIONS } from './constants.js';
 import { assertSuccessfulMessageResponse } from './message-response.js';
 import { openResultModal } from './bs-result-modal.js';
-import { formatRelativeTime } from './utils.js';
+import { formatRelativeTime, isSafeNavigationUrl } from './utils.js';
 
 function escapeHtml(text) {
   const s = String(text == null ? '' : text);
@@ -21,6 +21,7 @@ function notifySettings(message, type = 'success') {
 }
 
 function openBookmarkUrl(url) {
+  if (!isSafeNavigationUrl(url)) { console.warn('拒绝打开不安全的书签 URL:', url); return; }
   try {
     if (chrome && chrome.tabs && typeof chrome.tabs.create === 'function') {
       chrome.tabs.create({ url, active: true });

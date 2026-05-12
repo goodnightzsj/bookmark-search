@@ -286,3 +286,26 @@ export function getHostnameFromUrl(url) {
     return '';
   }
 }
+
+// Schemes that, when navigated to from the in-page overlay (window.location /
+// window.open) or via chrome.tabs.create, run script in the *current* page's
+// origin. A bookmark can carry such a URL (e.g. imported from an HTML file).
+const DANGEROUS_NAV_SCHEMES = new Set(['javascript', 'data', 'vbscript']);
+
+/**
+ * 判断书签 URL 在“打开/导航”时是否安全：拒绝 javascript:/data:/vbscript:，
+ * 其余协议（http(s)、chrome:、file:、ftp: 等正常书签）放行。
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function isSafeNavigationUrl(url) {
+  const raw = typeof url === 'string' ? url.trim() : '';
+  if (!raw) return false;
+  // Strip ASCII control chars / whitespace before reading the scheme so
+  // "java\tscript:" / "\njavascript:" can't slip past.
+  // eslint-disable-next-line no-control-regex
+  const normalized = raw.replace(/[\x00-\x20]+/g, '').toLowerCase();
+  const m = /^([a-z][a-z0-9+.-]*):/.exec(normalized);
+  if (!m) return true; // relative / no scheme — not a script-injection surface
+  return !DANGEROUS_NAV_SCHEMES.has(m[1]);
+}

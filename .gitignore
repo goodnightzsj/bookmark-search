@@ -8,3 +8,8 @@ dist/
 .codex-tasks/
 .DS_Store
 CLAUDE.md
+# --- trellis local (do not commit) ---
+.trellis/
+.agents/
+AGENTS.md
+.codex/
