@@ -81,11 +81,12 @@ function persistPendingEventsSnapshot() {
 }
 
 async function clearPendingEventsFromIdb() {
-  pendingPersistChain = pendingPersistChain
-    .catch(() => {})
-    .then(() => idbSet(IDB_KEY_PENDING_BOOKMARK_EVENTS, []))
-    .catch(() => {});
-  return pendingPersistChain;
+  // NB: don't blindly write [] — native bookmark events can be enqueued into
+  // debounceBookmarkEvents during the (async) flush window, and they'd then be
+  // lost if the SW is evicted before the next debounce. Persist the *current*
+  // queue instead (normally empty right after a successful flush, so this is
+  // equivalent to writing [] in the common case).
+  return persistPendingEventsSnapshot();
 }
 
 async function rehydratePendingEventsOnce() {

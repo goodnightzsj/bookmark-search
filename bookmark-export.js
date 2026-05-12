@@ -1,4 +1,4 @@
-import { escapeHtml } from './utils.js';
+import { escapeHtml, isSafeNavigationUrl } from './utils.js';
 import { PATH_SEPARATOR } from './constants.js';
 
 function buildFolderTree(bookmarks) {
@@ -38,6 +38,9 @@ function renderTree(node, indent, timestampSec, parts = []) {
   // Then bookmarks
   for (const bookmark of node.bookmarks) {
     if (!bookmark.url) continue;
+    // Defense in depth: don't emit a javascript:/data:/vbscript: HREF — if the
+    // user opens the exported .html and clicks it, it'd run in the file:// origin.
+    if (!isSafeNavigationUrl(bookmark.url)) continue;
     const addDate = Math.floor(((bookmark.timestamp || Date.now())) / 1000);
     parts.push(`${indent}<DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title || '无标题')}</A>\n`);
   }
