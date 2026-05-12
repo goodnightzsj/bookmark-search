@@ -131,12 +131,13 @@ async function flushBookmarkDebounce() {
 
   try {
     const result = await applyBookmarkEvents(events);
-    // 被上层认为成功或尚未调度的：清空持久化；失败则重新持久化
-    if (!result || result.success !== false || result.skipped || result.fallback) {
+    // 真正落地（applied / 走全量 refresh 回退）才清空持久化；
+    // skipped（有 update loop 在跑、本批未被接管）或失败 → 保留事件 + IDB 快照 + 兜底 alarm，下一轮重试。
+    if (!result || (result.success !== false) || result.fallback) {
       await clearPendingEventsFromIdb();
       try { await chrome.alarms.clear(ALARM_NAMES.FLUSH_PENDING_EVENTS); } catch (e) {}
     } else {
-      // 处理失败，重新入队等待下一轮 flush
+      // skipped / 处理失败：重新入队等待下一轮 flush（持久化快照与兜底 alarm 都保留）
       debounceBookmarkEvents = events.concat(debounceBookmarkEvents);
       persistPendingEventsSnapshot();
       scheduleBookmarkDebounce();

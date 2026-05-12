@@ -3483,10 +3483,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true, message: "搜索框已切换" });
     } catch (error) {
       console.error("[Content] toggleSearch 执行失败:", error);
-      resetSearchUiState();
-      sendResponse({ success: false, error: error.message });
+      try { resetSearchUiState(); } catch (e) { /* keep going so sendResponse always fires */ }
+      sendResponse({ success: false, error: error && error.message });
     }
-    return true; // 表示会异步调用 sendResponse
+    return false; // sendResponse already called synchronously
   }
 
   if (message.action === MESSAGE_ACTIONS.CLEAR_FAVICON_CACHE) {
@@ -3496,9 +3496,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
     } catch (error) {
       console.error('[Content] 清理 favicon 内存缓存失败:', error);
-      sendResponse({ success: false, error: error.message });
+      sendResponse({ success: false, error: error && error.message });
     }
-    return true;
+    return false;
   }
 
   // 其他消息类型不需要响应

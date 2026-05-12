@@ -1137,16 +1137,21 @@ export async function applyBookmarkEvents(events) {
   const list = Array.isArray(events) ? events.filter(Boolean) : [];
   if (list.length === 0) return { success: true, applied: 0 };
 
+  // If an update loop is already running, don't take ownership of these
+  // events here. The caller (flushBookmarkDebounce) keeps them — together
+  // with its persisted IDB snapshot + the FLUSH_PENDING_EVENTS alarm — and
+  // retries once the loop is idle. Pushing them into the in-memory
+  // pendingBookmarkEvents while the caller had already cleared the persistent
+  // copy would lose them if the SW were terminated before the loop drained.
+  if (isUpdating) {
+    return { success: false, skipped: true };
+  }
+
   pendingBookmarkEvents = pendingBookmarkEvents.concat(list);
 
   // 防止极端情况下队列无限增长（例如导入/批量操作）
   if (pendingBookmarkEvents.length > 500) {
     pendingRefresh = true;
-  }
-
-  if (isUpdating) {
-    updateQueued = true;
-    return { success: false, skipped: true };
   }
 
   return runUpdateLoop();
@@ -1164,7 +1169,18 @@ async function refreshBookmarksOnce() {
     
     // 展平书签树
     const flatBookmarks = flattenBookmarksTree(tree);
-    
+
+    // Sanity guard: a malformed/empty getTree() (profile corruption, policy,
+    // API hiccup) flattening to [] would diff as "delete everything" and then
+    // idbReplaceDocuments([]) wipes the search cache. If we *had* a non-empty
+    // cache, treat an empty tree as suspicious and skip this refresh (keep the
+    // old cache); a real "user deleted all bookmarks" is rare and the next
+    // refresh will still catch it.
+    if (flatBookmarks.length === 0 && getRuntimeDocuments().length > 0) {
+      log.warn('refresh_skipped_empty_tree', { previousDocs: getRuntimeDocuments().length });
+      return { success: false, error: 'empty_bookmark_tree', skippedSuspicious: true };
+    }
+
     // 与旧数据对比，生成差异记录
     const currentBookmarks = mapSearchDocumentsToBookmarks(getRuntimeDocuments());
     const changes = compareBookmarks(currentBookmarks, flatBookmarks);
