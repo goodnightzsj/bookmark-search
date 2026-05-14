@@ -10,6 +10,22 @@ import { createLogger } from './logger.js';
 const log = createLogger('Background');
 log.info('Service Worker 启动');
 
+/**
+ * 识别 chrome.scripting / chrome.tabs.sendMessage 在“页面不可注入”时抛出的错误。
+ * 触发场景：目标 tab 顶层 frame 是 chrome-error://chromewebdata/（DNS 失败、
+ * ERR_CONNECTION_REFUSED、证书错误、"This site can't be reached" 等），
+ * 或访问被 Chrome 限制（chrome://、Web Store、PDF viewer 内部页）。
+ * 这种条件下注入/消息必然失败，不是扩展自身的 bug，应当静默降级而非 log.error。
+ */
+function isUninjectableFrameError(err) {
+  const msg = (err && (err.message || String(err))) || '';
+  return /frame with id\s+\d+\s+is showing error page/i.test(msg)
+      || /chrome-error:\/\//i.test(msg)
+      || /cannot access (?:a chrome|contents of|the page)/i.test(msg)
+      || /the extensions gallery cannot be scripted/i.test(msg)
+      || /cannot be scripted/i.test(msg);
+}
+
 // 监听安装事件
 chrome.runtime.onInstalled.addListener(async (details) => {
   log.info("扩展已安装/更新:", details.reason);
@@ -279,11 +295,12 @@ chrome.commands.onCommand.addListener(async (command) => {
       return;
     }
 
-    // 焦点迁移：
+    // 焦点迁移 + 可注入性探测：
     //   1) 顶层 frame 执行 window.focus()：把窗口焦点从浏览器 chrome（地址栏等）
     //      拉回页面内容层，否则下一步 overlay input.focus() 可能被拦截。
-    //   2) 所有 frame 内 blur 当前 activeElement，避免 overlay 出来后原 input
-    //      继续截获键盘事件。
+    //      同时这一步作为“页面是否可注入”的探针 —— 若顶层 frame 是 chrome-error://
+    //      错误页（DNS/连接失败等），后续 insertCSS/executeScript/sendMessage 必然
+    //      抛 "Frame with ID 0 is showing error page"，提前在此 bail 可避免噪音日志。
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: false },
@@ -292,7 +309,11 @@ chrome.commands.onCommand.addListener(async (command) => {
         }
       });
     } catch (error) {
-      // best-effort
+      if (isUninjectableFrameError(error)) {
+        log.warn("当前页面无法激活搜索（错误页/受限页，跳过注入）:", error.message);
+        return;
+      }
+      // 其他失败按 best-effort 忽略，继续后续步骤
     }
     try {
       await chrome.scripting.executeScript({
@@ -333,7 +354,12 @@ chrome.commands.onCommand.addListener(async (command) => {
         files: ['content.css']
       });
     } catch (error) {
-      // CSS may fail on some pages; still try to inject the script.
+      if (isUninjectableFrameError(error)) {
+        // 上面探针若漏过（极少见的中途状态变化），此处再兜底一次
+        log.warn("当前页面无法激活搜索（错误页/受限页，跳过注入）:", error.message);
+        return;
+      }
+      // CSS 在部分页面允许失败，仍然尝试注入脚本
       log.warn("注入 CSS 失败:", error);
     }
 
@@ -344,7 +370,11 @@ chrome.commands.onCommand.addListener(async (command) => {
       });
       await chrome.tabs.sendMessage(tab.id, { action: MESSAGE_ACTIONS.TOGGLE_SEARCH });
     } catch (error) {
-      log.error("注入/唤起搜索失败:", error);
+      if (isUninjectableFrameError(error)) {
+        log.warn("当前页面无法激活搜索（错误页/受限页，跳过注入）:", error.message);
+      } else {
+        log.error("注入/唤起搜索失败:", error);
+      }
     }
   }
 });
